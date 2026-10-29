@@ -67,7 +67,7 @@ body.streaming #exitStream{display:block}
 <main>
   <section>
     <div class="stage-wrap">
-      <canvas id="stage" width="1080" height="1920"></canvas>
+      <canvas id="stage" width="1080" height="1080"></canvas>
       <div class="badge" id="trackBadge">Camera off</div>
       <div class="badge live" id="recBadge">● REC</div>
     </div>
@@ -157,32 +157,39 @@ const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarke
 // Rigs are in image-normalized coordinates (0..1), so 500px and 1000px art both work.
 // eyes[0] = eye on the left of the picture, eyes[1] = eye on the right.
 const PRESETS = {
-  4075: { name:'Ghost',   eyes:[{x:.542,y:.512,r:.062,blink:true,lid:'#cdf3a2'},{x:.692,y:.508,r:.058,blink:true,lid:'#cdf3a2'}],
+  4075: { name:'Ghost',   eyes:[{x:.542,y:.512,r:.062,blink:true,lid:'#cef8a2'},{x:.692,y:.508,r:.058,blink:true,lid:'#cef8a2'}],
           mouth:{x:.615,y:.635,w:.27,chin:.745,inner:'#3a1d22'}, pivot:{x:.56,y:.86}, effects:[] },
-  4240: { name:'Gnome',   eyes:[{x:.52,y:.462,r:.05,blink:true,lid:'#b9a799'},{x:.657,y:.457,r:.05,blink:true,lid:'#b9a799'}],
+  4240: { name:'Gnome',   eyes:[{x:.51,y:.49,r:.05,blink:true,lid:'#bbaba1'},{x:.655,y:.487,r:.05,blink:true,lid:'#bbaba1'}],
           mouth:{x:.61,y:.668,w:.2,chin:.79,inner:'#3a1d22'}, pivot:{x:.58,y:.88}, effects:[] },
   5502: { name:'Beaver',  eyes:[{x:.47,y:.42,r:.05,blink:false,lid:'#7a4a32'},{x:.63,y:.40,r:.05,blink:false,lid:'#7a4a32'}],
           mouth:{x:.57,y:.60,w:.2,chin:.67,inner:'#3a1d22'}, pivot:{x:.5,y:.92}, effects:[] },
-  8102: { name:'Raccoon', eyes:[{x:.4,y:.5,r:.05,blink:false,lid:'#4b433f'},{x:.592,y:.502,r:.057,blink:true,lid:'#4b433f'}],
+  8102: { name:'Raccoon', eyes:[{x:.4,y:.5,r:.05,blink:false,lid:'#4b433f'},{x:.645,y:.49,r:.06,blink:true,lid:'#3b3535'}],
           mouth:{x:.59,y:.67,w:.17,chin:.73,inner:'#3a1d22'}, pivot:{x:.55,y:.88},
           effects:[{type:'wobble',x:.31,y:.11,w:.46,h:.13}] },
   4248: { name:'Bear',    eyes:[{x:.49,y:.39,r:.07,blink:false,lid:'#1e1e1e'},{x:.65,y:.39,r:.07,blink:false,lid:'#1e1e1e'}],
           mouth:{x:.57,y:.60,w:.3,chin:.69,inner:'#3a1d22'}, pivot:{x:.55,y:.9},
           effects:[{type:'wobble',x:.32,y:.1,w:.38,h:.14}] },
-  2525: { name:'Gecko',   eyes:[{x:.425,y:.45,r:.08,blink:true,lid:'#f3c95c'},{x:.705,y:.43,r:.074,blink:true,lid:'#f3c95c'}],
+  2525: { name:'Gecko',   eyes:[{x:.425,y:.45,r:.08,blink:true,lid:'#ffce62'},{x:.705,y:.43,r:.074,blink:true,lid:'#ffce62'}],
           mouth:{x:.57,y:.70,w:.32,chin:.75,inner:'#5a2424'}, pivot:{x:.55,y:.9}, effects:[] },
   3133: { name:'Wolf',    eyes:[{x:.475,y:.425,r:.078,blink:true,lid:'#262626'},{x:.625,y:.425,r:.078,blink:true,lid:'#262626'}],
           mouth:{x:.66,y:.645,w:.3,chin:.72,inner:'#3a1d22'}, pivot:{x:.5,y:.9},
           effects:[{type:'float',x:.26,y:.09,w:.35,h:.12}] },
-  1353: { name:'Rooster', eyes:[{x:.45,y:.53,r:.05,blink:true,lid:'#f1ece2'},{x:.66,y:.43,r:.05,blink:false,lid:'#7d3c98'}],
+  1353: { name:'Cock'   , eyes:[{x:.45,y:.53,r:.05,blink:true,lid:'#f1eadc'},{x:.66,y:.43,r:.05,blink:false,lid:'#7d3c98'}],
           mouth:{x:.6,y:.63,w:.3,chin:.72,inner:'#3a1d22'}, pivot:{x:.5,y:.92}, effects:[] },
 };
 const DEFAULT_RIG = () => ({ name:'Nibble',
   eyes:[{x:.45,y:.46,r:.06,blink:true,lid:'#888888'},{x:.62,y:.46,r:.06,blink:true,lid:'#888888'}],
   mouth:{x:.56,y:.66,w:.22,chin:.76,inner:'#3a1d22'}, pivot:{x:.52,y:.9}, effects:[] });
 
-const BACKGROUNDS = ['Nibble color','Sky','Sunset','Arcade','Bubblegum','Green screen'];
-const ASPECTS = { 'Vertical 9:16':[1080,1920], 'Square 1:1':[1080,1080], 'Wide 16:9':[1920,1080] };
+const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert',
+  Harvest:'harvest' };
+const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS), 'Green screen'];
+const bgCache = {};
+function bonkdBg(name) {
+  if (!bgCache[name]) { const i = new Image(); i.src = `bg/${BONKD_BGS[name]}.webp`; bgCache[name] = i; }
+  const i = bgCache[name]; return i.complete && i.naturalWidth ? i : null;
+}
+const ASPECTS = { 'Square 1:1':[1080,1080], 'Vertical 9:16':[1080,1920], 'Wide 16:9':[1920,1080] };
 
 // ---------------------------------------------------------------------------
 // State
@@ -191,13 +198,14 @@ const $ = id => document.getElementById(id);
 const stage = $('stage'), ctx = stage.getContext('2d');
 const video = $('cam');
 const S = {
-  tokenId: null, rig: null, keyed: null, base: null, fxCanvases: [], bgColor:'#9be7ff',
+  tokenId: null, rig: null, keyed: null, base: null, fxCanvases: [], eyeShapes: [], bgColor:'#9be7ff',
   bg:'Nibble color', bgImg:null, account:null, verified:false,
   landmarker:null, tracking:false, lastVideoTime:-1,
   face:{ roll:0, yaw:0, pitch:0, jaw:0, blinkL:0, blinkR:0, seen:false },
   pitchBase:null, pitchSamples:[], idleBlinkAt: performance.now()+2500, idleBlink:0,
-  recorder:null, chunks:[], micStream:null,
+  recorder:null, chunks:[], audioTracks:[],
 };
+window.__nibble = S;   // handy for debugging in the browser console
 
 // ---------------------------------------------------------------------------
 // UI setup
@@ -213,13 +221,13 @@ const bgs = $('bgs');
 for (const name of BACKGROUNDS) {
   const b = document.createElement('button');
   b.className = 'chip' + (name === S.bg ? ' on' : ''); b.textContent = name;
-  b.onclick = () => { S.bg = name; [...bgs.children].forEach(c => c.classList.toggle('on', c === b)); };
+  b.onclick = () => { S.bg = name; if (BONKD_BGS[name]) bonkdBg(name); [...bgs.children].forEach(c => c.classList.toggle('on', c === b)); };
   bgs.appendChild(b);
 }
 const aspects = $('aspects');
 for (const [name, [w,h]] of Object.entries(ASPECTS)) {
   const b = document.createElement('button');
-  b.className = 'chip' + (w === 1080 && h === 1920 ? ' on' : ''); b.textContent = name;
+  b.className = 'chip' + (w === 1080 && h === 1080 ? ' on' : ''); b.textContent = name;
   b.onclick = () => {
     if (S.recorder) return;
     stage.width = w; stage.height = h;
@@ -232,18 +240,32 @@ function setStatus(el, msg, kind='') { const e = $(el); e.textContent = msg; e.c
 // ---------------------------------------------------------------------------
 // Wallet + ownership (Ethereum mainnet)
 // ---------------------------------------------------------------------------
+function setWalletBtn() {
+  $('walletBtn').textContent = S.account ? `${S.account.slice(0,6)}…${S.account.slice(-4)} · Disconnect` : 'Connect wallet';
+}
+function disconnectWallet() {
+  try { window.ethereum?.request({ method:'wallet_revokePermissions', params:[{ eth_accounts:{} }] }).catch(() => {}); } catch (e) {}
+  S.account = null; S.verified = false;
+  try { Object.keys(localStorage).filter(k => k.startsWith('verified:')).forEach(k => localStorage.removeItem(k)); } catch (e) {}
+  setWalletBtn();
+  setStatus('nibStatus', 'Wallet disconnected.');
+}
 $('walletBtn').onclick = async () => {
+  if (S.account) { disconnectWallet(); return; }
   if (!window.ethereum) {
     setStatus('nibStatus', 'No wallet found. On phone, open this page inside your wallet app\'s browser.', 'err');
     return;
   }
   try {
     const [acct] = await window.ethereum.request({ method:'eth_requestAccounts' });
-    S.account = acct.toLowerCase();
-    $('walletBtn').textContent = acct.slice(0,6) + '…' + acct.slice(-4);
+    S.account = acct.toLowerCase(); setWalletBtn();
     if (S.tokenId != null) await verifyOwnership();
   } catch (e) { setStatus('nibStatus', 'Wallet connection cancelled.', 'err'); }
 };
+window.ethereum?.on?.('accountsChanged', accts => {
+  if (!accts || !accts.length) { disconnectWallet(); return; }
+  S.account = accts[0].toLowerCase(); setWalletBtn(); verifyOwnership();
+});
 async function ownerOf(id) {
   const data = '0x6352211e' + BigInt(id).toString(16).padStart(64,'0');
   const res = await fetch(RPC, { method:'POST', headers:{'content-type':'application/json'},
@@ -252,12 +274,22 @@ async function ownerOf(id) {
   if (!j.result || j.result === '0x') throw new Error('ownerOf failed');
   return ('0x' + j.result.slice(-40)).toLowerCase();
 }
+const VERIFY_DAYS = 7;
+function cachedVerify(id) {
+  try { const v = JSON.parse(localStorage.getItem('verified:' + id) || 'null'); return v && Date.now() - v.at < VERIFY_DAYS*864e5 ? v : null; } catch (e) { return null; }
+}
 async function verifyOwnership() {
   S.verified = false;
-  if (!S.account || S.tokenId == null) return;
+  if (S.tokenId == null) return;
+  if (!S.account) {                                       // verified earlier in the wallet browser on this device
+    const v = cachedVerify(S.tokenId);
+    if (v) { S.verified = true; setStatus('nibStatus', `Verified #${S.tokenId} for ${v.account.slice(0,6)}…${v.account.slice(-4)}.`, 'ok'); }
+    return;
+  }
   try {
     const owner = await ownerOf(S.tokenId);
     S.verified = owner === S.account;
+    try { if (S.verified) localStorage.setItem('verified:' + S.tokenId, JSON.stringify({ account:S.account, at:Date.now() })); } catch (e) {}
     setStatus('nibStatus', S.verified ? `Verified: you hold Nibble #${S.tokenId}.` :
       `Nibble #${S.tokenId} belongs to another wallet — preview only.`, S.verified ? 'ok' : 'err');
   } catch (e) { setStatus('nibStatus', 'Could not check ownership right now.', 'err'); }
@@ -365,6 +397,70 @@ function buildLayers() {
     return c;
   });
   S.base = base;
+  S.eyeShapes = (S.rig.eyes || []).map(e => e.blink ? findEyeShape(e) : null);
+}
+
+// Flood-fill the light pixels inside the eye (bounded by its black outline), then wrap them in a hull.
+function findEyeShape(e) {
+  const N = 1000, g = S.keyed.getContext('2d', { willReadFrequently:true });
+  const R = Math.round(e.r*N*2.2), cx = Math.round(e.x*N), cy = Math.round(e.y*N);
+  const x0 = Math.max(0, cx - R), y0 = Math.max(0, cy - R), w = Math.min(N, cx + R) - x0, h = Math.min(N, cy + R) - y0;
+  if (w < 4 || h < 4) return null;
+  const d = g.getImageData(x0, y0, w, h).data;
+  const light = i => d[i*4+3] > 200 && (0.3*d[i*4] + 0.59*d[i*4+1] + 0.11*d[i*4+2]) > 85;
+  // Flood each light region that starts near the eye centre; keep only regions closed in by outline.
+  const seen = new Uint8Array(w*h), pts = [];
+  for (const f of [0.55, 0.9]) {
+    const sr = e.r*N*f;
+    for (let y = 1; y < h-1; y++) for (let x = 1; x < w-1; x++) {
+      const s0 = y*w + x;
+      if (seen[s0] || !light(s0) || Math.hypot(x0 + x - cx, y0 + y - cy) >= sr) continue;
+      const q = [s0], comp = []; seen[s0] = 1; let leak = false;
+      while (q.length) {
+        const i = q.pop(), px = i % w, py = (i / w) | 0;
+        if (px === 0 || py === 0 || px === w-1 || py === h-1) { leak = true; continue; }
+        comp.push([x0 + px, y0 + py]);
+        for (const j of [i-1, i+1, i-w, i+w]) if (!seen[j] && light(j)) { seen[j] = 1; q.push(j); }
+      }
+      if (!leak) for (const c of comp) pts.push(c);
+    }
+    if (pts.length) break;
+  }
+  if (pts.length < 30) return null;
+  // convex hull (monotone chain)
+  pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+  const lo = [], up = [];
+  for (const p of pts) { while (lo.length > 1 && cross(lo[lo.length-2], lo[lo.length-1], p) <= 0) lo.pop(); lo.push(p); }
+  for (let k = pts.length - 1; k >= 0; k--) { const p = pts[k]; while (up.length > 1 && cross(up[up.length-2], up[up.length-1], p) <= 0) up.pop(); up.push(p); }
+  const hull = lo.slice(0, -1).concat(up.slice(0, -1));
+  const mx = hull.reduce((a, p) => a + p[0], 0) / hull.length, my = hull.reduce((a, p) => a + p[1], 0) / hull.length;
+  const grow = 3;                                          // reach just under the outline
+  const path = new Path2D(); let top = 1e9, bot = -1e9, left = 1e9, right = -1e9;
+  hull.forEach((p, k) => {
+    const dx = p[0] - mx, dy = p[1] - my, L = Math.hypot(dx, dy) || 1;
+    const x = p[0] + dx/L*grow, y = p[1] + dy/L*grow;
+    k ? path.lineTo(x, y) : path.moveTo(x, y);
+    top = Math.min(top, y); bot = Math.max(bot, y); left = Math.min(left, x); right = Math.max(right, x);
+  });
+  path.closePath();
+  const cols = [];
+  hull.forEach(p => {
+    const dx = p[0] - mx, dy = p[1] - my, L = Math.hypot(dx, dy) || 1;
+    if (dy > 0) return;                                    // upper half only: that's where a lid comes from
+    const sx = Math.round(p[0] + dx/L*16), sy = Math.round(p[1] + dy/L*16);
+    if (sx < x0 || sy < y0 || sx >= x0 + w || sy >= y0 + h) return;
+    const o = ((sy - y0)*w + (sx - x0))*4;
+    if (d[o+3] > 200) cols.push([d[o], d[o+1], d[o+2]]);
+  });
+  const lite = cols.filter(c => 0.3*c[0] + 0.59*c[1] + 0.11*c[2] > 45);
+  const use = lite.length >= 4 ? lite : cols;
+  let lid = null;
+  if (use.length >= 4) {
+    const med = k => use.map(c => c[k]).sort((a, b) => a - b)[use.length >> 1];
+    lid = `rgb(${med(0)},${med(1)},${med(2)})`;
+  }
+  return { path, top, bot, left, right, lid };
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +469,8 @@ function buildLayers() {
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function getRig(id) {
   try { const s = localStorage.getItem('rig:' + id); if (s) return JSON.parse(s); } catch (e) {}
-  return clone(PRESETS[id] || DEFAULT_RIG());
+  if (PRESETS[id]) { const r = clone(PRESETS[id]); r.eyes.forEach(e => e.lidLock = true); return r; }
+  return DEFAULT_RIG();
 }
 function saveRig() {
   try { localStorage.setItem('rig:' + S.tokenId, JSON.stringify(S.rig)); } catch (e) {}
@@ -387,8 +484,12 @@ $('camBtn').onclick = startCamera;
 async function startCamera() {
   try {
     setStatus('camStatus', 'Starting…');
-    const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:640}, height:{ideal:480} }, audio:false });
-    video.srcObject = stream; await video.play();
+    const vid = { facingMode:'user', width:{ideal:640}, height:{ideal:480} };
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:{ echoCancellation:true, noiseSuppression:true } }); }
+    catch (e) { stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:false }); }
+    S.audioTracks = stream.getAudioTracks();
+    video.srcObject = new MediaStream(stream.getVideoTracks()); await video.play();
     if (!S.landmarker) {
       setStatus('camStatus', 'Loading face tracker…');
       const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`);
@@ -434,59 +535,26 @@ function track(now) {
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
+function drawCover(img) {
+  const W = stage.width, H = stage.height;
+  const sc = Math.max(W / img.width, H / img.height);
+  ctx.drawImage(img, (W - img.width*sc)/2, (H - img.height*sc)/2, img.width*sc, img.height*sc);
+}
 function drawBackground(t) {
   const W = stage.width, H = stage.height;
-  const fill = c => { ctx.fillStyle = c; ctx.fillRect(0, 0, W, H); };
-  if (S.bgImg) {
-    const s = Math.max(W / S.bgImg.width, H / S.bgImg.height);
-    ctx.drawImage(S.bgImg, (W - S.bgImg.width*s)/2, (H - S.bgImg.height*s)/2, S.bgImg.width*s, S.bgImg.height*s);
-    return;
+  if (S.bgImg) { drawCover(S.bgImg); return; }
+  if (BONKD_BGS[S.bg]) {
+    const img = bonkdBg(S.bg);
+    if (img) { drawCover(img); return; }
   }
-  switch (S.bg) {
-    case 'Green screen': fill('#00ff00'); break;
-    case 'Nibble color': fill(S.bgColor); break;
-    case 'Sky': {
-      const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#7fd3ff'); g.addColorStop(1, '#d9f3ff'); fill(g);
-      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#1d1b20'; ctx.lineWidth = 6;
-      for (let k = 0; k < 4; k++) {
-        const x = ((t*0.02*(k+1) + k*W*0.4) % (W + 400)) - 200, y = H*(0.12 + k*0.14);
-        ctx.beginPath(); ctx.ellipse(x, y, 120, 50, 0, 0, Math.PI*2); ctx.ellipse(x+80, y-25, 80, 50, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-        ctx.beginPath(); ctx.ellipse(x, y, 117, 47, 0, 0, Math.PI*2); ctx.fill();
-      }
-      break;
-    }
-    case 'Sunset': {
-      const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#ff9a8b'); g.addColorStop(.6, '#ffc382'); g.addColorStop(1, '#ffe3a3'); fill(g);
-      ctx.fillStyle = '#fff1b8'; ctx.strokeStyle = '#1d1b20'; ctx.lineWidth = 8;
-      ctx.beginPath(); ctx.arc(W*0.5, H*0.42, Math.min(W,H)*0.28, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-      break;
-    }
-    case 'Bubblegum': {
-      fill('#ffb3d9');
-      ctx.fillStyle = 'rgba(255,255,255,.55)';
-      for (let k = 0; k < 14; k++) {
-        const x = (k*173) % W, y = H - ((t*0.05 + k*137) % (H + 100));
-        ctx.beginPath(); ctx.arc(x, y, 18 + (k%4)*10, 0, Math.PI*2); ctx.fill();
-      }
-      break;
-    }
-    case 'Arcade': {
-      fill('#1b1035');
-      ctx.strokeStyle = '#ff4fd8'; ctx.lineWidth = 3;
-      const hz = H*0.55, off = (t*0.06) % 60;
-      for (let y = hz; y < H; y += 60) { const yy = y + off; ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(W, yy); ctx.stroke(); }
-      for (let k = -10; k <= 10; k++) { ctx.beginPath(); ctx.moveTo(W/2 + k*40, hz); ctx.lineTo(W/2 + k*260, H); ctx.stroke(); }
-      const g = ctx.createLinearGradient(0, 0, 0, hz); g.addColorStop(0, '#2a1659'); g.addColorStop(1, '#ff7a59');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, W, hz);
-      break;
-    }
-  }
+  ctx.fillStyle = S.bg === 'Green screen' ? '#00ff00' : S.bgColor;
+  ctx.fillRect(0, 0, W, H);
 }
 
 function drawNibble(t) {
   if (!S.base) return;
   const W = stage.width, H = stage.height, N = 1000;
-  const size = Math.min(W * 1.0, H * 0.92) * 1.06;
+  const size = Math.min(W, H);
   const rig = S.rig, f = S.face;
   const live = S.tracking && f.seen;
   // Idle motion when no face: gentle breathing + random blinks.
@@ -501,7 +569,7 @@ function drawNibble(t) {
   const breathe = Math.sin(t/650) * 0.006;
 
   const px = (W - size)/2 + rig.pivot.x*size;
-  const py = (H - size) + size*0.03 + rig.pivot.y*size;
+  const py = (H - size) + rig.pivot.y*size;
   const k = size / N;
 
   ctx.save();
@@ -513,39 +581,67 @@ function drawNibble(t) {
   ctx.scale(k, k);                                       // now in 0..1000 image space
 
   ctx.drawImage(S.base, 0, 0);
+  ctx.drawImage(S.base, 0, N - 3, N, 3, 0, N - 1, N, 400);
 
-  // Eyelids
+  // Eyelids: shaped to each eye's real outline (found from the art), falling back to an oval
   const lids = [bL, bR];
   rig.eyes.forEach((e, i) => {
-    let c = lids[i];
     if (!e.blink) return;
+    let c = lids[i];
     const other = rig.eyes[1-i];
     if (other && !other.blink) c = Math.max(bL, bR);    // one-eyed Nibbles blink with either eye
     if (c < 0.05) return;
-    const ex = e.x*N, ey = e.y*N, rr = e.r*N;
+    const shape = S.eyeShapes[i];
     ctx.save();
-    ctx.beginPath(); ctx.ellipse(ex, ey, rr*1.05, rr*1.15, 0, 0, Math.PI*2); ctx.clip();
-    const edge = ey - rr*1.15 + rr*2.3*c;
-    ctx.fillStyle = e.lid; ctx.fillRect(ex - rr*1.2, ey - rr*1.3, rr*2.4, edge - (ey - rr*1.3));
-    ctx.strokeStyle = '#111'; ctx.lineWidth = 9; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(ex - rr*1.2, edge); ctx.quadraticCurveTo(ex, edge + rr*0.25*c, ex + rr*1.2, edge); ctx.stroke();
+    let top, bot, left, right;
+    if (shape) {
+      ctx.clip(shape.path); ({ top, bot, left, right } = shape);
+    } else {
+      const ex = e.x*N, ey = e.y*N, rr = e.r*N;
+      ctx.beginPath(); ctx.ellipse(ex, ey, rr*1.05, rr*1.15, 0, 0, Math.PI*2); ctx.clip();
+      top = ey - rr*1.15; bot = ey + rr*1.15; left = ex - rr*1.2; right = ex + rr*1.2;
+    }
+    const edge = top + (bot - top) * Math.min(1, c * 1.05);
+    ctx.fillStyle = e.lidLock ? e.lid : (shape && shape.lid) || e.lid; ctx.fillRect(left - 4, top - 4, right - left + 8, edge - top + 4);
+    if (c < 0.98) {
+      ctx.strokeStyle = '#111'; ctx.lineWidth = 9; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(left - 4, edge); ctx.lineTo(right + 4, edge); ctx.stroke();
+    }
     ctx.restore();
+    if (c >= 0.98) {                                      // fully shut: one clean lash line
+      const mid = (top + bot) / 2 + (bot - top) * 0.15;
+      ctx.strokeStyle = '#111'; ctx.lineWidth = 10; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(left + 4, mid); ctx.quadraticCurveTo((left + right)/2, mid + (bot - top)*0.18, right - 4, mid); ctx.stroke();
+    }
   });
 
   // Mouth: drop the lower jaw strip and show the inside of the mouth
   const m = rig.mouth;
   if (jaw > 0.03) {
     const mx = m.x*N, my = m.y*N, mw = m.w*N, chin = m.chin*N;
-    const drop = jaw * mw * 0.38;
-    ctx.fillStyle = m.inner; ctx.strokeStyle = '#111'; ctx.lineWidth = 8;
-    ctx.beginPath(); ctx.ellipse(mx, my + drop*0.45, mw*0.42, Math.max(4, drop*0.62), 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#e8737b';                            // tongue
-    ctx.beginPath(); ctx.ellipse(mx, my + drop*0.85, mw*0.22, Math.max(2, drop*0.25), 0, Math.PI, 0); ctx.fill();
-    const sx = mx - mw*0.6, sw = mw*1.2, sh = Math.max(1, chin - my);
-    ctx.save();
-    ctx.beginPath(); ctx.ellipse(mx, my + drop, sw/2, sh*1.05, 0, 0, Math.PI); ctx.clip();
-    ctx.drawImage(S.base, sx, my, sw, sh, sx, my + drop, sw, sh);
+    const drop = jaw * mw * 0.42, half = mw * 0.5;
+    const B = Math.min(N + 200, chin + (chin - my));      // jaw squashes down into the area below the chin
+    const cols = 28, cw = (2*half) / cols;
+    const dAt = x => { const t = (x - mx) / half; return drop * Math.sqrt(Math.max(0, 1 - t*t)); };
+    // the opening: follows the mouth line on top, rounds off at the corners like the model sheets
+    const mouth = new Path2D();
+    mouth.moveTo(mx - half, my);
+    mouth.quadraticCurveTo(mx, my - drop*0.08, mx + half, my);
+    for (let k = cols; k >= 0; k--) { const x = mx - half + k*cw; mouth.lineTo(x, my + dAt(x) + 2); }
+    mouth.closePath();
+    ctx.fillStyle = m.inner; ctx.fill(mouth);
+    ctx.save(); ctx.clip(mouth);
+    ctx.fillStyle = '#ef7b74';                            // tongue
+    ctx.beginPath(); ctx.ellipse(mx + half*0.08, my + drop*0.95, half*0.5, Math.max(3, drop*0.42), 0, 0, Math.PI*2); ctx.fill();
     ctx.restore();
+    ctx.strokeStyle = '#111'; ctx.lineWidth = 9; ctx.lineJoin = 'round'; ctx.stroke(mouth);
+    // lower jaw: each thin column slides down by the opening's depth there and squashes into the chin,
+    // so nothing is doubled and there is no seam at the mouth corners
+    for (let k = 0; k < cols; k++) {
+      const x = mx - half + k*cw, d = dAt(x + cw/2);
+      if (d < 0.5) continue;
+      ctx.drawImage(S.base, x, my, cw + 1, B - my, x, my + d, cw + 1, B - my - d);
+    }
   }
 
   // Effects
@@ -605,37 +701,43 @@ bgs.addEventListener('click', () => { S.bgImg = null; });
 // ---------------------------------------------------------------------------
 // Recording
 // ---------------------------------------------------------------------------
-$('recBtn').onclick = async () => {
-  if (S.recorder) { S.recorder.stop(); return; }
+$('recBtn').onclick = () => {
+  if (S.recorder) { try { S.recorder.stop(); } catch (e) {} return; }
   if (!S.base) { setStatus('recStatus', 'Load a Nibble first.', 'err'); return; }
-  const out = stage.captureStream(30);
+  if (!stage.captureStream || !window.MediaRecorder) {
+    setStatus('recStatus', 'This browser can\'t record. Open the page in Safari or Chrome — your verification carries over.', 'err');
+    return;
+  }
   try {
-    S.micStream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } });
-    S.micStream.getAudioTracks().forEach(tr => out.addTrack(tr));
-  } catch (e) { setStatus('recStatus', 'No mic access — recording without sound.', 'err'); }
-  const types = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
-  const mimeType = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
-  S.chunks = [];
-  S.recorder = new MediaRecorder(out, mimeType ? { mimeType, videoBitsPerSecond:6_000_000 } : undefined);
-  S.recorder.ondataavailable = e => e.data.size && S.chunks.push(e.data);
-  S.recorder.onstop = async () => {
-    const type = S.recorder.mimeType || 'video/webm';
-    const blob = new Blob(S.chunks, { type });
-    const ext = type.includes('mp4') ? 'mp4' : 'webm';
-    const name = `nibble-${S.tokenId}-${Date.now()}.${ext}`;
-    const dl = $('dl'); dl.href = URL.createObjectURL(blob); dl.download = name; dl.style.display = 'inline-block';
-    S.micStream?.getTracks().forEach(tr => tr.stop());
-    S.recorder = null; $('recBtn').textContent = 'Record'; $('recBadge').style.display = 'none';
-    setStatus('recStatus', 'Clip ready.', 'ok');
-    const file = new File([blob], name, { type });
-    if (navigator.canShare && navigator.canShare({ files:[file] })) {
-      dl.onclick = async ev => { ev.preventDefault(); try { await navigator.share({ files:[file] }); } catch (e) {} };
-    } else dl.onclick = null;
-  };
-  S.recorder.start(250);
-  $('recBtn').textContent = 'Stop'; $('recBadge').style.display = 'block';
-  $('dl').style.display = 'none';
-  setStatus('recStatus', 'Recording…');
+    const out = stage.captureStream(30);
+    (S.audioTracks || []).forEach(tr => { if (tr.readyState === 'live') out.addTrack(tr); });
+    const types = ['video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+    const mimeType = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+    S.chunks = [];
+    S.recorder = new MediaRecorder(out, mimeType ? { mimeType, videoBitsPerSecond:3_000_000 } : undefined);
+    S.recorder.ondataavailable = e => e.data && e.data.size && S.chunks.push(e.data);
+    S.recorder.onerror = () => { S.recorder = null; $('recBtn').textContent = 'Record'; $('recBadge').style.display = 'none'; setStatus('recStatus', 'Recording stopped unexpectedly.', 'err'); };
+    S.recorder.onstop = () => {
+      const type = (S.recorder && S.recorder.mimeType) || mimeType || 'video/webm';
+      const blob = new Blob(S.chunks, { type });
+      const ext = type.includes('mp4') ? 'mp4' : 'webm';
+      const name = `nibble-${S.tokenId}-${Date.now()}.${ext}`;
+      const dl = $('dl'); dl.href = URL.createObjectURL(blob); dl.download = name; dl.style.display = 'inline-block';
+      S.recorder = null; $('recBtn').textContent = 'Record'; $('recBadge').style.display = 'none';
+      setStatus('recStatus', 'Clip ready.', 'ok');
+      let file = null; try { file = new File([blob], name, { type }); } catch (e) {}
+      if (file && navigator.canShare && navigator.canShare({ files:[file] })) {
+        dl.onclick = async ev => { ev.preventDefault(); try { await navigator.share({ files:[file] }); } catch (e) {} };
+      } else dl.onclick = null;
+    };
+    S.recorder.start(1000);
+    $('recBtn').textContent = 'Stop'; $('recBadge').style.display = 'block';
+    $('dl').style.display = 'none';
+    setStatus('recStatus', S.audioTracks && S.audioTracks.length ? 'Recording…' : 'Recording (no mic access, so no sound)…');
+  } catch (e) {
+    S.recorder = null;
+    setStatus('recStatus', 'Recording isn\'t supported in this browser. Try Safari or Chrome.', 'err');
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -706,22 +808,23 @@ function syncRigUI() {
 }
 function toHex(c) { return /^#[0-9a-f]{6}$/i.test(c) ? c : '#888888'; }
 const bindRig = (id, fn, rebuild=false) => $(id).addEventListener('input', e => { if (!S.rig) return; fn(e.target); if (rebuild) buildLayers(); saveRig(); drawRigEditor(); });
-bindRig('eyeL', t => S.rig.eyes[0].r = +t.value);
-bindRig('eyeR', t => S.rig.eyes[1].r = +t.value);
+bindRig('eyeL', t => S.rig.eyes[0].r = +t.value, true);
+bindRig('eyeR', t => S.rig.eyes[1].r = +t.value, true);
 bindRig('mouthW', t => S.rig.mouth.w = +t.value);
-bindRig('blinkL', t => S.rig.eyes[0].blink = t.checked);
-bindRig('blinkR', t => S.rig.eyes[1].blink = t.checked);
-bindRig('lidL', t => S.rig.eyes[0].lid = t.value);
-bindRig('lidR', t => S.rig.eyes[1].lid = t.value);
+bindRig('blinkL', t => S.rig.eyes[0].blink = t.checked, true);
+bindRig('blinkR', t => S.rig.eyes[1].blink = t.checked, true);
+bindRig('lidL', t => { S.rig.eyes[0].lid = t.value; S.rig.eyes[0].lidLock = true; });
+bindRig('lidR', t => { S.rig.eyes[1].lid = t.value; S.rig.eyes[1].lidLock = true; });
 bindRig('innerC', t => S.rig.mouth.inner = t.value);
 
 // Sample eyelid color from just above each eye.
 $('sampleLids').onclick = () => {
   if (!S.keyed || !S.rig) return;
   const g = S.keyed.getContext('2d');
-  S.rig.eyes.forEach(e => {
-    const px = g.getImageData(Math.round(e.x*1000), Math.round((e.y - e.r*1.45)*1000), 1, 1).data;
-    if (px[3] > 200) e.lid = '#' + [px[0],px[1],px[2]].map(v => v.toString(16).padStart(2,'0')).join('');
+  S.rig.eyes.forEach((e, i) => {
+    e.lidLock = false;                                     // go back to the colour found around the eye
+    const sh = S.eyeShapes[i];
+    if (sh && sh.lid) { const m = sh.lid.match(/\d+/g).map(Number); e.lid = '#' + m.map(v => v.toString(16).padStart(2,'0')).join(''); }
   });
   saveRig(); syncRigUI();
 };
