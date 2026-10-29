@@ -1,0 +1,737 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nibbles Filter</title>
+<style>
+:root{
+  --bg:#fff4e6; --panel:#ffffff; --ink:#1d1b20; --muted:#6b6470; --line:#1d1b20;
+  --accent:#ff7a7a; --accent2:#8fd8ff; --ok:#3bb273; --warn:#e8a33d;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:3px solid var(--line);background:var(--panel)}
+header h1{margin:0;font-size:20px;letter-spacing:.3px}
+header h1 span{color:var(--accent)}
+button,select,input{font:inherit;color:var(--ink)}
+.btn{border:2.5px solid var(--line);background:#fff;border-radius:12px;padding:8px 14px;font-weight:700;cursor:pointer;box-shadow:0 3px 0 var(--line);transition:transform .05s}
+.btn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--line)}
+.btn.primary{background:var(--accent)}
+.btn.blue{background:var(--accent2)}
+.btn.rec{background:#ff4d4d;color:#fff}
+.btn.small{padding:5px 10px;font-size:13px;border-radius:10px}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;padding:16px;max-width:1300px;margin:0 auto}
+@media (max-width:900px){main{grid-template-columns:1fr;padding:12px}}
+.stage-wrap{position:relative;background:#222;border:3px solid var(--line);border-radius:18px;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:240px}
+#stage{display:block;max-width:100%;max-height:78vh;width:auto;height:auto}
+.badge{position:absolute;top:10px;left:10px;background:#fff;border:2px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}
+.badge.live{background:#ff4d4d;color:#fff;left:auto;right:10px;display:none}
+.panel{background:var(--panel);border:3px solid var(--line);border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:14px}
+.panel h2{font-size:14px;text-transform:uppercase;letter-spacing:.8px;margin:0 0 6px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:2px solid var(--line);border-radius:999px;padding:4px 10px;background:#fff;font-size:13px;font-weight:700;cursor:pointer}
+.chip.on{background:var(--accent2)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input[type=number],input[type=text],select{border:2px solid var(--line);border-radius:10px;padding:7px 9px;background:#fff;min-width:0}
+input[type=number]{width:110px}
+.status{font-size:13px;color:var(--muted);min-height:18px}
+.status.err{color:#c0392b}
+.status.ok{color:var(--ok)}
+.hint{font-size:12px;color:var(--muted)}
+.bgs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.bgs .chip{text-align:center}
+#rigPanel{display:none}
+#rigPanel.show{display:flex}
+#rigCanvas{width:100%;border:2px solid var(--line);border-radius:12px;touch-action:none;background:repeating-conic-gradient(#eee 0 25%,#fff 0 50%) 0 0/20px 20px}
+.rigrow{display:grid;grid-template-columns:90px 1fr;gap:6px;align-items:center;font-size:13px}
+textarea{width:100%;min-height:90px;border:2px solid var(--line);border-radius:10px;font:12px ui-monospace,Menlo,monospace;padding:8px}
+#dl{display:none}
+/* stream mode */
+body.streaming header, body.streaming .panel, body.streaming .badge{display:none!important}
+body.streaming main{display:block;padding:0;max-width:none}
+body.streaming .stage-wrap{border:0;border-radius:0;height:100vh;background:#000}
+body.streaming #stage{max-height:100vh;max-width:100vw}
+#exitStream{position:fixed;bottom:12px;right:12px;display:none;opacity:.15}
+body.streaming #exitStream{display:block}
+#exitStream:hover{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1>Nibbles <span>Filter</span></h1>
+  <button class="btn blue small" id="walletBtn">Connect wallet</button>
+</header>
+
+<main>
+  <section>
+    <div class="stage-wrap">
+      <canvas id="stage" width="1080" height="1920"></canvas>
+      <div class="badge" id="trackBadge">Camera off</div>
+      <div class="badge live" id="recBadge">● REC</div>
+    </div>
+    <video id="cam" playsinline muted style="display:none"></video>
+  </section>
+
+  <aside class="panel">
+    <div>
+      <h2>1 · Camera</h2>
+      <div class="row">
+        <button class="btn primary" id="camBtn">Start camera</button>
+        <span class="status" id="camStatus"></span>
+      </div>
+    </div>
+
+    <div>
+      <h2>2 · Your Nibble</h2>
+      <div class="chips" id="quick"></div>
+      <div class="row" style="margin-top:8px">
+        <input type="number" id="tokenInput" min="0" max="8887" placeholder="Token #">
+        <button class="btn small" id="loadBtn">Load</button>
+        <label class="btn small">Upload image<input type="file" id="fileInput" accept="image/*" hidden></label>
+      </div>
+      <div class="status" id="nibStatus"></div>
+    </div>
+
+    <div>
+      <h2>3 · Background</h2>
+      <div class="bgs" id="bgs"></div>
+      <label class="btn small" style="margin-top:6px;display:inline-block">Custom background<input type="file" id="bgFile" accept="image/*" hidden></label>
+    </div>
+
+    <div>
+      <h2>4 · Shape</h2>
+      <div class="chips" id="aspects"></div>
+    </div>
+
+    <div>
+      <h2>5 · Go</h2>
+      <div class="row">
+        <button class="btn rec" id="recBtn">Record</button>
+        <button class="btn" id="streamBtn">Stream mode</button>
+        <button class="btn small" id="rigBtn">Edit rig</button>
+      </div>
+      <div class="status" id="recStatus"></div>
+      <a id="dl" class="btn small" download>Download clip</a>
+      <p class="hint">Streaming: pick Green screen, hit Stream mode, then in OBS add a Window Capture of this browser and a Chroma Key filter.</p>
+    </div>
+  </aside>
+
+  <aside class="panel" id="rigPanel">
+    <div>
+      <h2>Rig editor</h2>
+      <p class="hint">Drag the dots: <b style="color:#e84393">eyes</b>, <b style="color:#0984e3">mouth</b>, <b style="color:#00b894">chin</b>, <b style="color:#fdcb6e">neck pivot</b>, dashed boxes = animated effects. Saved on this device per token.</p>
+      <canvas id="rigCanvas" width="600" height="600"></canvas>
+    </div>
+    <div class="rigrow"><span>Left eye size</span><input type="range" id="eyeL" min="0.02" max="0.14" step="0.002"></div>
+    <div class="rigrow"><span>Right eye size</span><input type="range" id="eyeR" min="0.02" max="0.14" step="0.002"></div>
+    <div class="rigrow"><span>Mouth width</span><input type="range" id="mouthW" min="0.06" max="0.5" step="0.005"></div>
+    <div class="rigrow"><span>Blink</span><div class="row"><label><input type="checkbox" id="blinkL"> left</label><label><input type="checkbox" id="blinkR"> right</label></div></div>
+    <div class="rigrow"><span>Eyelid colors</span><div class="row"><input type="color" id="lidL"><input type="color" id="lidR"><button class="btn small" id="sampleLids">Auto</button></div></div>
+    <div class="rigrow"><span>Mouth inside</span><input type="color" id="innerC"></div>
+    <div class="row">
+      <button class="btn small" id="addFloat">+ Float effect</button>
+      <button class="btn small" id="addWobble">+ Wobble effect</button>
+      <button class="btn small" id="clearFx">Clear effects</button>
+    </div>
+    <div>
+      <div class="row" style="justify-content:space-between"><b style="font-size:13px">Rig JSON</b><button class="btn small" id="copyRig">Copy</button></div>
+      <textarea id="rigJson" spellcheck="false"></textarea>
+      <div class="row"><button class="btn small" id="applyJson">Apply JSON</button><button class="btn small" id="resetRig">Reset to default</button></div>
+    </div>
+  </aside>
+</main>
+<button class="btn small" id="exitStream">Exit stream mode</button>
+
+<script type="module">
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+const CONTRACT = '0x5e52d41f0e40d7cdb204db0d09659846f7404547';
+const RPC = 'https://ethereum-rpc.publicnode.com';
+const META_URL = id => `https://frankymetadataserver-production.up.railway.app/nibble/metadata/${id}`;
+const MP_VERSION = '0.10.14';
+const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+
+// Rigs are in image-normalized coordinates (0..1), so 500px and 1000px art both work.
+// eyes[0] = eye on the left of the picture, eyes[1] = eye on the right.
+const PRESETS = {
+  4075: { name:'Ghost',   eyes:[{x:.542,y:.512,r:.062,blink:true,lid:'#cdf3a2'},{x:.692,y:.508,r:.058,blink:true,lid:'#cdf3a2'}],
+          mouth:{x:.615,y:.635,w:.27,chin:.745,inner:'#3a1d22'}, pivot:{x:.56,y:.86}, effects:[] },
+  4240: { name:'Gnome',   eyes:[{x:.52,y:.462,r:.05,blink:true,lid:'#b9a799'},{x:.657,y:.457,r:.05,blink:true,lid:'#b9a799'}],
+          mouth:{x:.61,y:.668,w:.2,chin:.79,inner:'#3a1d22'}, pivot:{x:.58,y:.88}, effects:[] },
+  5502: { name:'Beaver',  eyes:[{x:.47,y:.42,r:.05,blink:false,lid:'#7a4a32'},{x:.63,y:.40,r:.05,blink:false,lid:'#7a4a32'}],
+          mouth:{x:.57,y:.60,w:.2,chin:.67,inner:'#3a1d22'}, pivot:{x:.5,y:.92}, effects:[] },
+  8102: { name:'Raccoon', eyes:[{x:.4,y:.5,r:.05,blink:false,lid:'#4b433f'},{x:.592,y:.502,r:.057,blink:true,lid:'#4b433f'}],
+          mouth:{x:.59,y:.67,w:.17,chin:.73,inner:'#3a1d22'}, pivot:{x:.55,y:.88},
+          effects:[{type:'wobble',x:.31,y:.11,w:.46,h:.13}] },
+  4248: { name:'Bear',    eyes:[{x:.49,y:.39,r:.07,blink:false,lid:'#1e1e1e'},{x:.65,y:.39,r:.07,blink:false,lid:'#1e1e1e'}],
+          mouth:{x:.57,y:.60,w:.3,chin:.69,inner:'#3a1d22'}, pivot:{x:.55,y:.9},
+          effects:[{type:'wobble',x:.32,y:.1,w:.38,h:.14}] },
+  2525: { name:'Gecko',   eyes:[{x:.425,y:.45,r:.08,blink:true,lid:'#f3c95c'},{x:.705,y:.43,r:.074,blink:true,lid:'#f3c95c'}],
+          mouth:{x:.57,y:.70,w:.32,chin:.75,inner:'#5a2424'}, pivot:{x:.55,y:.9}, effects:[] },
+  3133: { name:'Wolf',    eyes:[{x:.475,y:.425,r:.078,blink:true,lid:'#262626'},{x:.625,y:.425,r:.078,blink:true,lid:'#262626'}],
+          mouth:{x:.66,y:.645,w:.3,chin:.72,inner:'#3a1d22'}, pivot:{x:.5,y:.9},
+          effects:[{type:'float',x:.26,y:.09,w:.35,h:.12}] },
+  1353: { name:'Rooster', eyes:[{x:.45,y:.53,r:.05,blink:true,lid:'#f1ece2'},{x:.66,y:.43,r:.05,blink:false,lid:'#7d3c98'}],
+          mouth:{x:.6,y:.63,w:.3,chin:.72,inner:'#3a1d22'}, pivot:{x:.5,y:.92}, effects:[] },
+};
+const DEFAULT_RIG = () => ({ name:'Nibble',
+  eyes:[{x:.45,y:.46,r:.06,blink:true,lid:'#888888'},{x:.62,y:.46,r:.06,blink:true,lid:'#888888'}],
+  mouth:{x:.56,y:.66,w:.22,chin:.76,inner:'#3a1d22'}, pivot:{x:.52,y:.9}, effects:[] });
+
+const BACKGROUNDS = ['Nibble color','Sky','Sunset','Arcade','Bubblegum','Green screen'];
+const ASPECTS = { 'Vertical 9:16':[1080,1920], 'Square 1:1':[1080,1080], 'Wide 16:9':[1920,1080] };
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+const $ = id => document.getElementById(id);
+const stage = $('stage'), ctx = stage.getContext('2d');
+const video = $('cam');
+const S = {
+  tokenId: null, rig: null, keyed: null, base: null, fxCanvases: [], bgColor:'#9be7ff',
+  bg:'Nibble color', bgImg:null, account:null, verified:false,
+  landmarker:null, tracking:false, lastVideoTime:-1,
+  face:{ roll:0, yaw:0, pitch:0, jaw:0, blinkL:0, blinkR:0, seen:false },
+  pitchBase:null, pitchSamples:[], idleBlinkAt: performance.now()+2500, idleBlink:0,
+  recorder:null, chunks:[], micStream:null,
+};
+
+// ---------------------------------------------------------------------------
+// UI setup
+// ---------------------------------------------------------------------------
+const quick = $('quick');
+for (const [id, p] of Object.entries(PRESETS)) {
+  const b = document.createElement('button');
+  b.className = 'chip'; b.textContent = `${p.name} #${id}`; b.dataset.id = id;
+  b.onclick = () => loadToken(+id);
+  quick.appendChild(b);
+}
+const bgs = $('bgs');
+for (const name of BACKGROUNDS) {
+  const b = document.createElement('button');
+  b.className = 'chip' + (name === S.bg ? ' on' : ''); b.textContent = name;
+  b.onclick = () => { S.bg = name; [...bgs.children].forEach(c => c.classList.toggle('on', c === b)); };
+  bgs.appendChild(b);
+}
+const aspects = $('aspects');
+for (const [name, [w,h]] of Object.entries(ASPECTS)) {
+  const b = document.createElement('button');
+  b.className = 'chip' + (w === 1080 && h === 1920 ? ' on' : ''); b.textContent = name;
+  b.onclick = () => {
+    if (S.recorder) return;
+    stage.width = w; stage.height = h;
+    [...aspects.children].forEach(c => c.classList.toggle('on', c === b));
+  };
+  aspects.appendChild(b);
+}
+function setStatus(el, msg, kind='') { const e = $(el); e.textContent = msg; e.className = 'status ' + kind; }
+
+// ---------------------------------------------------------------------------
+// Wallet + ownership (Ethereum mainnet)
+// ---------------------------------------------------------------------------
+$('walletBtn').onclick = async () => {
+  if (!window.ethereum) {
+    setStatus('nibStatus', 'No wallet found. On phone, open this page inside your wallet app\'s browser.', 'err');
+    return;
+  }
+  try {
+    const [acct] = await window.ethereum.request({ method:'eth_requestAccounts' });
+    S.account = acct.toLowerCase();
+    $('walletBtn').textContent = acct.slice(0,6) + '…' + acct.slice(-4);
+    if (S.tokenId != null) await verifyOwnership();
+  } catch (e) { setStatus('nibStatus', 'Wallet connection cancelled.', 'err'); }
+};
+async function ownerOf(id) {
+  const data = '0x6352211e' + BigInt(id).toString(16).padStart(64,'0');
+  const res = await fetch(RPC, { method:'POST', headers:{'content-type':'application/json'},
+    body: JSON.stringify({ jsonrpc:'2.0', id:1, method:'eth_call', params:[{ to:CONTRACT, data }, 'latest'] }) });
+  const j = await res.json();
+  if (!j.result || j.result === '0x') throw new Error('ownerOf failed');
+  return ('0x' + j.result.slice(-40)).toLowerCase();
+}
+async function verifyOwnership() {
+  S.verified = false;
+  if (!S.account || S.tokenId == null) return;
+  try {
+    const owner = await ownerOf(S.tokenId);
+    S.verified = owner === S.account;
+    setStatus('nibStatus', S.verified ? `Verified: you hold Nibble #${S.tokenId}.` :
+      `Nibble #${S.tokenId} belongs to another wallet — preview only.`, S.verified ? 'ok' : 'err');
+  } catch (e) { setStatus('nibStatus', 'Could not check ownership right now.', 'err'); }
+}
+
+// ---------------------------------------------------------------------------
+// Loading a Nibble
+// ---------------------------------------------------------------------------
+$('loadBtn').onclick = () => { const v = $('tokenInput').value; if (v !== '') loadToken(+v); };
+$('tokenInput').onkeydown = e => { if (e.key === 'Enter') $('loadBtn').click(); };
+$('fileInput').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const img = await loadImg(URL.createObjectURL(f));
+  if (S.tokenId == null) { S.tokenId = +($('tokenInput').value || 0); S.rig = getRig(S.tokenId); }
+  useImage(img);
+  setStatus('nibStatus', `Using uploaded art for #${S.tokenId}.`, 'ok');
+};
+
+function loadImg(src, cors=false) {
+  return new Promise((res, rej) => {
+    const i = new Image(); if (cors) i.crossOrigin = 'anonymous';
+    i.onload = () => res(i); i.onerror = rej; i.src = src;
+  });
+}
+function ipfs(u) { return u.startsWith('ipfs://') ? 'https://ipfs.io/ipfs/' + u.slice(7) : u; }
+
+async function loadToken(id) {
+  if (!(id >= 0 && id <= 8887)) { setStatus('nibStatus', 'Token must be 0–8887.', 'err'); return; }
+  S.tokenId = id; S.rig = getRig(id); S.verified = false;
+  $('tokenInput').value = id;
+  [...quick.children].forEach(c => c.classList.toggle('on', +c.dataset.id === id));
+  setStatus('nibStatus', `Loading Nibble #${id}…`);
+  try {
+    const meta = await (await fetch(META_URL(id))).json();
+    const img = await loadImg(ipfs(meta.image), true);
+    useImage(img);
+    const kind = (meta.attributes || []).find(a => /character|type|species/i.test(a.trait_type || ''));
+    if (kind && !PRESETS[id] && !localStorage.getItem('rig:' + id)) S.rig.name = kind.value;
+    setStatus('nibStatus', `Loaded ${meta.name || 'Nibble #' + id}.`, 'ok');
+  } catch (e) {
+    setStatus('nibStatus', `Couldn't fetch #${id}'s art automatically — tap "Upload image" and pick your Nibble's picture.`, 'err');
+  }
+  await verifyOwnership();
+  syncRigUI();
+}
+
+// Remove the flat background by flood-filling from the edges.
+function keyImage(img) {
+  const N = 1000;
+  const c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d', { willReadFrequently:true });
+  g.drawImage(img, 0, 0, N, N);
+  const d = g.getImageData(0, 0, N, N), p = d.data;
+  const seed = [p[0], p[1], p[2]];
+  S.bgColor = `rgb(${seed[0]},${seed[1]},${seed[2]})`;
+  const removed = new Uint8Array(N*N);
+  const stack = [];
+  const dist = (i, r, gg, b) => Math.abs(p[i]-r) + Math.abs(p[i+1]-gg) + Math.abs(p[i+2]-b);
+  // Seed from the top and sides only: Nibbles' bodies run off the bottom edge.
+  for (let x = 0; x < N; x++) stack.push(x, 0);
+  for (let y = 0; y < N; y++) stack.push(0, y, N-1, y);
+  const q = [];
+  for (let k = 0; k < stack.length; k += 2) {
+    const x = stack[k], y = stack[k+1], i = (y*N + x);
+    if (!removed[i] && dist(i*4, seed[0], seed[1], seed[2]) < 40) { removed[i] = 1; q.push(i); }
+  }
+  while (q.length) {
+    const i = q.pop(), x = i % N, y = (i / N) | 0, o = i*4;
+    const nb = [x>0 ? i-1 : -1, x<N-1 ? i+1 : -1, y>0 ? i-N : -1, y<N-1 ? i+N : -1];
+    for (const j of nb) {
+      if (j < 0 || removed[j]) continue;
+      const oj = j*4;
+      if (dist(oj, p[o], p[o+1], p[o+2]) < 30 && dist(oj, seed[0], seed[1], seed[2]) < 90) { removed[j] = 1; q.push(j); }
+    }
+  }
+  for (let i = 0; i < N*N; i++) if (removed[i]) p[i*4+3] = 0;
+  // soften the 1px fringe next to removed pixels
+  for (let y = 1; y < N-1; y++) for (let x = 1; x < N-1; x++) {
+    const i = y*N + x; if (removed[i]) continue;
+    if (removed[i-1] || removed[i+1] || removed[i-N] || removed[i+N]) {
+      if (dist(i*4, seed[0], seed[1], seed[2]) < 200) p[i*4+3] = 120;
+    }
+  }
+  g.putImageData(d, 0, 0);
+  return c;
+}
+
+function useImage(img) {
+  S.keyed = keyImage(img);
+  buildLayers();
+  drawRigEditor();
+}
+
+// Split animated effect regions out of the base so they can move on their own.
+function buildLayers() {
+  if (!S.keyed) return;
+  const N = 1000;
+  const base = document.createElement('canvas'); base.width = base.height = N;
+  const bg = base.getContext('2d'); bg.drawImage(S.keyed, 0, 0);
+  S.fxCanvases = (S.rig.effects || []).map(fx => {
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, fx.w*N); c.height = Math.max(1, fx.h*N);
+    c.getContext('2d').drawImage(S.keyed, fx.x*N, fx.y*N, fx.w*N, fx.h*N, 0, 0, c.width, c.height);
+    bg.clearRect(fx.x*N, fx.y*N, fx.w*N, fx.h*N);
+    return c;
+  });
+  S.base = base;
+}
+
+// ---------------------------------------------------------------------------
+// Rigs: presets → local overrides
+// ---------------------------------------------------------------------------
+function clone(o) { return JSON.parse(JSON.stringify(o)); }
+function getRig(id) {
+  try { const s = localStorage.getItem('rig:' + id); if (s) return JSON.parse(s); } catch (e) {}
+  return clone(PRESETS[id] || DEFAULT_RIG());
+}
+function saveRig() {
+  try { localStorage.setItem('rig:' + S.tokenId, JSON.stringify(S.rig)); } catch (e) {}
+  $('rigJson').value = JSON.stringify(S.rig, null, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Camera + face tracking (MediaPipe Face Landmarker, runs on-device)
+// ---------------------------------------------------------------------------
+$('camBtn').onclick = startCamera;
+async function startCamera() {
+  try {
+    setStatus('camStatus', 'Starting…');
+    const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:640}, height:{ideal:480} }, audio:false });
+    video.srcObject = stream; await video.play();
+    if (!S.landmarker) {
+      setStatus('camStatus', 'Loading face tracker…');
+      const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`);
+      const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`);
+      const opts = { baseOptions:{ modelAssetPath:MP_MODEL, delegate:'GPU' }, runningMode:'VIDEO', numFaces:1, outputFaceBlendshapes:true };
+      try { S.landmarker = await vision.FaceLandmarker.createFromOptions(files, opts); }
+      catch (e) { opts.baseOptions.delegate = 'CPU'; S.landmarker = await vision.FaceLandmarker.createFromOptions(files, opts); }
+    }
+    S.tracking = true;
+    $('camBtn').textContent = 'Camera on'; $('camBtn').disabled = true;
+    setStatus('camStatus', '', 'ok');
+  } catch (e) {
+    setStatus('camStatus', 'Camera blocked or unavailable. Allow camera access and try again.', 'err');
+  }
+}
+
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function track(now) {
+  if (!S.tracking || !S.landmarker || video.readyState < 2) return;
+  if (video.currentTime === S.lastVideoTime) return;
+  S.lastVideoTime = video.currentTime;
+  const r = S.landmarker.detectForVideo(video, now);
+  const f = S.face;
+  if (!r.faceLandmarks || !r.faceLandmarks.length) { f.seen = false; return; }
+  f.seen = true;
+  const L = r.faceLandmarks[0];
+  const bs = {}; (r.faceBlendshapes?.[0]?.categories || []).forEach(c => bs[c.categoryName] = c.score);
+  // Head pose from landmarks; negated because the preview is a mirror.
+  const roll = -Math.atan2(L[263].y - L[33].y, L[263].x - L[33].x);
+  const yaw = -(((L[1].x - L[234].x) / ((L[454].x - L[234].x) || 1e-6)) - 0.5) * 2;
+  const eyeY = (L[33].y + L[263].y) / 2, mouthY = (L[13].y + L[14].y) / 2;
+  const t = (L[1].y - eyeY) / ((mouthY - eyeY) || 1e-6);
+  if (S.pitchBase == null) { S.pitchSamples.push(t); if (S.pitchSamples.length > 20) S.pitchBase = S.pitchSamples.reduce((a,b)=>a+b)/S.pitchSamples.length; }
+  const pitch = S.pitchBase == null ? 0 : clamp((t - S.pitchBase) * 3, -1, 1);
+  f.roll = lerp(f.roll, roll, .5); f.yaw = lerp(f.yaw, clamp(yaw,-1,1), .5); f.pitch = lerp(f.pitch, pitch, .4);
+  f.jaw = lerp(f.jaw, clamp(((bs.jawOpen || 0) - .04) * 1.8, 0, 1), .6);
+  // Mirror: your right eye shows on the left of the screen.
+  f.blinkL = lerp(f.blinkL, clamp(((bs.eyeBlinkRight || 0) - .25) * 2.2, 0, 1), .7);
+  f.blinkR = lerp(f.blinkR, clamp(((bs.eyeBlinkLeft || 0) - .25) * 2.2, 0, 1), .7);
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+function drawBackground(t) {
+  const W = stage.width, H = stage.height;
+  const fill = c => { ctx.fillStyle = c; ctx.fillRect(0, 0, W, H); };
+  if (S.bgImg) {
+    const s = Math.max(W / S.bgImg.width, H / S.bgImg.height);
+    ctx.drawImage(S.bgImg, (W - S.bgImg.width*s)/2, (H - S.bgImg.height*s)/2, S.bgImg.width*s, S.bgImg.height*s);
+    return;
+  }
+  switch (S.bg) {
+    case 'Green screen': fill('#00ff00'); break;
+    case 'Nibble color': fill(S.bgColor); break;
+    case 'Sky': {
+      const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#7fd3ff'); g.addColorStop(1, '#d9f3ff'); fill(g);
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#1d1b20'; ctx.lineWidth = 6;
+      for (let k = 0; k < 4; k++) {
+        const x = ((t*0.02*(k+1) + k*W*0.4) % (W + 400)) - 200, y = H*(0.12 + k*0.14);
+        ctx.beginPath(); ctx.ellipse(x, y, 120, 50, 0, 0, Math.PI*2); ctx.ellipse(x+80, y-25, 80, 50, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(x, y, 117, 47, 0, 0, Math.PI*2); ctx.fill();
+      }
+      break;
+    }
+    case 'Sunset': {
+      const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#ff9a8b'); g.addColorStop(.6, '#ffc382'); g.addColorStop(1, '#ffe3a3'); fill(g);
+      ctx.fillStyle = '#fff1b8'; ctx.strokeStyle = '#1d1b20'; ctx.lineWidth = 8;
+      ctx.beginPath(); ctx.arc(W*0.5, H*0.42, Math.min(W,H)*0.28, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      break;
+    }
+    case 'Bubblegum': {
+      fill('#ffb3d9');
+      ctx.fillStyle = 'rgba(255,255,255,.55)';
+      for (let k = 0; k < 14; k++) {
+        const x = (k*173) % W, y = H - ((t*0.05 + k*137) % (H + 100));
+        ctx.beginPath(); ctx.arc(x, y, 18 + (k%4)*10, 0, Math.PI*2); ctx.fill();
+      }
+      break;
+    }
+    case 'Arcade': {
+      fill('#1b1035');
+      ctx.strokeStyle = '#ff4fd8'; ctx.lineWidth = 3;
+      const hz = H*0.55, off = (t*0.06) % 60;
+      for (let y = hz; y < H; y += 60) { const yy = y + off; ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(W, yy); ctx.stroke(); }
+      for (let k = -10; k <= 10; k++) { ctx.beginPath(); ctx.moveTo(W/2 + k*40, hz); ctx.lineTo(W/2 + k*260, H); ctx.stroke(); }
+      const g = ctx.createLinearGradient(0, 0, 0, hz); g.addColorStop(0, '#2a1659'); g.addColorStop(1, '#ff7a59');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, hz);
+      break;
+    }
+  }
+}
+
+function drawNibble(t) {
+  if (!S.base) return;
+  const W = stage.width, H = stage.height, N = 1000;
+  const size = Math.min(W * 1.0, H * 0.92) * 1.06;
+  const rig = S.rig, f = S.face;
+  const live = S.tracking && f.seen;
+  // Idle motion when no face: gentle breathing + random blinks.
+  if (!live) {
+    if (t > S.idleBlinkAt) { S.idleBlink = 1; S.idleBlinkAt = t + 2200 + Math.random()*3000; }
+    S.idleBlink = Math.max(0, S.idleBlink - 0.12);
+  }
+  const roll = live ? f.roll : Math.sin(t/1400)*0.03;
+  const yaw = live ? f.yaw : 0, pitch = live ? f.pitch : 0;
+  const jaw = live ? f.jaw : 0;
+  const bL = live ? f.blinkL : S.idleBlink, bR = live ? f.blinkR : S.idleBlink;
+  const breathe = Math.sin(t/650) * 0.006;
+
+  const px = (W - size)/2 + rig.pivot.x*size;
+  const py = (H - size) + size*0.03 + rig.pivot.y*size;
+  const k = size / N;
+
+  ctx.save();
+  ctx.translate(px + yaw*size*0.035, py + pitch*size*0.02);
+  ctx.rotate(clamp(roll, -.5, .5) * 0.7);
+  ctx.transform(1, yaw*0.05, 0, 1, 0, 0);               // fake head turn
+  ctx.scale(1 - Math.abs(yaw)*0.06, 1 + breathe - Math.abs(pitch)*0.025 + jaw*0.015);
+  ctx.translate(-rig.pivot.x*size, -rig.pivot.y*size);
+  ctx.scale(k, k);                                       // now in 0..1000 image space
+
+  ctx.drawImage(S.base, 0, 0);
+
+  // Eyelids
+  const lids = [bL, bR];
+  rig.eyes.forEach((e, i) => {
+    let c = lids[i];
+    if (!e.blink) return;
+    const other = rig.eyes[1-i];
+    if (other && !other.blink) c = Math.max(bL, bR);    // one-eyed Nibbles blink with either eye
+    if (c < 0.05) return;
+    const ex = e.x*N, ey = e.y*N, rr = e.r*N;
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(ex, ey, rr*1.05, rr*1.15, 0, 0, Math.PI*2); ctx.clip();
+    const edge = ey - rr*1.15 + rr*2.3*c;
+    ctx.fillStyle = e.lid; ctx.fillRect(ex - rr*1.2, ey - rr*1.3, rr*2.4, edge - (ey - rr*1.3));
+    ctx.strokeStyle = '#111'; ctx.lineWidth = 9; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(ex - rr*1.2, edge); ctx.quadraticCurveTo(ex, edge + rr*0.25*c, ex + rr*1.2, edge); ctx.stroke();
+    ctx.restore();
+  });
+
+  // Mouth: drop the lower jaw strip and show the inside of the mouth
+  const m = rig.mouth;
+  if (jaw > 0.03) {
+    const mx = m.x*N, my = m.y*N, mw = m.w*N, chin = m.chin*N;
+    const drop = jaw * mw * 0.38;
+    ctx.fillStyle = m.inner; ctx.strokeStyle = '#111'; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.ellipse(mx, my + drop*0.45, mw*0.42, Math.max(4, drop*0.62), 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#e8737b';                            // tongue
+    ctx.beginPath(); ctx.ellipse(mx, my + drop*0.85, mw*0.22, Math.max(2, drop*0.25), 0, Math.PI, 0); ctx.fill();
+    const sx = mx - mw*0.6, sw = mw*1.2, sh = Math.max(1, chin - my);
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(mx, my + drop, sw/2, sh*1.05, 0, 0, Math.PI); ctx.clip();
+    ctx.drawImage(S.base, sx, my, sw, sh, sx, my + drop, sw, sh);
+    ctx.restore();
+  }
+
+  // Effects
+  (rig.effects || []).forEach((fx, i) => {
+    const c = S.fxCanvases[i]; if (!c) return;
+    const x = fx.x*N, y = fx.y*N, w = fx.w*N, h = fx.h*N;
+    ctx.save();
+    if (fx.type === 'float') ctx.translate(0, Math.sin(t/450 + i) * 14);
+    else { ctx.translate(x + w/2, y + h); ctx.rotate(Math.sin(t/300 + i) * 0.07); ctx.translate(-(x + w/2), -(y + h)); }
+    ctx.drawImage(c, x, y, w, h);
+    ctx.restore();
+  });
+
+  ctx.restore();
+}
+
+function drawWatermark() {
+  if (S.verified || !S.base) return;
+  const W = stage.width, H = stage.height;
+  ctx.save();
+  ctx.font = `800 ${Math.round(Math.min(W,H)*0.05)}px system-ui, sans-serif`;
+  ctx.textAlign = 'center'; ctx.lineWidth = 8; ctx.strokeStyle = '#1d1b20'; ctx.fillStyle = '#fff';
+  const msg = 'PREVIEW · connect the wallet that holds this Nibble';
+  const fs = Math.min(W,H)*0.035; ctx.font = `800 ${fs}px system-ui, sans-serif`;
+  ctx.strokeText(msg, W/2, fs*2); ctx.fillText(msg, W/2, fs*2);
+  ctx.restore();
+}
+
+function drawEmpty() {
+  const W = stage.width, H = stage.height;
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+  ctx.font = `800 ${Math.min(W,H)*0.05}px system-ui, sans-serif`;
+  ctx.fillText('Pick a Nibble to begin', W/2, H/2);
+}
+
+function frame(now) {
+  track(now);
+  drawBackground(now);
+  if (S.base) drawNibble(now); else drawEmpty();
+  drawWatermark();
+  const tb = $('trackBadge');
+  tb.textContent = !S.tracking ? 'Camera off' : S.face.seen ? 'Tracking ✓' : 'Looking for your face…';
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ---------------------------------------------------------------------------
+// Background upload
+// ---------------------------------------------------------------------------
+$('bgFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  S.bgImg = await loadImg(URL.createObjectURL(f));
+  [...bgs.children].forEach(c => c.classList.remove('on'));
+};
+bgs.addEventListener('click', () => { S.bgImg = null; });
+
+// ---------------------------------------------------------------------------
+// Recording
+// ---------------------------------------------------------------------------
+$('recBtn').onclick = async () => {
+  if (S.recorder) { S.recorder.stop(); return; }
+  if (!S.base) { setStatus('recStatus', 'Load a Nibble first.', 'err'); return; }
+  const out = stage.captureStream(30);
+  try {
+    S.micStream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } });
+    S.micStream.getAudioTracks().forEach(tr => out.addTrack(tr));
+  } catch (e) { setStatus('recStatus', 'No mic access — recording without sound.', 'err'); }
+  const types = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  const mimeType = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  S.chunks = [];
+  S.recorder = new MediaRecorder(out, mimeType ? { mimeType, videoBitsPerSecond:6_000_000 } : undefined);
+  S.recorder.ondataavailable = e => e.data.size && S.chunks.push(e.data);
+  S.recorder.onstop = async () => {
+    const type = S.recorder.mimeType || 'video/webm';
+    const blob = new Blob(S.chunks, { type });
+    const ext = type.includes('mp4') ? 'mp4' : 'webm';
+    const name = `nibble-${S.tokenId}-${Date.now()}.${ext}`;
+    const dl = $('dl'); dl.href = URL.createObjectURL(blob); dl.download = name; dl.style.display = 'inline-block';
+    S.micStream?.getTracks().forEach(tr => tr.stop());
+    S.recorder = null; $('recBtn').textContent = 'Record'; $('recBadge').style.display = 'none';
+    setStatus('recStatus', 'Clip ready.', 'ok');
+    const file = new File([blob], name, { type });
+    if (navigator.canShare && navigator.canShare({ files:[file] })) {
+      dl.onclick = async ev => { ev.preventDefault(); try { await navigator.share({ files:[file] }); } catch (e) {} };
+    } else dl.onclick = null;
+  };
+  S.recorder.start(250);
+  $('recBtn').textContent = 'Stop'; $('recBadge').style.display = 'block';
+  $('dl').style.display = 'none';
+  setStatus('recStatus', 'Recording…');
+};
+
+// ---------------------------------------------------------------------------
+// Stream mode
+// ---------------------------------------------------------------------------
+$('streamBtn').onclick = async () => {
+  document.body.classList.add('streaming');
+  try { await document.documentElement.requestFullscreen?.(); } catch (e) {}
+};
+function exitStream() { document.body.classList.remove('streaming'); if (document.fullscreenElement) document.exitFullscreen(); }
+$('exitStream').onclick = exitStream;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') exitStream(); });
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) document.body.classList.remove('streaming'); });
+
+// ---------------------------------------------------------------------------
+// Rig editor
+// ---------------------------------------------------------------------------
+const rc = $('rigCanvas'), rctx = rc.getContext('2d');
+$('rigBtn').onclick = () => { $('rigPanel').classList.toggle('show'); syncRigUI(); };
+
+function handles() {
+  const r = S.rig; if (!r) return [];
+  const h = [
+    { c:'#e84393', get:() => r.eyes[0], set:(x,y) => { r.eyes[0].x = x; r.eyes[0].y = y; } },
+    { c:'#e84393', get:() => r.eyes[1], set:(x,y) => { r.eyes[1].x = x; r.eyes[1].y = y; } },
+    { c:'#0984e3', get:() => r.mouth, set:(x,y) => { r.mouth.x = x; r.mouth.y = y; } },
+    { c:'#00b894', get:() => ({ x:r.mouth.x, y:r.mouth.chin }), set:(x,y) => { r.mouth.chin = Math.max(y, r.mouth.y + .01); } },
+    { c:'#fdcb6e', get:() => r.pivot, set:(x,y) => { r.pivot.x = x; r.pivot.y = y; } },
+  ];
+  (r.effects || []).forEach(fx => {
+    h.push({ c:'#6c5ce7', get:() => ({ x:fx.x, y:fx.y }), set:(x,y) => { fx.w += fx.x - x; fx.h += fx.y - y; fx.x = x; fx.y = y; } });
+    h.push({ c:'#6c5ce7', get:() => ({ x:fx.x + fx.w, y:fx.y + fx.h }), set:(x,y) => { fx.w = Math.max(.02, x - fx.x); fx.h = Math.max(.02, y - fx.y); } });
+  });
+  return h;
+}
+function drawRigEditor() {
+  if (!$('rigPanel').classList.contains('show')) return;
+  const R = rc.width;
+  rctx.clearRect(0, 0, R, R);
+  if (!S.keyed) return;
+  rctx.drawImage(S.keyed, 0, 0, R, R);
+  const r = S.rig;
+  rctx.lineWidth = 2;
+  r.eyes.forEach(e => { rctx.strokeStyle = e.blink ? '#e84393' : '#aaa'; rctx.beginPath(); rctx.ellipse(e.x*R, e.y*R, e.r*R*1.05, e.r*R*1.15, 0, 0, Math.PI*2); rctx.stroke(); });
+  rctx.strokeStyle = '#0984e3'; rctx.beginPath(); rctx.moveTo((r.mouth.x - r.mouth.w/2)*R, r.mouth.y*R); rctx.lineTo((r.mouth.x + r.mouth.w/2)*R, r.mouth.y*R); rctx.stroke();
+  rctx.strokeStyle = '#00b894'; rctx.setLineDash([4,4]); rctx.strokeRect((r.mouth.x - r.mouth.w*0.6)*R, r.mouth.y*R, r.mouth.w*1.2*R, (r.mouth.chin - r.mouth.y)*R);
+  rctx.strokeStyle = '#6c5ce7'; (r.effects || []).forEach(fx => rctx.strokeRect(fx.x*R, fx.y*R, fx.w*R, fx.h*R));
+  rctx.setLineDash([]);
+  handles().forEach(h => { const p = h.get(); rctx.fillStyle = h.c; rctx.strokeStyle = '#111'; rctx.beginPath(); rctx.arc(p.x*R, p.y*R, 9, 0, Math.PI*2); rctx.fill(); rctx.stroke(); });
+}
+let drag = null;
+function rigPos(e) { const b = rc.getBoundingClientRect(); return { x: clamp((e.clientX - b.left)/b.width, 0, 1), y: clamp((e.clientY - b.top)/b.height, 0, 1) }; }
+rc.addEventListener('pointerdown', e => {
+  const p = rigPos(e); let best = null, bd = 0.04;
+  handles().forEach(h => { const q = h.get(), d = Math.hypot(q.x - p.x, q.y - p.y); if (d < bd) { bd = d; best = h; } });
+  if (best) { drag = best; rc.setPointerCapture(e.pointerId); }
+});
+rc.addEventListener('pointermove', e => { if (!drag) return; const p = rigPos(e); drag.set(p.x, p.y); drawRigEditor(); });
+rc.addEventListener('pointerup', () => { if (!drag) return; drag = null; buildLayers(); saveRig(); syncRigUI(); });
+
+function syncRigUI() {
+  const r = S.rig; if (!r) return;
+  $('eyeL').value = r.eyes[0].r; $('eyeR').value = r.eyes[1].r; $('mouthW').value = r.mouth.w;
+  $('blinkL').checked = r.eyes[0].blink; $('blinkR').checked = r.eyes[1].blink;
+  $('lidL').value = toHex(r.eyes[0].lid); $('lidR').value = toHex(r.eyes[1].lid); $('innerC').value = toHex(r.mouth.inner);
+  $('rigJson').value = JSON.stringify(r, null, 1);
+  drawRigEditor();
+}
+function toHex(c) { return /^#[0-9a-f]{6}$/i.test(c) ? c : '#888888'; }
+const bindRig = (id, fn, rebuild=false) => $(id).addEventListener('input', e => { if (!S.rig) return; fn(e.target); if (rebuild) buildLayers(); saveRig(); drawRigEditor(); });
+bindRig('eyeL', t => S.rig.eyes[0].r = +t.value);
+bindRig('eyeR', t => S.rig.eyes[1].r = +t.value);
+bindRig('mouthW', t => S.rig.mouth.w = +t.value);
+bindRig('blinkL', t => S.rig.eyes[0].blink = t.checked);
+bindRig('blinkR', t => S.rig.eyes[1].blink = t.checked);
+bindRig('lidL', t => S.rig.eyes[0].lid = t.value);
+bindRig('lidR', t => S.rig.eyes[1].lid = t.value);
+bindRig('innerC', t => S.rig.mouth.inner = t.value);
+
+// Sample eyelid color from just above each eye.
+$('sampleLids').onclick = () => {
+  if (!S.keyed || !S.rig) return;
+  const g = S.keyed.getContext('2d');
+  S.rig.eyes.forEach(e => {
+    const px = g.getImageData(Math.round(e.x*1000), Math.round((e.y - e.r*1.45)*1000), 1, 1).data;
+    if (px[3] > 200) e.lid = '#' + [px[0],px[1],px[2]].map(v => v.toString(16).padStart(2,'0')).join('');
+  });
+  saveRig(); syncRigUI();
+};
+const addFx = type => { if (!S.rig) return; S.rig.effects = S.rig.effects || []; S.rig.effects.push({ type, x:.4, y:.05, w:.2, h:.12 }); buildLayers(); saveRig(); syncRigUI(); };
+$('addFloat').onclick = () => addFx('float');
+$('addWobble').onclick = () => addFx('wobble');
+$('clearFx').onclick = () => { if (!S.rig) return; S.rig.effects = []; buildLayers(); saveRig(); syncRigUI(); };
+$('copyRig').onclick = async () => { try { await navigator.clipboard.writeText($('rigJson').value); $('copyRig').textContent = 'Copied'; setTimeout(() => $('copyRig').textContent = 'Copy', 1200); } catch (e) {} };
+$('applyJson').onclick = () => { try { S.rig = JSON.parse($('rigJson').value); buildLayers(); saveRig(); syncRigUI(); } catch (e) { alert('That JSON has a typo.'); } };
+$('resetRig').onclick = () => { if (S.tokenId == null) return; try { localStorage.removeItem('rig:' + S.tokenId); } catch (e) {} S.rig = getRig(S.tokenId); buildLayers(); syncRigUI(); };
+</script>
+</body>
+</html>
