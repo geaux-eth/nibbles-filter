@@ -1,4 +1,4 @@
-# NibbleME
+# Nibble FACE
 
 Become your Nibble. A face-tracked filter for recorded clips and livestreams, in beta with four Nibbles: Ghost #4075, Bear #4248, Wolf #3133 and Gnome #8549.
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>NibbleME</title>
+<title>Nibble FACE</title>
 <style>
 :root{
   --bg:#fff4e6; --panel:#ffffff; --ink:#1d1b20; --muted:#6b6470; --line:#1d1b20;
@@ -70,7 +70,7 @@ body.streaming #exitStream{display:block}
 </head>
 <body>
 <header>
-  <h1>Nibble<span>ME</span></h1>
+  <h1>Nibble<span>FACE</span></h1>
   <label class="toggle" id="camToggle"><span>Camera</span><input type="checkbox" id="camSwitch"><i></i></label>
 </header>
 
@@ -546,7 +546,7 @@ $('recBtn').onclick = async () => {
     S.recorder.onstop = () => {
       const type = (S.recorder && S.recorder.mimeType) || mimeType || 'video/webm';
       const blob = new Blob(S.chunks, { type });
-      const name = `nibbleme-${S.id}-${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`;
+      const name = `nibbleface-${S.id}-${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`;
       S.recorder = null; $('recBtn').classList.remove('on'); $('recLbl').textContent = 'Record'; $('recBadge').style.display = 'none';
       const t = $('toast'); clearTimeout(toastT); t.className = 'toast'; t.innerHTML = ''; t.style.display = 'block';
       const dl = document.createElement('a'); dl.href = URL.createObjectURL(blob); dl.download = name; dl.textContent = 'Save clip'; dl.className = 'save';
