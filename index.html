@@ -210,7 +210,7 @@ const NIBBLES = {
 };
 const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest', Cockfight:'cleeroy' };
 // backdrops that hang a sign: it goes in open space the Nibble can never reach, and the text keeps clear of it too
-const SIGNS = { Cockfight:'cleeroy_logo' };
+const SIGNS = { Cockfight:'cleeroy_logo' };   // Cleeroy's Cockfight Club (Cleeroy owns Cock #8212)
 // when the screen is tall enough, the club's own entrance art is used instead, cropped so its sign sits at the top
 // (sign box as fractions of that picture); otherwise the stage with the sign hung over it
 const ENTRANCE = { Cockfight:{ name:'cleeroy_ent', sign:[.058, .157, .941, .44] } };
@@ -220,13 +220,14 @@ function entrance() {
   if (!entCache[E.name]) { const i = new Image(); i.src = `bg/${E.name}.webp?v=${ART_V}`; entCache[E.name] = i; }
   const img = entCache[E.name]; if (!(img.complete && img.naturalWidth)) return null;
   const W = stage.width, H = stage.height, m = Math.min(W, H), iw = img.naturalWidth, ih = img.naturalHeight;
-  const sc = Math.max(W / iw, H / ih), tx = (W - iw * sc) / 2, ty = Math.max(H - ih * sc, m * 0.02 - E.sign[1] * ih * sc);
+  const sc = Math.max(W / iw, H / ih), tx = (W - iw * sc) / 2, ty = Math.max(H - ih * sc, -E.sign[1] * ih * sc);   // sign right at the top
   if (ty > 0.5) return null;
   const sr = [tx + E.sign[0] * iw * sc, ty + E.sign[1] * ih * sc, tx + E.sign[2] * iw * sc, ty + E.sign[3] * ih * sc];
-  const size = Math.min(m, (H - sr[3] - m * 0.12) / (1 - A.bounds[1] / 1000 + 0.05));
-  if (size < m * 0.8) return null;   // the Nibble would have to shrink too much: use the stage instead
+  // the Nibble stays full size; the entrance is only used where its comb would at most touch the sign's bottom edge
+  const size = Math.min(W, H), headTop = H - size + A.bounds[1] / 1000 * size;
+  if (sr[3] - headTop > (sr[3] - sr[1]) * 0.08) return null;
   return { img, sc, tx, ty, sr, size };
-}   // Cleeroy's Cockfight Club (Cleeroy owns Cock #8212)
+}
 const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS), 'Green screen'];
 const ASPECTS = { 'Square':[1080,1080], 'Vertical':[1080,1920], 'Wide':[1920,1080] };
 
@@ -597,7 +598,7 @@ function signRect() {
   const key = R.map(r => r.map(Math.round).join()).join('|') + S.bg;
   if (signAt && signAt.key === key) return signAt.r;
   // the biggest sign that fits an open space while leaving room under it for text; the space above the head wins if it's close
-  const fit = ([x0, y0, x1, y1]) => { const rw = x1 - x0, rh = y1 - y0, w = Math.max(0, Math.min(rw * 0.8, (rh - m * 0.2) * a)), h = w / a;
+  const fit = ([x0, y0, x1, y1]) => { const rw = x1 - x0, rh = y1 - y0, w = Math.max(0, Math.min(rw * 0.85, (rh - m * 0.06) * a)), h = w / a;
     return { w, r:[x0 + (rw - w) / 2, y0 + m * 0.03, x0 + (rw + w) / 2, y0 + m * 0.03 + h] }; };
   const all = R.map(fit), best = all.reduce((p, c) => !p || c.w > p.w ? c : p, null);
   const top = R.length && R[0][0] === 0 && R[0][2] === W ? all[0] : null;
@@ -651,14 +652,6 @@ function drawNibble(t) {
   const W = stage.width, H = stage.height;
   // Square on a wide screen (desktop): the Nibble stands a little smaller so there's room above its head for text
   let size = S.shape === 'Square' && W > H * 1.05 ? H * 0.82 : Math.min(W, H);
-  const ent = entrance();
-  const si = !ent && SIGNS[S.bg] && signImg();
-  if (ent) size = Math.min(size, ent.size);
-  if (si && S.art && S.art.bounds) {
-    const m = Math.min(W, H), sw = Math.min(W * 0.8, H * 0.5 * si.naturalWidth / si.naturalHeight), need = m * 0.03 + sw * si.naturalHeight / si.naturalWidth + m * 0.17;
-    const fitSize = (H - need) / (1 - S.art.bounds[1] / 1000 + 0.05);
-    size = Math.max(Math.min(size, fitSize), Math.min(W, H) * 0.72);
-  }
   const f = S.face, live = S.tracking && f.seen;
   const roll = live ? f.roll : Math.sin(t/1400) * 0.03;
   const yaw = live ? f.yaw : 0, pitch = live ? f.pitch : 0;
