@@ -197,27 +197,38 @@ $('nibbleSel').onchange = e => { loadNibble(+e.target.value); showNibbleThumb(+e
 // ---------------------------------------------------------------------------
 // Loading a Nibble (everything is bundled with the site)
 // ---------------------------------------------------------------------------
-async function loadNibble(id) {
-  S.id = id; S.art = null; S.trait = null;
+const ART = {};   // every Nibble's art, loaded once
+function fetchNibble(id) {
+  if (ART[id]) return ART[id];
   const cfg = NIBBLES[id];
-  try {
+  return ART[id] = (async () => {
     const names = ['base', 'e0','e1','e2','e3','e4', 'm0','m1','m2','m3','m4','m5','m6','m7','m8','m9'];
     const imgs = await Promise.all(names.map(n => loadImg(`faces/${id}/${n}.webp`)));
-    if (S.id !== id) return;
-    S.art = { base:imgs[0], eyes:imgs.slice(1, 6), mouths:imgs.slice(6) };
+    const art = { base:imgs[0], eyes:imgs.slice(1, 6), mouths:imgs.slice(6) };
     // does the art's body run off its left / right edge? then it keeps going in wide frames
     const pc = document.createElement('canvas'); pc.width = 1000; pc.height = 1000; const pg = pc.getContext('2d', { willReadFrequently:true });
     pg.drawImage(imgs[0], 0, 0, 1000, 1000);
     const colOpaque = x => { const d = pg.getImageData(x, 0, 1, 1000).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) n++; return n; };
-    S.art.edgeL = colOpaque(1) > 40; S.art.edgeR = colOpaque(998) > 40;
+    art.edgeL = colOpaque(1) > 40; art.edgeR = colOpaque(998) > 40;
+    let trait = null;
     if (cfg.trait) {
       const t = cfg.trait;
       const frames = await Promise.all(Array.from({ length:t.frames }, (_, i) => loadImg(`traits/${id}/f${i}.webp`)));
-      if (S.id === id) S.trait = { ...t, frames };
+      trait = { ...t, frames };
     }
-  } catch (e) { setStatus('camStatus', 'Could not load that Nibble.', 'err'); }
+    return { art, trait };
+  })();
 }
-loadNibble(4075); showNibbleThumb(4075);
+async function loadNibble(id) {
+  S.id = id;
+  try {
+    const { art, trait } = await fetchNibble(id);
+    if (S.id !== id) return;
+    S.art = art; S.trait = trait;           // the previous Nibble stays on screen until this one is fully ready
+    S.mouth = { cur:0, prev:0, t:0 }; S.eye = { cur:0, prev:0, t:0 };
+  } catch (e) { delete ART[id]; setStatus('camStatus', 'Could not load that Nibble.', 'err'); }
+}
+loadNibble(4075).then(() => { for (const id of Object.keys(NIBBLES)) fetchNibble(+id); }); showNibbleThumb(4075);
 
 // ---------------------------------------------------------------------------
 // Camera + face tracking (MediaPipe Face Landmarker, on-device)
@@ -408,11 +419,7 @@ function drawBackground() {
   ctx.fillRect(0, 0, stage.width, stage.height);
 }
 function drawLayer(list, slot, now, fade, x, y, size) {
-  const t = clamp((now - slot.t) / fade, 0, 1);
-  // the old frame stays solid underneath while the new one fades in on top (no see-through moment)
-  if (t < 1 && slot.prev > 0) { ctx.globalAlpha = slot.cur > 0 ? 1 : 1 - t; ctx.drawImage(list[slot.prev], x, y, size, size); }
-  if (slot.cur > 0) { ctx.globalAlpha = t; ctx.drawImage(list[slot.cur], x, y, size, size); }
-  ctx.globalAlpha = 1;
+  if (slot.cur > 0) ctx.drawImage(list[slot.cur], x, y, size, size);   // hard cut, never a see-through blend
 }
 
 // Spring wobble for floating traits: fast head moves kick it, it swings and settles.
@@ -470,9 +477,7 @@ function drawNibble(t) {
   const pad = size * 0.06;   // a little past the frame edge, so head turns and tilts don't reveal it
   const x = A.edgeL && !A.edgeR ? -pad : A.edgeR && !A.edgeL ? W - size + pad : (W - size)/2, y = H - size;
   if (NIBBLES[S.id].fullFace) {
-    const m = S.mouth, ft = clamp((t - m.t) / FADE.mouth, 0, 1);
-    ctx.drawImage(A.mouths[ft < 1 ? m.prev : m.cur], x, y, size, size);          // whole face for the previous sound…
-    if (ft < 1) { ctx.globalAlpha = ft; ctx.drawImage(A.mouths[m.cur], x, y, size, size); ctx.globalAlpha = 1; }   // …blending into the new one
+    ctx.drawImage(A.mouths[S.mouth.cur], x, y, size, size);   // hard cut between drawn faces, like hand-drawn animation
   } else ctx.drawImage(A.base, x, y, size, size);
   ctx.drawImage(A.base, 0, 997, 1000, 3, x, H - 1, size, size * 0.3);   // body continues below the frame edge
   if (A.edgeL) { ctx.drawImage(A.base, 0, 0, 2, 1000, x - size*0.5 + 1, y, size*0.5, size); ctx.drawImage(A.base, 0, 997, 2, 3, x - size*0.5 + 1, H - 1, size*0.5, size*0.3); }
