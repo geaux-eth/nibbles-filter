@@ -10,10 +10,11 @@
   --accent:#ff7a7a; --accent2:#8fd8ff; --me:#7b5cff; --ok:#3bb273;
 }
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));border-bottom:3px solid var(--line);background:var(--panel)}
-header h1{margin:0;font-size:22px;letter-spacing:.3px}
-header h1 span{color:var(--me)}
+html,body{margin:0;color:var(--ink);font:15px/1.4 ui-rounded,"SF Pro Rounded",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  background:#fff1df radial-gradient(circle at 1px 1px, rgba(29,27,32,.09) 1.2px, transparent 1.6px) 0 0/18px 18px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px 4px;padding-top:max(10px,env(safe-area-inset-top))}
+header h1{margin:0;font-size:25px;font-weight:900;letter-spacing:-.5px;display:flex;align-items:center;gap:4px}
+header h1 span{color:#fff;background:var(--me);border:2.5px solid var(--line);border-radius:10px;padding:0 7px 1px;font-size:21px;box-shadow:0 2.5px 0 var(--line);transform:rotate(-4deg);display:inline-block}
 button,select{font:inherit;color:var(--ink)}
 .btn{border:2.5px solid var(--line);background:#fff;border-radius:12px;padding:8px 14px;font-weight:700;cursor:pointer;box-shadow:0 3px 0 var(--line);transition:transform .05s}
 .btn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--line)}
@@ -26,34 +27,37 @@ body{display:flex;flex-direction:column;height:100dvh}
 header{flex:none}
 main{flex:1;min-height:0;display:flex;flex-direction:column;padding:10px 12px 0;gap:10px;max-width:900px;width:100%;margin:0 auto}
 .stage-wrap{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
-#stage{display:block;max-width:100%;max-height:100%;width:auto;height:auto;border:3px solid var(--line);border-radius:18px;background:#222}
+#stage{display:block;max-width:100%;max-height:calc(100% - 6px);width:auto;height:auto;border:3px solid var(--line);border-radius:24px;background:#222;box-shadow:0 6px 0 var(--line)}
 .badge{position:absolute;top:10px;right:10px;background:#ff4d4d;color:#fff;border:2px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;display:none}
 .toast{white-space:normal;position:absolute;left:50%;bottom:14px;transform:translateX(-50%);max-width:92%;background:#fff;border:2.5px solid var(--line);border-radius:14px;padding:8px 12px;font-size:13px;font-weight:700;text-align:center;box-shadow:0 3px 0 var(--line);display:none;z-index:5}
 .toast.err{background:#ffe1dc}
 .toast a{color:var(--me)}
 .toast .save{display:inline-block;white-space:nowrap;background:var(--me);color:#fff;text-decoration:none;border:2.5px solid var(--line);border-radius:999px;padding:7px 16px;font-size:15px;vertical-align:middle}
 .toast .close{display:inline-block;white-space:nowrap;color:var(--ink);text-decoration:none;font-size:18px;padding:4px 4px 4px 12px;vertical-align:middle}
-.bar{flex:none;display:grid;grid-template-columns:repeat(5,1fr);align-items:start;padding:8px 6px max(10px,env(safe-area-inset-bottom));width:100%;max-width:460px;margin:0 auto}
-.ctl{position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0}
-.circ{display:block;flex:none;width:52px;height:52px;border-radius:50%;border:2.5px solid var(--line);background:#fff center/cover no-repeat;
-  position:relative;padding:0;margin:0;-webkit-appearance:none;appearance:none;cursor:pointer;overflow:hidden}
+.bar{flex:none;width:calc(100% - 24px);max-width:460px;margin:12px auto max(10px,env(safe-area-inset-bottom));padding:10px 8px 8px;
+  display:grid;grid-template-columns:1fr 1.32fr 1.12fr 1fr 1fr;align-items:start;background:#fff;border:3px solid var(--line);border-radius:26px;box-shadow:0 5px 0 var(--line)}
+.ctl{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}
+.circ{display:block;flex:none;width:50px;height:50px;margin:5px 0 0;border-radius:50%;border:2.5px solid var(--line);background:#fff center/cover no-repeat;
+  position:relative;padding:0;-webkit-appearance:none;appearance:none;cursor:pointer;overflow:hidden;box-shadow:0 2.5px 0 var(--line);transition:transform .06s}
+.ctl:active .circ{transform:translateY(2px);box-shadow:0 .5px 0 var(--line)}
 .circ svg{position:absolute;inset:0;width:100%;height:100%;display:block}
-.lbl{display:block;max-width:100%;font-size:11px;font-weight:800;line-height:1.2;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lbl{display:block;max-width:100%;font-size:11px;font-weight:800;line-height:1.15;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.1px}
 .ctl select{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;font-size:16px;-webkit-appearance:none;appearance:none}
-.circ{margin:6px 0}
-.ctl.rec-c .circ{width:64px;height:64px;margin:0;border-width:3px}
+.ctl.rec-c .circ{width:60px;height:60px;margin:0;border-width:3px;background:#fff}
 .rec-dot{fill:#ff4d4d}
 .rec-sq{fill:#ff4d4d;display:none}
 #recBtn.on .rec-dot{display:none}
 #recBtn.on .rec-sq{display:inline}
-.shape-i{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:2.5px solid var(--line);border-radius:4px;background:#fff}
-@media (max-width:340px){ .circ{width:46px;height:46px} .ctl.rec-c .circ{width:58px;height:58px} .lbl{font-size:10px} }
-.toggle{display:flex;align-items:center;gap:10px;font-weight:800;cursor:pointer;user-select:none}
+#recBtn.on{animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 2.5px 0 var(--line),0 0 0 6px rgba(255,77,77,.25)}}
+.shape-i{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:2.5px solid var(--line);border-radius:4px;background:#ffd34d}
+@media (max-width:350px){ .circ{width:44px;height:44px} .ctl.rec-c .circ{width:54px;height:54px} .lbl{font-size:10px} .bar{padding:8px 4px 6px} }
+.toggle{display:flex;align-items:center;gap:8px;font-weight:800;cursor:pointer;user-select:none;background:#fff;border:2.5px solid var(--line);border-radius:999px;padding:4px 5px 4px 12px;box-shadow:0 2.5px 0 var(--line)}
 .toggle input{position:absolute;opacity:0;width:0;height:0}
-.toggle i{position:relative;width:56px;height:32px;border:2.5px solid var(--line);border-radius:999px;background:#e8e3dc;transition:background .15s}
-.toggle i::after{content:"";position:absolute;top:2px;left:2px;width:23px;height:23px;border-radius:50%;background:#fff;border:2.5px solid var(--line);box-sizing:border-box;transition:transform .15s}
+.toggle i{position:relative;width:52px;height:30px;border:2.5px solid var(--line);border-radius:999px;background:#e8e3dc;transition:background .15s}
+.toggle i::after{content:"";position:absolute;top:1.5px;left:2px;width:22px;height:22px;border-radius:50%;background:#fff;border:2.5px solid var(--line);box-sizing:border-box;transition:transform .15s}
 .toggle input:checked + i{background:var(--ok)}
-.toggle input:checked + i::after{transform:translateX(24px)}
+.toggle input:checked + i::after{transform:translateX(22px)}
 .toggle.busy{opacity:.6}
 body.streaming header, body.streaming .bar, body.streaming .badge, body.streaming .toast{display:none!important}
 body.streaming main{padding:0;max-width:none;background:#000}
@@ -78,19 +82,19 @@ body.streaming #exitStream{display:block}
   <video id="cam" playsinline muted style="display:none"></video>
 </main>
 <nav class="bar">
-  <label class="ctl"><span class="circ" id="nibFace"></span><span class="lbl" id="nibLbl">Ghost</span>
+  <label class="ctl"><span class="circ" id="nibFace"></span><span class="lbl">Nibble</span>
     <select id="nibbleSel" aria-label="Nibble">
       <option value="4075">Ghost #4075</option>
       <option value="4248">Bear #4248</option>
       <option value="3133">Wolf #3133</option>
       <option value="8549">Gnome #8549</option>
     </select></label>
-  <label class="ctl"><span class="circ" id="bgFace"></span><span class="lbl" id="bgLbl">Color</span>
+  <label class="ctl"><span class="circ" id="bgFace"></span><span class="lbl">Background</span>
     <select id="bgSel" aria-label="Background"></select></label>
   <div class="ctl rec-c"><button class="circ" id="recBtn" aria-label="Record">
       <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="rec-dot" cx="50" cy="50" r="34"/><rect class="rec-sq" x="31" y="31" width="38" height="38" rx="8"/></svg>
     </button><span class="lbl" id="recLbl">Record</span></div>
-  <label class="ctl"><span class="circ"><span class="shape-i" id="shapeIcon" style="width:22px;height:22px"></span></span><span class="lbl" id="shapeLbl">Square</span>
+  <label class="ctl"><span class="circ"><span class="shape-i" id="shapeIcon" style="width:22px;height:22px"></span></span><span class="lbl">Ratio</span>
     <select id="shapeSel" aria-label="Shape"></select></label>
   <div class="ctl"><button class="circ" id="streamBtn" aria-label="Stream mode">
       <svg viewBox="0 0 100 100" aria-hidden="true" fill="none" stroke="#1d1b20" stroke-width="7" stroke-linecap="round">
@@ -165,28 +169,26 @@ function bonkdBg(name) {
 }
 $('bgSel').onchange = e => { S.bg = e.target.value; if (BONKD_BGS[S.bg]) bonkdBg(S.bg); showSceneThumb(); };
 const SHAPE_ICON = { 'Square':[22,22], 'Vertical':[17,28], 'Wide':[30,17] };
-for (const name of Object.keys(ASPECTS)) { const o = document.createElement('option'); o.value = o.textContent = name; $('shapeSel').appendChild(o); }
+const RATIO_TXT = { 'Square':'1:1 Square', 'Vertical':'9:16 Vertical', 'Wide':'16:9 Wide' };
+for (const name of Object.keys(ASPECTS)) { const o = document.createElement('option'); o.value = name; o.textContent = RATIO_TXT[name]; $('shapeSel').appendChild(o); }
 $('shapeSel').onchange = e => {
   if (S.recorder) { e.target.value = S.shape || 'Square'; return; }
   S.shape = e.target.value; const [w, h] = ASPECTS[S.shape]; stage.width = w; stage.height = h;
   const [iw, ih] = SHAPE_ICON[S.shape]; const i = $('shapeIcon'); i.style.width = iw + 'px'; i.style.height = ih + 'px';
-  $('shapeLbl').textContent = S.shape;
 };
 // Each control shows a picture of its current choice; the name sits underneath.
-const FACE_AT = { 4075:[610,560,1.9], 4248:[560,470,1.75], 3133:[630,520,1.55], 8549:[570,500,1.8] };   // face centre + zoom in the 1000px art
+const FACE_AT = { 4075:[600,560,1.25], 4248:[560,500,1.2], 3133:[600,520,1.15], 8549:[570,520,1.25] };   // face centre + zoom in the 1000px art
 function showNibbleThumb(id) {
   const f = $('nibFace'), [cx, cy, zoom] = FACE_AT[id];               // show the face, centred
   const pos = c => (Math.min(1, Math.max(0, (c / 1000 * zoom - 0.5) / (zoom - 1))) * 100).toFixed(1) + '%';
   f.style.backgroundImage = `url(faces/${id}/base.webp)`; f.style.backgroundSize = (zoom * 100) + '%';
   f.style.backgroundPosition = `${pos(cx)} ${pos(cy)}`; f.style.backgroundColor = NIBBLES[id].bg;
-  $('nibLbl').textContent = $('nibbleSel').selectedOptions[0].textContent.split(' ')[0];
   showSceneThumb();
 }
 function showSceneThumb() {
   const f = $('bgFace');
   f.style.backgroundImage = BONKD_BGS[S.bg] ? `url(bg/${BONKD_BGS[S.bg]}.webp)` : 'none';
   f.style.backgroundColor = S.bg === 'Green screen' ? '#00ff00' : S.bg === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
-  $('bgLbl').textContent = S.bg === 'Nibble color' ? 'Color' : S.bg === 'Green screen' ? 'Green' : S.bg;
 }
 $('nibbleSel').onchange = e => { loadNibble(+e.target.value); showNibbleThumb(+e.target.value); };
 
@@ -201,6 +203,11 @@ async function loadNibble(id) {
     const imgs = await Promise.all(names.map(n => loadImg(`faces/${id}/${n}.webp`)));
     if (S.id !== id) return;
     S.art = { base:imgs[0], eyes:imgs.slice(1, 6), mouths:imgs.slice(6) };
+    // does the art's body run off its left / right edge? then it keeps going in wide frames
+    const pc = document.createElement('canvas'); pc.width = 1000; pc.height = 1000; const pg = pc.getContext('2d', { willReadFrequently:true });
+    pg.drawImage(imgs[0], 0, 0, 1000, 1000);
+    const colOpaque = x => { const d = pg.getImageData(x, 0, 1, 1000).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) n++; return n; };
+    S.art.edgeL = colOpaque(1) > 40; S.art.edgeR = colOpaque(998) > 40;
     if (cfg.trait) {
       const t = cfg.trait;
       const frames = await Promise.all(Array.from({ length:t.frames }, (_, i) => loadImg(`traits/${id}/f${i}.webp`)));
@@ -296,12 +303,11 @@ function pickMouth(f) {
   else if (openLvl === 1 && f.open > 0.62) openLvl = 2;
   else if (openLvl === 2 && f.open < 0.48) openLvl = 1;
   else if (openLvl === 1 && f.open < 0.07) openLvl = 0;
-  const round = f.round > 0.45 || f.wide < -0.45, wideM = f.wide > 0.45 || f.smile > 0.55;
+  const round = f.round > 0.45 || f.wide < -0.45, wideM = f.wide > 0.5 && f.smile > 0.45;   // teeth only for a real open "EE"/grin
   if (openLvl === 2) return round ? 5 : 3;                       // O or AH
   if (openLvl === 1) return round ? 5 : wideM ? 4 : 2;           // O, EE or most speech
   if (round && f.round > 0.6) return 6;                          // OO / W
   if (f.press > 0.55) return 1;                                  // M B P
-  if (f.smile > 0.7) return 4;
   return 0;
 }
 const eyeHold = { want:0, since:0 };
@@ -396,9 +402,12 @@ function drawNibble(t) {
   ctx.rotate(clamp(roll, -.4, .4) * 0.35);
   ctx.scale(1 - Math.abs(yaw) * 0.04, 1 + breathe);
   ctx.translate(-px, -py);
-  const x = (W - size)/2, y = H - size;
+  // art whose body is cut off at its left/right edge sits against that side of the frame, so the cut never shows
+  const pad = size * 0.06;   // a little past the frame edge, so head turns and tilts don't reveal it
+  const x = A.edgeL && !A.edgeR ? -pad : A.edgeR && !A.edgeL ? W - size + pad : (W - size)/2, y = H - size;
   ctx.drawImage(A.base, x, y, size, size);
   ctx.drawImage(A.base, 0, 997, 1000, 3, x, H - 1, size, size * 0.3);   // body continues below the frame edge
+
   drawLayer(A.eyes, S.eye, t, FADE.eye, x, y, size);
   drawLayer(A.mouths, S.mouth, t, FADE.mouth, x, y, size);
   drawTrait(t, x, y, size, live ? f : null);
