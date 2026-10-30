@@ -39,12 +39,16 @@ header .credit b{font-weight:400}
 .toggle input{position:absolute;opacity:0;width:0;height:0}
 .toggle i{position:relative;width:52px;height:30px;border:2.5px solid var(--line);border-radius:999px;background:#e8e3dc;transition:background .15s}
 .toggle i::after{content:"";position:absolute;top:1.5px;left:2px;width:22px;height:22px;border-radius:50%;background:#fff;border:2.5px solid var(--line);box-sizing:border-box;transition:transform .15s}
-.toggle input:checked + i{background:var(--ok)}
+.toggle input:checked + i{background:var(--gold)}
 .toggle input:checked + i::after{transform:translateX(22px)}
 .toggle input:focus-visible + i{outline:3px dashed var(--ink);outline-offset:2px}
 .toggle.busy{opacity:.6}
-#camToggle{background:var(--red);color:#fff;-webkit-text-stroke:1.2px var(--ink);paint-order:stroke fill}
-#txtToggle{background:var(--sky)}
+/* both switches: red pill while off; on, the pill turns green and the track inside turns gold */
+#camToggle,#txtToggle{background:var(--red);color:#fff;-webkit-text-stroke:1.2px var(--ink);paint-order:stroke fill;transition:background .15s}
+#camToggle.on,#txtToggle.on{background:var(--green)}
+/* Safari paints a rounded box's fill square for a moment while it animates; keep every fill inside its outline */
+.toggle,.aa,#txtIn,.pop,.chipb,.sw,.badge,.toast,#exitStream,.bezel,.device,.circ{background-clip:padding-box;isolation:isolate}
+.toggle,.aa,.chipb{overflow:hidden}
 
 /* the screen: ink bezel, the picture fitted inside it, a cartoon glint on the glass */
 .bezel{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:7px;background:var(--ink);border-radius:22px}
@@ -197,7 +201,7 @@ const NIBBLES = {
   8549: { bg:'#ffb7dc', fullFace:true, trait:{ frames:20, fps:6.67 } },
   // Cock: the fire in his eyes flickers behind his eyes and beak, so the eyes are always their own layer
   // and each mouth frame comes with its beak (+ mohawk) cut out to sit in front of the flames
-  8212: { bg:'#ff8588', fullFace:true, trait:{ frames:6, fps:8, under:true }, eyesAlways:true, overlay:true },
+  8212: { bg:'#ff8588', fullFace:true, trait:{ frames:6, fps:8, under:true }, eyesAlways:true, noBlink:true, overlay:true },
 };
 const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest' };
 const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS), 'Green screen'];
@@ -359,7 +363,7 @@ async function cameraOn() {
     resetBaselines(); S.tracking = true;
     setStatus('camStatus', '');
   } catch (e) {
-    $('camSwitch').checked = false;
+    $('camSwitch').checked = false; $('camToggle').classList.remove('on');
     setStatus('camStatus', 'Camera blocked or unavailable. Allow camera access and try again.', 'err');
   }
   $('camToggle').classList.remove('busy');
@@ -405,6 +409,7 @@ function cameraOff() {
   try { video.srcObject?.getTracks().forEach(t => t.stop()); } catch (e) {}
   video.srcObject = null;
 }
+$('camSwitch').addEventListener('change', e => $('camToggle').classList.toggle('on', e.target.checked));
 $('camSwitch').onchange = e => {
   // Safari only lets sound analysis start during a tap, so create it right here, before any waiting
   e.target.checked ? cameraOn() : cameraOff();
@@ -615,7 +620,7 @@ function drawNibble(t) {
 
   const cfg = NIBBLES[S.id], under = S.trait && S.trait.under;
   if (under) drawTrait(t, x, y, size, live ? f : null);
-  if (cfg.eyesAlways) ctx.drawImage(A.eyes[S.eye.cur], x, y, size, size);
+  if (cfg.eyesAlways) ctx.drawImage(A.eyes[cfg.noBlink ? 0 : S.eye.cur], x, y, size, size);   // eyes made of fire don't blink
   else drawLayer(A.eyes, S.eye, t, FADE.eye, x, y, size);
   if (A.over) ctx.drawImage(A.over[S.mouth.cur], x, y, size, size);
   if (!under) drawTrait(t, x, y, size, live ? f : null);
@@ -730,6 +735,7 @@ function drawText() {
 // controls
 const txtIn = $('txtIn');
 $('txtSwitch').onchange = e => {
+  $('txtToggle').classList.toggle('on', e.target.checked);
   TX.on = e.target.checked; TX.text = '';              // switching on starts empty; nothing shows until you send something
   txtIn.disabled = !TX.on; txtIn.value = '';
   txtIn.placeholder = TX.on ? 'Type + Enter' : 'Text is off';
