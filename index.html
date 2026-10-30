@@ -253,7 +253,7 @@ function track(now) {
   const press = ((bs.mouthPressLeft || 0) + (bs.mouthPressRight || 0)) / 2 + (bs.mouthRollLower || 0) * .6;
   const rel = (v, b, span) => clamp((v - b) / span, 0, 1);
   const k = 0.6;
-  f.open = lerp(f.open, rel(open, base('open', open, 0.1), 0.06), k);            // ~6% of face height = fully open
+  f.open = lerp(f.open, rel(open, base('open', open, 0.1), 0.045), k);            // ~6% of face height = fully open
   f.wide = lerp(f.wide, clamp((wide - base('wide', wide, 0.5)) / 0.05, -1, 1), k);
   f.round = lerp(f.round, rel(round, base('round', round), 0.5), k);
   f.smile = lerp(f.smile, rel(smile, base('smile', smile), 0.5), k);
@@ -270,10 +270,10 @@ function track(now) {
 // (hysteresis), so the face doesn't flicker on the border between two shapes.
 let openLvl = 0;   // 0 closed, 1 slightly open, 2 wide open
 function pickMouth(f) {
-  if (openLvl === 0 && f.open > 0.20) openLvl = 1;
+  if (openLvl === 0 && f.open > 0.15) openLvl = 1;
   else if (openLvl === 1 && f.open > 0.62) openLvl = 2;
   else if (openLvl === 2 && f.open < 0.48) openLvl = 1;
-  else if (openLvl === 1 && f.open < 0.11) openLvl = 0;
+  else if (openLvl === 1 && f.open < 0.07) openLvl = 0;
   const round = f.round > 0.45 || f.wide < -0.45, wideM = f.wide > 0.45 || f.smile > 0.55;
   if (openLvl === 2) return round ? 5 : 3;                       // O or AH
   if (openLvl === 1) return round ? 5 : wideM ? 4 : 2;           // O, EE or most speech
