@@ -63,7 +63,8 @@ header .credit b{font-weight:400}
   font:400 16px/1 var(--display);letter-spacing:.04em;vertical-align:middle;box-shadow:2px 2px 0 var(--line)}
 .toast .close{display:inline-block;white-space:nowrap;color:var(--ink);text-decoration:none;font-size:18px;padding:4px 4px 4px 12px;vertical-align:middle}
 
-/* text bar: a switch, a chat-style box (Enter puts it on screen), and the Aa style card */
+/* text bar: a switch, a chat-style box (Enter puts it on screen), and the Aa style card.
+   It sits above the screen so the phone keyboard never has to push the page up to reach it. */
 .textbar{position:relative;flex:none;display:flex;align-items:center;gap:8px}
 .textbar .toggle{padding:4px 4px 4px 10px;gap:6px;font-size:14px}
 .textbar .toggle i{width:44px;height:26px}
@@ -77,7 +78,7 @@ header .credit b{font-weight:400}
 .aa{flex:none;width:40px;height:40px;padding:2px 0 0;border:2.5px solid var(--ink);border-radius:12px;background:var(--gold);font:400 18px/1 var(--display);letter-spacing:.02em;
   box-shadow:2px 2px 0 var(--ink);cursor:pointer}
 .aa:active,.aa.on{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
-.pop{position:absolute;left:0;right:0;bottom:calc(100% + 12px);z-index:10;background:var(--paper);border:3px solid var(--ink);border-radius:20px;box-shadow:5px 5px 0 var(--ink);
+.pop{position:absolute;left:0;right:0;top:calc(100% + 12px);z-index:10;background:var(--paper);border:3px solid var(--ink);border-radius:20px;box-shadow:5px 5px 0 var(--ink);
   padding:10px 14px 14px;display:grid;gap:4px}
 .pop[hidden]{display:none}
 .pop h4{margin:4px 0 2px;font:400 12px/1 var(--display);letter-spacing:.08em;text-transform:uppercase;opacity:.6}
@@ -138,13 +139,6 @@ body.streaming #exitStream{display:block}
     <label class="toggle" id="camToggle"><span>Camera</span><input type="checkbox" id="camSwitch"><i></i></label>
   </header>
 
-  <div class="bezel" id="bezel">
-    <canvas id="stage" width="1080" height="1080"></canvas>
-    <svg class="glare" viewBox="0 0 30 30" aria-hidden="true" fill="none" stroke="#fff" stroke-linecap="round"><path d="M4 19 Q4 4 19 4" stroke-width="4"/><path d="M4 26.5 L4 26.6" stroke-width="4"/></svg>
-    <div class="badge" id="recBadge">● REC</div>
-    <div class="toast" id="toast"></div>
-  </div>
-
   <div class="textbar">
     <label class="toggle" id="txtToggle"><span>Text</span><input type="checkbox" id="txtSwitch"><i></i></label>
     <form class="txt-form" id="txtForm" autocomplete="off"><input id="txtIn" type="text" maxlength="80" enterkeyhint="send" placeholder="Text is off" disabled aria-label="On-screen text"></form>
@@ -154,6 +148,13 @@ body.streaming #exitStream{display:block}
       <h4>Color</h4><div class="prow" id="colorRow"></div>
       <h4>Style</h4><div class="prow" id="styleRow"></div>
     </div>
+  </div>
+
+  <div class="bezel" id="bezel">
+    <canvas id="stage" width="1080" height="1080"></canvas>
+    <svg class="glare" viewBox="0 0 30 30" aria-hidden="true" fill="none" stroke="#fff" stroke-linecap="round"><path d="M4 19 Q4 4 19 4" stroke-width="4"/><path d="M4 26.5 L4 26.6" stroke-width="4"/></svg>
+    <div class="badge" id="recBadge">● REC</div>
+    <div class="toast" id="toast"></div>
   </div>
 
   <nav class="bar"><div class="dock">
@@ -735,6 +736,10 @@ function drawText() {
 
 // controls
 const txtIn = $('txtIn');
+// the page itself never scrolls; if the phone tries to nudge it while the keyboard opens or closes, put it straight back
+const pin = () => { if (scrollY || document.documentElement.scrollTop) scrollTo(0, 0); };
+addEventListener('scroll', pin, { passive:true });
+if (window.visualViewport) visualViewport.addEventListener('resize', pin);
 $('txtSwitch').onchange = e => {
   $('txtToggle').classList.toggle('on', e.target.checked);
   TX.on = e.target.checked; TX.text = '';              // switching on starts empty; nothing shows until you send something
