@@ -115,10 +115,11 @@ const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarke
 // Each Nibble: its cleaned art (base), drawn eyes e0–e4 and mouths m0–m6, all lined up at 1000×1000.
 // eyes: 0 as-drawn, 1 angry, 2 surprised, 3 half-closed, 4 closed
 // mouths: 0 as-drawn, 1 closed (M B P), 2 slightly open, 3 wide "AH", 4 grin "EE", 5 round "O", 6 pucker "OO"
+// fullFace: each mouth is the whole picture with the snout and jaw redrawn for that sound, swapped in place of the base
 const NIBBLES = {
   4075: { bg:'#9de8ff' },
   4248: { bg:'#9de8ff', trait:{ frames:6, fps:8 } },
-  3133: { bg:'#ffb7dc', trait:{ frames:50, fps:12.5, box:[254.5, 73.6, 364, 174.9], wobble:{ centre:[436.5, 156] } } },
+  3133: { bg:'#ffb7dc', fullFace:true, trait:{ frames:50, fps:12.5, box:[254.5, 73.6, 364, 174.9], wobble:{ centre:[436.5, 156] } } },
   8549: { bg:'#ffb7dc', trait:{ frames:20, fps:6.67 } },
 };
 const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest' };
@@ -405,11 +406,17 @@ function drawNibble(t) {
   // art whose body is cut off at its left/right edge sits against that side of the frame, so the cut never shows
   const pad = size * 0.06;   // a little past the frame edge, so head turns and tilts don't reveal it
   const x = A.edgeL && !A.edgeR ? -pad : A.edgeR && !A.edgeL ? W - size + pad : (W - size)/2, y = H - size;
-  ctx.drawImage(A.base, x, y, size, size);
+  if (NIBBLES[S.id].fullFace) {
+    const m = S.mouth, ft = clamp((t - m.t) / FADE.mouth, 0, 1);
+    ctx.drawImage(A.mouths[ft < 1 ? m.prev : m.cur], x, y, size, size);          // whole face for the previous sound…
+    if (ft < 1) { ctx.globalAlpha = ft; ctx.drawImage(A.mouths[m.cur], x, y, size, size); ctx.globalAlpha = 1; }   // …blending into the new one
+  } else ctx.drawImage(A.base, x, y, size, size);
   ctx.drawImage(A.base, 0, 997, 1000, 3, x, H - 1, size, size * 0.3);   // body continues below the frame edge
+  if (A.edgeL) { ctx.drawImage(A.base, 0, 0, 2, 1000, x - size*0.5 + 1, y, size*0.5, size); ctx.drawImage(A.base, 0, 997, 2, 3, x - size*0.5 + 1, H - 1, size*0.5, size*0.3); }
+  if (A.edgeR) { ctx.drawImage(A.base, 998, 0, 2, 1000, x + size - 1, y, size*0.5, size); ctx.drawImage(A.base, 998, 997, 2, 3, x + size - 1, H - 1, size*0.5, size*0.3); }
 
   drawLayer(A.eyes, S.eye, t, FADE.eye, x, y, size);
-  drawLayer(A.mouths, S.mouth, t, FADE.mouth, x, y, size);
+  if (!NIBBLES[S.id].fullFace) drawLayer(A.mouths, S.mouth, t, FADE.mouth, x, y, size);
   drawTrait(t, x, y, size, live ? f : null);
   ctx.restore();
 }
