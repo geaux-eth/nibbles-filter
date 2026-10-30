@@ -243,10 +243,10 @@ function bonkdBg(name) {
 }
 $('bgSel').onchange = e => { S.bg = e.target.value; if (BONKD_BGS[S.bg]) bonkdBg(S.bg); showSceneThumb(); };
 const SHAPE_ICON = { 'Square':[22,22], 'Vertical':[17,28], 'Wide':[30,17] };
-const RATIO_TXT = { 'Square':'1:1 Square', 'Vertical':'9:16 Vertical', 'Wide':'16:9 Wide' };
+const RATIO_TXT = { 'Square':'Square (fills screen)', 'Vertical':'9:16 Vertical', 'Wide':'16:9 Wide' };
 for (const name of Object.keys(ASPECTS)) { const o = document.createElement('option'); o.value = name; o.textContent = RATIO_TXT[name]; $('shapeSel').appendChild(o); }
 function setShape(name) {
-  S.shape = name; const [w, h] = ASPECTS[name]; stage.width = w; stage.height = h; $('shapeSel').value = name;
+  S.shape = name; S.shapeN = (S.shapeN || 0) + 1; const [w, h] = ASPECTS[name]; stage.width = w; stage.height = h; $('shapeSel').value = name;
   const [iw, ih] = SHAPE_ICON[name]; const i = $('shapeIcon'); i.style.width = iw + 'px'; i.style.height = ih + 'px';
   fitStage();
 }
@@ -262,15 +262,18 @@ function screenSpace() {
 }
 function fitStage() {
   const [aw, ah] = screenSpace(); if (aw <= 0 || ah <= 0) return;
+  // Square: the Nibble's square sits at the bottom of the screen and the picture grows to fill the rest
+  // (the backdrop continues and the text goes in the space above), so there's never any black around it.
+  if (S.shape === 'Square' && !S.recorder) {
+    const W = ah >= aw ? 1080 : Math.round(1080 * aw / ah), H = ah >= aw ? Math.round(1080 * ah / aw) : 1080;
+    if (stage.width !== W || stage.height !== H) { stage.width = W; stage.height = H; }
+  }
   const [w, h] = fitBox(aw, ah, stage.width / stage.height);
   stage.style.width = w + 'px'; stage.style.height = h + 'px';
 }
 new ResizeObserver(fitStage).observe($('bezel'));
 addEventListener('resize', fitStage);
-{ // start with whichever shape fills this screen best (vertical on tall phones, square otherwise)
-  const [aw, ah] = screenSpace(), area = r => { const [w, h] = fitBox(aw, ah, r); return w * h; };
-  setShape(area(9/16) > area(1) * 1.08 ? 'Vertical' : 'Square');
-}
+setShape('Square');
 // Each control shows a picture of its current choice; the name sits underneath.
 const FACE_AT = { 4075:[600,560,1.25], 4248:[560,500,1.2], 3133:[600,520,1.15], 8549:[570,520,1.25] };   // face centre + zoom in the 1000px art
 function showNibbleThumb(id) {
@@ -651,10 +654,10 @@ const FONTS = [
 ];
 const COLORS = ['#161616', '#ffffff', '#ffd23f', '#df3a4e', '#8ee26b', '#9fe3fb', '#f48aa8', '#f2a03d'];
 const SIZES = { S:0.058, M:0.078, L:0.104 };
-const TX = { on:false, text:'', font:'bonkd', color:'#161616', outline:false, box:true, size:'M', x:0.5, y:0.86, rect:null };
-try { Object.assign(TX, JSON.parse(localStorage.getItem('nf-text') || '{}'), { on:false, text:'', rect:null }); } catch (e) {}
+const TX = { on:false, text:'', font:'bonkd', color:'#161616', outline:false, box:true, size:'M', x:0.5, y:0.86, placed:false, rect:null };
+try { Object.assign(TX, JSON.parse(localStorage.getItem('nf-text') || '{}'), { on:false, text:'', rect:null, x:0.5, y:0.86, placed:false }); } catch (e) {}
 if (!FONTS.some(f => f[0] === TX.font)) TX.font = 'bonkd';
-function saveTX() { try { const { font, color, outline, box, size, x, y } = TX; localStorage.setItem('nf-text', JSON.stringify({ font, color, outline, box, size, x, y })); } catch (e) {} }
+function saveTX() { try { const { font, color, outline, box, size } = TX; localStorage.setItem('nf-text', JSON.stringify({ font, color, outline, box, size })); } catch (e) {} }
 const fontOf = () => FONTS.find(f => f[0] === TX.font);
 const loadedFonts = {};
 function ensureFont(f) {
@@ -676,18 +679,22 @@ function drawText() {
   if (!TX.on || !TX.text) { TX.rect = null; return; }
   const W = stage.width, H = stage.height, m = Math.min(W, H), f = fontOf(); ensureFont(f);
   const box = TX.box, maxW = W * 0.9;
-  let fs = m * SIZES[TX.size], lines, padX, widths;
-  for (let i = 0; i < 12; i++) {                       // shrink until it fits in three lines across the frame
+  if (TX.shapeN !== S.shapeN) { TX.shapeN = S.shapeN; TX.placed = false; }   // a new shape starts the text back in its default spot
+  const mg = m * 0.025, band = H - m, inBand = !TX.placed && band > H * 0.08;
+  let fs = m * SIZES[TX.size], lines, padX, padY, widths, capH, lineH, bw, bh;
+  for (let i = 0; i < 16; i++) {   // shrink until it fits in three lines across the frame (and inside the space above the Nibble)
     ctx.font = `${f[3]} ${fs}px ${f[2]}, 'Arial Black', sans-serif`;
-    padX = box ? fs * 0.55 : fs * 0.2;
+    padX = box ? fs * 0.55 : fs * 0.2; padY = box ? fs * 0.42 : fs * 0.2;
     lines = wrapLines(TX.text, maxW - 2 * padX); widths = lines.map(l => ctx.measureText(l).width);
-    if (lines.length <= 3 && Math.max(...widths) <= maxW - 2 * padX) break;
-    fs *= 0.88;
+    capH = ctx.measureText('H').actualBoundingBoxAscent || fs * 0.72; lineH = fs * 1.12;
+    bw = Math.max(...widths) + 2 * padX; bh = (lines.length - 1) * lineH + capH + 2 * padY;
+    const fits = lines.length <= 3 && bw <= maxW && (!inBand || bh <= band - 2 * mg);
+    if (fits || fs < m * 0.03) break;
+    fs *= 0.9;
   }
-  const capH = ctx.measureText('H').actualBoundingBoxAscent || fs * 0.72, lineH = fs * 1.12;
-  const padY = box ? fs * 0.42 : fs * 0.2, bw = Math.max(...widths) + 2 * padX, bh = (lines.length - 1) * lineH + capH + 2 * padY;
-  const mg = m * 0.025;
-  const cx = clamp(TX.x * W, bw / 2 + mg, W - bw / 2 - mg), cy = clamp(TX.y * H, bh / 2 + mg, H - bh / 2 - mg);
+  // until it's dragged, the text sits centred in the space above the Nibble (or low on the frame if there isn't any)
+  const ax = TX.placed ? TX.x * W : W / 2, ay = TX.placed ? TX.y * H : inBand ? band / 2 : H * 0.86;
+  const cx = clamp(ax, bw / 2 + mg, W - bw / 2 - mg), cy = clamp(ay, bh / 2 + mg, H - bh / 2 - mg);
   const bx = cx - bw / 2, by = cy - bh / 2, sh = fs * 0.09, light = lum(TX.color) > 0.5;
   TX.rect = [bx, by, bw, bh, cx, cy];
   ctx.save();
@@ -761,10 +768,10 @@ stage.addEventListener('pointerdown', e => {
 stage.addEventListener('pointermove', e => {
   const [x, y] = toCanvas(e);
   if (!drag) { stage.style.cursor = onText(x, y) ? 'grab' : ''; return; }
-  TX.x = (x - drag.dx) / stage.width; TX.y = (y - drag.dy) / stage.height;
+  TX.x = (x - drag.dx) / stage.width; TX.y = (y - drag.dy) / stage.height; TX.placed = true;
 });
 const endDrag = () => { if (!drag) return; drag = null; stage.style.cursor = '';
-  if (TX.rect) { TX.x = TX.rect[4] / stage.width; TX.y = TX.rect[5] / stage.height; } saveTX(); };
+  if (TX.rect) { TX.x = TX.rect[4] / stage.width; TX.y = TX.rect[5] / stage.height; } };
 stage.addEventListener('pointerup', endDrag); stage.addEventListener('pointercancel', endDrag);
 
 // ---------------------------------------------------------------------------
@@ -792,7 +799,7 @@ $('recBtn').onclick = async () => {
       const type = (S.recorder && S.recorder.mimeType) || mimeType || 'video/webm';
       const blob = new Blob(S.chunks, { type });
       const name = `nibblefilter-${S.id}-${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`;
-      S.recorder = null; $('recBtn').classList.remove('on'); $('recLbl').textContent = 'Record'; $('recBadge').style.display = 'none';
+      S.recorder = null; fitStage(); $('recBtn').classList.remove('on'); $('recLbl').textContent = 'Record'; $('recBadge').style.display = 'none';
       const t = $('toast'); clearTimeout(toastT); t.className = 'toast'; t.innerHTML = ''; t.style.display = 'block';
       const dl = document.createElement('a'); dl.href = URL.createObjectURL(blob); dl.download = name; dl.textContent = 'Save clip'; dl.className = 'save';
       let file = null; try { file = new File([blob], name, { type }); } catch (e) {}
