@@ -31,17 +31,23 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;padding:10px 12px 0;
 .toast{white-space:normal;position:absolute;left:50%;bottom:14px;transform:translateX(-50%);max-width:92%;background:#fff;border:2.5px solid var(--line);border-radius:14px;padding:8px 12px;font-size:13px;font-weight:700;text-align:center;box-shadow:0 3px 0 var(--line);display:none;z-index:5}
 .toast.err{background:#ffe1dc}
 .toast a{color:var(--me)}
-.bar{flex:none;display:flex;align-items:center;justify-content:space-around;gap:6px;padding:8px 4px max(10px,env(safe-area-inset-bottom));width:100%;max-width:520px;margin:0 auto}
-.ctl{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;min-width:56px}
-.ctl .face{width:50px;height:50px;border-radius:50%;border:2.5px solid var(--line);background:#fff;box-shadow:0 3px 0 var(--line);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--ink);text-transform:none;letter-spacing:0;overflow:hidden;text-align:center;line-height:1.05;padding:2px}
-.ctl select{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;font-size:16px}
-.rec{width:68px;height:68px;border-radius:50%;border:3px solid var(--line);background:#fff;box-shadow:0 3px 0 var(--line);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
-.rec i{width:46px;height:46px;border-radius:50%;background:#ff4d4d;transition:all .15s}
-.rec.on i{width:26px;height:26px;border-radius:6px}
-.ctl button.face{cursor:pointer;font:inherit;font-size:12px;font-weight:800}
-@media (min-width:900px){ .ctl .face{width:58px;height:58px} }
-.report{margin-left:auto;margin-right:10px;white-space:nowrap;border:2px solid var(--line);border-radius:999px;background:#fff;font-weight:800;font-size:12px;padding:5px 10px;cursor:pointer}
-.report.busy{opacity:.5}
+.toast .save{display:inline-block;white-space:nowrap;background:var(--me);color:#fff;text-decoration:none;border:2.5px solid var(--line);border-radius:999px;padding:7px 16px;font-size:15px;vertical-align:middle}
+.toast .close{display:inline-block;white-space:nowrap;color:var(--ink);text-decoration:none;font-size:18px;padding:4px 4px 4px 12px;vertical-align:middle}
+.bar{flex:none;display:grid;grid-template-columns:repeat(5,1fr);align-items:start;padding:8px 6px max(10px,env(safe-area-inset-bottom));width:100%;max-width:460px;margin:0 auto}
+.ctl{position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0}
+.circ{display:block;flex:none;width:52px;height:52px;border-radius:50%;border:2.5px solid var(--line);background:#fff center/cover no-repeat;
+  position:relative;padding:0;margin:0;-webkit-appearance:none;appearance:none;cursor:pointer;overflow:hidden}
+.circ svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.lbl{display:block;max-width:100%;font-size:11px;font-weight:800;line-height:1.2;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctl select{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;font-size:16px;-webkit-appearance:none;appearance:none}
+.circ{margin:6px 0}
+.ctl.rec-c .circ{width:64px;height:64px;margin:0;border-width:3px}
+.rec-dot{fill:#ff4d4d}
+.rec-sq{fill:#ff4d4d;display:none}
+#recBtn.on .rec-dot{display:none}
+#recBtn.on .rec-sq{display:inline}
+.shape-i{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:2.5px solid var(--line);border-radius:4px;background:#fff}
+@media (max-width:340px){ .circ{width:46px;height:46px} .ctl.rec-c .circ{width:58px;height:58px} .lbl{font-size:10px} }
 .toggle{display:flex;align-items:center;gap:10px;font-weight:800;cursor:pointer;user-select:none}
 .toggle input{position:absolute;opacity:0;width:0;height:0}
 .toggle i{position:relative;width:56px;height:32px;border:2.5px solid var(--line);border-radius:999px;background:#e8e3dc;transition:background .15s}
@@ -60,7 +66,6 @@ body.streaming #exitStream{display:block}
 <body>
 <header>
   <h1>Nibble<span>ME</span></h1>
-  <button class="report" id="reportBtn" title="Send the last 10 seconds to Claude">Send to Claude</button>
   <label class="toggle" id="camToggle"><span>Camera</span><input type="checkbox" id="camSwitch"><i></i></label>
 </header>
 
@@ -73,19 +78,26 @@ body.streaming #exitStream{display:block}
   <video id="cam" playsinline muted style="display:none"></video>
 </main>
 <nav class="bar">
-  <label class="ctl"><span class="face" id="nibFace">Ghost</span>Nibble
+  <label class="ctl"><span class="circ" id="nibFace"></span><span class="lbl" id="nibLbl">Ghost</span>
     <select id="nibbleSel" aria-label="Nibble">
       <option value="4075">Ghost #4075</option>
       <option value="4248">Bear #4248</option>
       <option value="3133">Wolf #3133</option>
       <option value="8549">Gnome #8549</option>
     </select></label>
-  <label class="ctl"><span class="face" id="bgFace">Color</span>Scene
+  <label class="ctl"><span class="circ" id="bgFace"></span><span class="lbl" id="bgLbl">Color</span>
     <select id="bgSel" aria-label="Background"></select></label>
-  <button class="rec" id="recBtn" aria-label="Record"><i></i></button>
-  <label class="ctl"><span class="face" id="shapeFace">1:1</span>Shape
+  <div class="ctl rec-c"><button class="circ" id="recBtn" aria-label="Record">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="rec-dot" cx="50" cy="50" r="34"/><rect class="rec-sq" x="31" y="31" width="38" height="38" rx="8"/></svg>
+    </button><span class="lbl" id="recLbl">Record</span></div>
+  <label class="ctl"><span class="circ"><span class="shape-i" id="shapeIcon" style="width:22px;height:22px"></span></span><span class="lbl" id="shapeLbl">Square</span>
     <select id="shapeSel" aria-label="Shape"></select></label>
-  <div class="ctl"><button class="face" id="streamBtn" aria-label="Stream mode">LIVE</button>Stream</div>
+  <div class="ctl"><button class="circ" id="streamBtn" aria-label="Stream mode">
+      <svg viewBox="0 0 100 100" aria-hidden="true" fill="none" stroke="#1d1b20" stroke-width="7" stroke-linecap="round">
+        <circle cx="50" cy="50" r="8" fill="#ff4d4d" stroke="none"/>
+        <path d="M35 35 a21 21 0 0 0 0 30"/><path d="M65 35 a21 21 0 0 1 0 30"/>
+        <path d="M24 24 a37 37 0 0 0 0 52"/><path d="M76 24 a37 37 0 0 1 0 52"/>
+      </svg></button><span class="lbl">Stream</span></div>
 </nav>
 <button id="exitStream">✕ Exit stream</button>
 
@@ -151,14 +163,32 @@ function bonkdBg(name) {
   if (!bgCache[name]) { const i = new Image(); i.src = `bg/${BONKD_BGS[name]}.webp`; bgCache[name] = i; }
   const i = bgCache[name]; return i.complete && i.naturalWidth ? i : null;
 }
-$('bgSel').onchange = e => { S.bg = e.target.value; if (BONKD_BGS[S.bg]) bonkdBg(S.bg); const f = $('bgFace'); f.textContent = S.bg === 'Nibble color' ? 'Color' : S.bg === 'Green screen' ? 'Green' : S.bg; f.style.fontSize = f.textContent.length > 5 ? '10px' : ''; };
-const SHORT = { 'Square':'1:1', 'Vertical':'9:16', 'Wide':'16:9' };
-for (const name of Object.keys(ASPECTS)) { const o = document.createElement('option'); o.value = name; o.textContent = `${name} (${SHORT[name]})`; $('shapeSel').appendChild(o); }
+$('bgSel').onchange = e => { S.bg = e.target.value; if (BONKD_BGS[S.bg]) bonkdBg(S.bg); showSceneThumb(); };
+const SHAPE_ICON = { 'Square':[22,22], 'Vertical':[17,28], 'Wide':[30,17] };
+for (const name of Object.keys(ASPECTS)) { const o = document.createElement('option'); o.value = o.textContent = name; $('shapeSel').appendChild(o); }
 $('shapeSel').onchange = e => {
   if (S.recorder) { e.target.value = S.shape || 'Square'; return; }
-  S.shape = e.target.value; const [w, h] = ASPECTS[S.shape]; stage.width = w; stage.height = h; $('shapeFace').textContent = SHORT[S.shape];
+  S.shape = e.target.value; const [w, h] = ASPECTS[S.shape]; stage.width = w; stage.height = h;
+  const [iw, ih] = SHAPE_ICON[S.shape]; const i = $('shapeIcon'); i.style.width = iw + 'px'; i.style.height = ih + 'px';
+  $('shapeLbl').textContent = S.shape;
 };
-$('nibbleSel').onchange = e => { loadNibble(+e.target.value); $('nibFace').textContent = e.target.selectedOptions[0].textContent.split(' ')[0]; };
+// Each control shows a picture of its current choice; the name sits underneath.
+const FACE_AT = { 4075:[610,560,1.9], 4248:[560,470,1.75], 3133:[630,520,1.55], 8549:[570,500,1.8] };   // face centre + zoom in the 1000px art
+function showNibbleThumb(id) {
+  const f = $('nibFace'), [cx, cy, zoom] = FACE_AT[id];               // show the face, centred
+  const pos = c => (Math.min(1, Math.max(0, (c / 1000 * zoom - 0.5) / (zoom - 1))) * 100).toFixed(1) + '%';
+  f.style.backgroundImage = `url(faces/${id}/base.webp)`; f.style.backgroundSize = (zoom * 100) + '%';
+  f.style.backgroundPosition = `${pos(cx)} ${pos(cy)}`; f.style.backgroundColor = NIBBLES[id].bg;
+  $('nibLbl').textContent = $('nibbleSel').selectedOptions[0].textContent.split(' ')[0];
+  showSceneThumb();
+}
+function showSceneThumb() {
+  const f = $('bgFace');
+  f.style.backgroundImage = BONKD_BGS[S.bg] ? `url(bg/${BONKD_BGS[S.bg]}.webp)` : 'none';
+  f.style.backgroundColor = S.bg === 'Green screen' ? '#00ff00' : S.bg === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
+  $('bgLbl').textContent = S.bg === 'Nibble color' ? 'Color' : S.bg === 'Green screen' ? 'Green' : S.bg;
+}
+$('nibbleSel').onchange = e => { loadNibble(+e.target.value); showNibbleThumb(+e.target.value); };
 
 // ---------------------------------------------------------------------------
 // Loading a Nibble (everything is bundled with the site)
@@ -178,7 +208,7 @@ async function loadNibble(id) {
     }
   } catch (e) { setStatus('camStatus', 'Could not load that Nibble.', 'err'); }
 }
-loadNibble(4075);
+loadNibble(4075); showNibbleThumb(4075);
 
 // ---------------------------------------------------------------------------
 // Camera + face tracking (MediaPipe Face Landmarker, on-device)
@@ -375,47 +405,31 @@ function drawNibble(t) {
   ctx.restore();
 }
 
-const REPORT_URL = 'https://jmiesqhrpcmrthrquqpq.supabase.co/rest/v1/nibbleme_reports';
-const REPORT_KEY = 'sb_publishable_e7oqQbX2PJ5qV5ge2vUSbg_H9t0A9-d';
-const LOG = { sig:[], snaps:[], events:[], lastSig:0, lastSnap:0 };
-const snapC = document.createElement('canvas');
-function logEvent(e) { LOG.events.push({ t:Math.round(performance.now()), e:String(e).slice(0, 300) }); if (LOG.events.length > 60) LOG.events.shift(); }
-window.addEventListener('error', e => logEvent('error: ' + (e.message || e)));
-window.addEventListener('unhandledrejection', e => logEvent('reject: ' + (e.reason && e.reason.message || e.reason)));
-function record(now) {
-  if (now - LOG.lastSig > 66) {                 // ~15 samples a second
-    LOG.lastSig = now; const f = S.face, r = v => Math.round(v * 100) / 100;
-    LOG.sig.push([Math.round(now), f.seen ? 1 : 0, r(f.open), r(f.wide), r(f.round), r(f.smile), r(f.press), r(f.blink), r(f.brow), r(f.browUp), r(f.roll), r(f.yaw), r(f.pitch), S.mouth.cur, S.eye.cur, typeof openLvl === 'number' ? openLvl : -1]);
-    if (LOG.sig.length > 180) LOG.sig.shift();
-  }
-  if (now - LOG.lastSnap > 400 && S.art) {      // ~2.5 snapshots a second of the Nibble only
-    LOG.lastSnap = now;
-    const w = 320, h = Math.round(320 * stage.height / stage.width); snapC.width = w; snapC.height = h;
-    snapC.getContext('2d').drawImage(stage, 0, 0, w, h);
-    LOG.snaps.push([Math.round(now), snapC.toDataURL('image/jpeg', 0.6)]);
-    if (LOG.snaps.length > 30) LOG.snaps.shift();
-  }
+// Debug readout (only with ?debug in the address): draws what the tracker reads into the picture,
+// so a recorded clip shows exactly why the Nibble did what it did. Nothing is sent anywhere.
+const DEBUG = new URLSearchParams(location.search).has('debug');
+function drawDebug() {
+  if (!DEBUG) return;
+  const f = S.face, rows = [['open',f.open],['wide',(f.wide+1)/2],['round',f.round],['smile',f.smile],['press',f.press],['blink',f.blink],['frown',f.brow],['brows up',f.browUp]];
+  const k = Math.min(stage.width, stage.height) / 1080, x = 16*k, y = 16*k, w = 300*k, rh = 30*k;
+  ctx.save(); ctx.globalAlpha = .82; ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, rh*(rows.length+1.4)); ctx.globalAlpha = 1;
+  ctx.font = `700 ${18*k}px system-ui, sans-serif`; ctx.textBaseline = 'middle';
+  rows.forEach(([n, v], i) => {
+    const yy = y + rh*(i+0.7);
+    ctx.fillStyle = '#fff'; ctx.fillText(n, x+10*k, yy);
+    ctx.fillStyle = '#444'; ctx.fillRect(x+110*k, yy-8*k, 170*k, 16*k);
+    ctx.fillStyle = '#7bdc6b'; ctx.fillRect(x+110*k, yy-8*k, 170*k*Math.max(0, Math.min(1, v)), 16*k);
+  });
+  ctx.fillStyle = '#ffd34d';
+  ctx.fillText(`mouth ${S.mouth.cur}  eyes ${S.eye.cur}  lvl ${openLvl}  ${f.seen ? 'face' : 'NO FACE'}`, x+10*k, y + rh*(rows.length+0.75));
+  ctx.restore();
 }
-$('reportBtn').onclick = async () => {
-  const b = $('reportBtn'); if (b.classList.contains('busy')) return;
-  b.classList.add('busy'); b.textContent = 'Sending…';
-  try {
-    const body = { nibble:S.id, ua:navigator.userAgent, frames:LOG.snaps,
-      data:{ cols:['t','seen','open','wide','round','smile','press','blink','brow','browUp','roll','yaw','pitch','mouth','eye','openLvl'],
-             sig:LOG.sig, events:LOG.events, tracking:S.tracking, inWallet:IN_WALLET, bg:S.bg, shape:S.shape || 'Square',
-             screen:[innerWidth, innerHeight, devicePixelRatio], sentAt:new Date().toISOString() } };
-    const res = await fetch(REPORT_URL, { method:'POST', headers:{ 'apikey':REPORT_KEY, 'Authorization':'Bearer ' + REPORT_KEY, 'Content-Type':'application/json', 'Prefer':'return=minimal' }, body:JSON.stringify(body) });
-    if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 120));
-    setStatus('x', 'Sent the last 10 seconds to Claude. Tell Claude in chat what to look at.', 'ok');
-  } catch (e) { setStatus('x', 'Couldn\'t send: ' + e.message, 'err'); }
-  b.classList.remove('busy'); b.textContent = 'Send to Claude';
-};
 
 function frame(now) {
   track(now);
   drawBackground();
   drawNibble(now);
-  record(now);
+  drawDebug();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -440,24 +454,24 @@ $('recBtn').onclick = async () => {
     S.chunks = [];
     S.recorder = new MediaRecorder(out, mimeType ? { mimeType, videoBitsPerSecond:3_000_000 } : undefined);
     S.recorder.ondataavailable = e => e.data && e.data.size && S.chunks.push(e.data);
-    S.recorder.onerror = () => { S.recorder = null; $('recBtn').classList.remove('on'); $('recBadge').style.display = 'none'; setStatus('recStatus', 'Recording stopped unexpectedly.', 'err'); };
+    S.recorder.onerror = () => { S.recorder = null; $('recBtn').classList.remove('on'); $('recLbl').textContent = 'Record'; $('recBadge').style.display = 'none'; setStatus('recStatus', 'Recording stopped unexpectedly.', 'err'); };
     S.recorder.onstop = () => {
       const type = (S.recorder && S.recorder.mimeType) || mimeType || 'video/webm';
       const blob = new Blob(S.chunks, { type });
       const name = `nibbleme-${S.id}-${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`;
-      S.recorder = null; $('recBtn').classList.remove('on'); $('recBadge').style.display = 'none';
+      S.recorder = null; $('recBtn').classList.remove('on'); $('recLbl').textContent = 'Record'; $('recBadge').style.display = 'none';
       const t = $('toast'); clearTimeout(toastT); t.className = 'toast'; t.innerHTML = ''; t.style.display = 'block';
-      const dl = document.createElement('a'); dl.href = URL.createObjectURL(blob); dl.download = name; dl.textContent = 'Clip ready — tap to save';
+      const dl = document.createElement('a'); dl.href = URL.createObjectURL(blob); dl.download = name; dl.textContent = 'Save clip'; dl.className = 'save';
       let file = null; try { file = new File([blob], name, { type }); } catch (e) {}
       if (file && navigator.canShare && navigator.canShare({ files:[file] })) {
         dl.onclick = async ev => { ev.preventDefault(); try { await navigator.share({ files:[file] }); } catch (e) {} };
       }
-      const x = document.createElement('a'); x.href = '#'; x.textContent = ' ✕'; x.style.marginLeft = '8px'; x.style.color = 'inherit'; x.style.textDecoration = 'none';
+      const x = document.createElement('a'); x.href = '#'; x.textContent = '✕'; x.className = 'close'; x.setAttribute('aria-label', 'Close'); 
       x.onclick = ev => { ev.preventDefault(); setStatus('recStatus', ''); };
       t.append(dl, x);
     };
     S.recorder.start(1000);
-    $('recBtn').classList.add('on'); $('recBadge').style.display = 'block';
+    $('recBtn').classList.add('on'); $('recLbl').textContent = 'Stop'; $('recBadge').style.display = 'block';
     setStatus('recStatus', S.audioTracks.length ? '' : IN_WALLET ? 'Recording without sound (wallet browsers block the mic — open in Safari for sound).' : 'Recording (no mic access, so no sound)…');
   } catch (e) { S.recorder = null; setStatus('recStatus', 'Recording isn\'t supported in this browser. Try Safari or Chrome.', 'err'); }
 };
