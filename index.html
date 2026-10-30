@@ -112,15 +112,15 @@ body.streaming #exitStream{display:block}
 const MP_VERSION = '0.10.14';
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
-// Each Nibble: its cleaned art (base), drawn eyes e0–e4 and mouths m0–m6, all lined up at 1000×1000.
+// Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
+// Every mouth frame is the full picture with the jaw, cheeks and mouth redrawn for that sound.
 // eyes: 0 as-drawn, 1 angry, 2 surprised, 3 half-closed, 4 closed
-// mouths: 0 as-drawn, 1 closed (M B P), 2 slightly open, 3 wide "AH", 4 grin "EE", 5 round "O", 6 pucker "OO"
-// fullFace: each mouth is the whole picture with the snout and jaw redrawn for that sound, swapped in place of the base
+// mouths: 0 rest, 1 M B P, 2 slightly open, 3 wide "AH", 4 "EE" teeth, 5 "O", 6 "OO" pucker, 7 F V, 8 L, 9 frown
 const NIBBLES = {
-  4075: { bg:'#9de8ff' },
-  4248: { bg:'#9de8ff', trait:{ frames:6, fps:8 } },
+  4075: { bg:'#9de8ff', fullFace:true },
+  4248: { bg:'#9de8ff', fullFace:true, trait:{ frames:6, fps:8 } },
   3133: { bg:'#ffb7dc', fullFace:true, trait:{ frames:50, fps:12.5, box:[254.5, 73.6, 364, 174.9], wobble:{ centre:[436.5, 156] } } },
-  8549: { bg:'#ffb7dc', trait:{ frames:20, fps:6.67 } },
+  8549: { bg:'#ffb7dc', fullFace:true, trait:{ frames:20, fps:6.67 } },
 };
 const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest' };
 const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS), 'Green screen'];
@@ -141,7 +141,7 @@ const video = $('cam');
 const S = {
   id:null, art:null, trait:null, bg:'Nibble color',
   landmarker:null, tracking:false, lastVideoTime:-1,
-  face:{ roll:0, yaw:0, pitch:0, seen:false, open:0, wide:0, round:0, smile:0, press:0, blink:0, brow:0, browUp:0 },
+  face:{ roll:0, yaw:0, pitch:0, seen:false, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 },
   calib:{ n:0, open:0, wide:0, pitch:0 },
   eye:{ cur:0, prev:0, t:0 }, mouth:{ cur:0, prev:0, t:0 },
   recorder:null, chunks:[], audioTracks:[],
@@ -200,7 +200,7 @@ async function loadNibble(id) {
   S.id = id; S.art = null; S.trait = null;
   const cfg = NIBBLES[id];
   try {
-    const names = ['base', 'e0','e1','e2','e3','e4', 'm0','m1','m2','m3','m4','m5','m6'];
+    const names = ['base', 'e0','e1','e2','e3','e4', 'm0','m1','m2','m3','m4','m5','m6','m7','m8','m9'];
     const imgs = await Promise.all(names.map(n => loadImg(`faces/${id}/${n}.webp`)));
     if (S.id !== id) return;
     S.art = { base:imgs[0], eyes:imgs.slice(1, 6), mouths:imgs.slice(6) };
@@ -281,6 +281,8 @@ function track(now) {
   const round = Math.max(bs.mouthFunnel || 0, bs.mouthPucker || 0);
   const smile = ((bs.mouthSmileLeft || 0) + (bs.mouthSmileRight || 0)) / 2;
   const press = ((bs.mouthPressLeft || 0) + (bs.mouthPressRight || 0)) / 2 + (bs.mouthRollLower || 0) * .6;
+  const frown = ((bs.mouthFrownLeft || 0) + (bs.mouthFrownRight || 0)) / 2;
+  const fv = (bs.mouthRollLower || 0) * 0.7 + ((bs.mouthUpperUpLeft || 0) + (bs.mouthUpperUpRight || 0)) / 2 * 0.6;
   const rel = (v, b, span) => clamp((v - b) / span, 0, 1);
   const k = 0.6;
   f.open = lerp(f.open, rel(open, base('open', open, 0.1), 0.045), k);            // ~6% of face height = fully open
@@ -288,6 +290,8 @@ function track(now) {
   f.round = lerp(f.round, rel(round, base('round', round), 0.5), k);
   f.smile = lerp(f.smile, rel(smile, base('smile', smile), 0.5), k);
   f.press = lerp(f.press, rel(press, base('press', press), 0.45), k);
+  f.frown = lerp(f.frown, rel(frown, base('frown', frown), 0.4), k);
+  f.fv = lerp(f.fv, rel(fv, base('fv', fv), 0.4), k);
   const bb = base('blink', blink, 0.3);                                           // resting lids (e.g. looking down at the phone)
   f.blink = lerp(f.blink, rel(blink, bb, Math.max(0.25, 0.92 - bb)), .8);
   f.brow = lerp(f.brow, rel(brow, base('brow', brow, 0.3), 0.45), .5);
@@ -308,7 +312,9 @@ function pickMouth(f) {
   if (openLvl === 2) return round ? 5 : 3;                       // O or AH
   if (openLvl === 1) return round ? 5 : wideM ? 4 : 2;           // O, EE or most speech
   if (round && f.round > 0.6) return 6;                          // OO / W
+  if (f.fv > 0.6) return 7;                                      // F V: lower lip tucked under the top teeth
   if (f.press > 0.55) return 1;                                  // M B P
+  if (f.frown > 0.55) return 9;                                  // frown
   return 0;
 }
 const eyeHold = { want:0, since:0 };
@@ -416,7 +422,7 @@ function drawNibble(t) {
   if (A.edgeR) { ctx.drawImage(A.base, 998, 0, 2, 1000, x + size - 1, y, size*0.5, size); ctx.drawImage(A.base, 998, 997, 2, 3, x + size - 1, H - 1, size*0.5, size*0.3); }
 
   drawLayer(A.eyes, S.eye, t, FADE.eye, x, y, size);
-  if (!NIBBLES[S.id].fullFace) drawLayer(A.mouths, S.mouth, t, FADE.mouth, x, y, size);
+
   drawTrait(t, x, y, size, live ? f : null);
   ctx.restore();
 }
