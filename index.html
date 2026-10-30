@@ -488,11 +488,12 @@ async function ownerOf(id) {
   return ('0x' + j.result.slice(-40)).toLowerCase();
 }
 function cachedVerify(id) {
-  try { const v = JSON.parse(localStorage.getItem('verified:' + id) || 'null'); return v && Date.now() - v.at < 7*864e5 ? v : null; } catch (e) { return null; }
+  try { const v = JSON.parse(localStorage.getItem('verified:' + id) || 'null'); return v && Date.now() < (v.until || v.at + UNLOCK_MS) ? v : null; } catch (e) { return null; }
 }
 // Proof of ownership that travels to another browser: a signed message + the token, checked on-chain again there.
 const b64u = o => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const unb64u = t => JSON.parse(decodeURIComponent(escape(atob(t.replace(/-/g,'+').replace(/_/g,'/')))));
+const UNLOCK_MS = 24 * 3600e3;   // an unlock lasts 24 hours
 const proofMsg = (id, a, e) => `Nibbles Filter\nI hold Nibble #${id}\nAddress: ${a}\nValid until: ${new Date(e).toISOString()}`;
 function showHandoff() {
   const ok = IN_WALLET && S.verified && S.mode === 'token' && S.account;
@@ -501,7 +502,7 @@ function showHandoff() {
 }
 $('handoffBtn').onclick = async () => {
   try {
-    const id = S.tokenId, a = S.account, e = Date.now() + 7*864e5;
+    const id = S.tokenId, a = S.account, e = Date.now() + UNLOCK_MS;
     const msg = proofMsg(id, a, e);
     const hex = '0x' + [...new TextEncoder().encode(msg)].map(x => x.toString(16).padStart(2,'0')).join('');
     const sig = await window.ethereum.request({ method:'personal_sign', params:[hex, a] });
@@ -522,7 +523,7 @@ async function acceptProof() {
     const signer = verifyMessage(proofMsg(p.id, p.a, p.e), p.s).toLowerCase();
     if (signer !== p.a) throw new Error('bad signature');
     if (await ownerOf(p.id) !== p.a) throw new Error('not owner');
-    try { localStorage.setItem('verified:' + p.id, JSON.stringify({ account:p.a, at:Date.now() })); } catch (e) {}
+    try { localStorage.setItem('verified:' + p.id, JSON.stringify({ account:p.a, at:Date.now(), until:p.e })); } catch (e) {}
     const chip = document.querySelector(`#quick .chip[data-id="${p.id}"]`); if (chip) mark(null, chip);
     await loadToken(+p.id);
   } catch (e) { setStatus('nibStatus', 'That link has expired or could not be verified. Verify again in your wallet app.', 'err'); }
