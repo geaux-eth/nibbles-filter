@@ -252,7 +252,9 @@ async function startVoice() {
     const tracks = await getMic(); if (!tracks.length) return;
     const ac = new (window.AudioContext || window.webkitAudioContext)();
     const src = ac.createMediaStreamSource(new MediaStream(tracks));
-    V.an = ac.createAnalyser(); V.an.fftSize = 512; V.buf = new Float32Array(V.an.fftSize); src.connect(V.an); V.on = true;
+    V.an = ac.createAnalyser(); V.an.fftSize = 1024; V.an.smoothingTimeConstant = 0.3;
+    V.buf = new Float32Array(V.an.fftSize); V.spec = new Float32Array(V.an.frequencyBinCount); V.hz = ac.sampleRate / V.an.fftSize;
+    src.connect(V.an); V.on = true;   // analysed only; never played back
     if (ac.state === 'suspended') document.addEventListener('pointerdown', () => ac.resume(), { once:true });
   } catch (e) { V.on = false; }
 }
@@ -264,6 +266,14 @@ function readVoice(now) {
   const fl = [...V.floor].sort((a, b) => a - b)[Math.floor(V.floor.length * 0.1)] || 0;
   V.voiced = V.rms > Math.max(fl * 3, 0.008);
   if (V.voiced) V.lastVoice = now;
+  // hiss = energy above 3.5 kHz vs 150 Hz–1.5 kHz: high for F, V, S, SH, TH; low for vowels, L, M, N
+  V.an.getFloatFrequencyData(V.spec);
+  let lo = 0, hi = 0;
+  for (let i = 1; i < V.spec.length; i++) {
+    const f = i * V.hz, p = Math.pow(10, V.spec[i] / 10);
+    if (f > 150 && f < 1500) lo += p; else if (f > 3500 && f < 9000) hi += p;
+  }
+  V.hiss = V.voiced ? hi / (lo + hi + 1e-12) : 0;
 }
 function cameraOff() {
   S.tracking = false; S.face.seen = false;
@@ -298,6 +308,8 @@ function track(now) {
   const faceH = dist(L[10], L[152]) || 1e-6;
   const open = dist(L[13], L[14]) / faceH;                 // inner lip gap
   const wide = dist(L[78], L[308]) / faceH;                // corner to corner
+  const lowLip = dist(L[14], L[17]) / faceH;               // lower lip thickness: shrinks when it tucks under the teeth (F, V)
+  const upLip = dist(L[0], L[13]) / faceH;                 // upper lip thickness
   const blink = ((bs.eyeBlinkLeft || 0) + (bs.eyeBlinkRight || 0)) / 2;
   const brow = ((bs.browDownLeft || 0) + (bs.browDownRight || 0)) / 2;
   const browUp = bs.browInnerUp || 0;
@@ -315,6 +327,9 @@ function track(now) {
   f.press = lerp(f.press, rel(press, base('press', press), 0.45), k);
   f.frown = lerp(f.frown, rel(frown, base('frown', frown), 0.4), k);
   f.fv = lerp(f.fv, rel(fv, base('fv', fv), 0.4), k);
+  const ll0 = base('lowLip', lowLip, 0.6), ul0 = base('upLip', upLip, 0.6);
+  f.lowIn = lerp(f.lowIn || 0, clamp((1 - lowLip / ll0) / 0.4, 0, 1), k);     // 1 = lower lip rolled fully in
+  f.upIn = lerp(f.upIn || 0, clamp((1 - upLip / ul0) / 0.4, 0, 1), k);
   const bb = base('blink', blink, 0.3);                                           // resting lids (e.g. looking down at the phone)
   f.blink = rel(blink, bb, Math.max(0.25, 0.92 - bb));   // raw: a blink only lasts a frame or two
   if (f.blink > 0.55) S.blinkUntil = now + 170;         // play a full blink even if the tracker only caught one frame of it
@@ -337,12 +352,23 @@ function pickMouth(f, now) {
     if (quiet && f.open < 0.35) openLvl = 0;                         // sound stopped: shut the mouth right away
     else if (V.voiced && openLvl === 0 && f.open > 0.05) openLvl = 1; // sound started: open right away
   }
-  const round = f.round > 0.45 || f.wide < -0.45, wideM = f.wide > 0.5 && f.smile > 0.45;   // teeth only for a real open "EE"/grin
+  // Rounded (O, OO, W) needs the lips actually pulled narrower than at rest. L, D, T, N keep the mouth its normal width,
+  // so a pucker reading alone (which spikes on L) no longer counts as round.
+  const narrow = f.wide < -0.3, round = narrow && (f.round > 0.35 || f.wide < -0.55);
+  const wideM = f.wide > 0.5 && f.smile > 0.45;                  // teeth only for a real open "EE"/grin
+  const hiss = V.on ? V.hiss : 0;
+  // F / V: lower lip rolled in under the top teeth while the upper lip stays put; with the mic, also a hiss
+  const fvLook = f.lowIn > 0.45 && f.upIn < 0.35 && f.open < 0.3;
+  if (fvLook && (!V.on || hiss > 0.12 || f.lowIn > 0.7)) return 7;
+  if (V.on && V.voiced && hiss > 0.3 && f.open < 0.35 && !round) return f.lowIn > 0.3 ? 7 : 4;   // S / SH / F hiss
   if (openLvl === 2) return round ? 5 : 3;                       // O or AH
-  if (openLvl === 1) return round ? 5 : wideM ? 4 : 2;           // O, EE or most speech
-  if (round && f.round > 0.6) return 6;                          // OO / W
-  if (f.fv > 0.6) return 7;                                      // F V: lower lip tucked under the top teeth
-  if (f.press > 0.55) return 1;                                  // M B P
+  if (openLvl === 1) {
+    if (round) return 5;                                         // O
+    if (wideM) return 4;                                         // EE
+    return f.open < 0.38 ? 8 : 2;                                // L, D, T, N (tongue up behind the teeth) / open vowel
+  }
+  if (round && f.round > 0.5) return 6;                          // OO / W
+  if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;   // M B P: both lips pressed
   if (f.frown > 0.55) return 9;                                  // frown
   return 0;
 }
