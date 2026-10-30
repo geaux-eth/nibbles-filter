@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="theme-color" content="#ffd23f">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Nibble FILTER</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Luckiest+Guy&family=Bangers&family=Permanent+Marker&family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
 <style>
 :root{
-  --page:#fff4e6; --paper:#ffffff; --ink:#161616; --line:#161616;
+  --page:#ffd23f; --paper:#ffffff; --ink:#161616; --line:#161616;
   --gold:#ffd23f; --red:#df3a4e; --green:#8ee26b; --sky:#9fe3fb; --cream:#fff3c4; --pink:#f48aa8; --ok:#8ee26b;
   --display:'Lilita One','Arial Black',Impact,sans-serif; --body:'Baloo 2',ui-rounded,'Trebuchet MS',system-ui,sans-serif;
   --pad:14px;
@@ -16,17 +17,13 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none}
 body{display:flex;flex-direction:column;height:100dvh;color:var(--ink);font:600 15px/1.4 var(--body);
-  background:var(--page) radial-gradient(circle at 1px 1px, rgba(22,22,22,.10) 1.2px, transparent 1.7px) 0 0/18px 18px}
+  background:var(--page) radial-gradient(circle at 1px 1px, rgba(22,22,22,.16) 1.3px, transparent 1.8px) 0 0/16px 16px}
 button,select,input{font:inherit;color:var(--ink)}
 
-/* The whole app is one cartoon gadget: a white Bonkd card with an ink outline, screws in the corners and a dark screen */
+/* The whole app is one cartoon gadget: a white Bonkd card with an ink outline and a dark screen */
 .device{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;
   width:calc(100% - 24px);max-width:640px;margin:max(10px,env(safe-area-inset-top)) auto max(12px,env(safe-area-inset-bottom));
   padding:12px var(--pad) 17px;background:var(--paper);border:3px solid var(--ink);border-radius:30px;box-shadow:5px 6px 0 var(--ink)}
-.screw{position:absolute;width:10px;height:10px;border:2px solid var(--ink);border-radius:50%;background:var(--cream);pointer-events:none}
-.screw::after{content:"";position:absolute;left:0;right:0;top:50%;height:2px;margin-top:-1px;background:var(--ink);transform:rotate(-35deg)}
-.screw.tl{top:7px;left:7px}.screw.tr{top:7px;right:7px}.screw.bl{bottom:6px;left:7px}.screw.br{bottom:6px;right:7px}
-.screw.tr::after,.screw.bl::after{transform:rotate(55deg)}
 
 header{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 8px 0 12px}
 header .brand{display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:0}
@@ -46,6 +43,8 @@ header .credit b{font-weight:400}
 .toggle input:checked + i::after{transform:translateX(22px)}
 .toggle input:focus-visible + i{outline:3px dashed var(--ink);outline-offset:2px}
 .toggle.busy{opacity:.6}
+#camToggle{background:var(--red);color:#fff;-webkit-text-stroke:1.2px var(--ink);paint-order:stroke fill}
+#txtToggle{background:var(--sky)}
 
 /* the screen: ink bezel, the picture fitted inside it, a cartoon glint on the glass */
 .bezel{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:7px;background:var(--ink);border-radius:22px}
@@ -110,7 +109,6 @@ header .credit b{font-weight:400}
   .device{width:calc(100% - 18px);--pad:11px;padding-top:11px;border-radius:26px;box-shadow:4px 5px 0 var(--ink)}
   header{padding:0 10px 0 9px;gap:6px} header h1{font-size:25px;gap:5px} header h1 span{font-size:12.5px;padding:3px 6px 1px}
   .toggle{gap:6px;padding:3px 4px 3px 9px;font-size:14px} .toggle i{width:46px;height:27px} .toggle i::after{width:19px;height:19px} .toggle input:checked + i::after{transform:translateX(19px)}
-  .screw.tl,.screw.bl{left:6px}.screw.tr,.screw.br{right:6px}
 }
 @media (max-width:350px){
   header h1{font-size:22px} header h1 span{font-size:11px} header .credit{font-size:9px}
@@ -121,7 +119,7 @@ header .credit b{font-weight:400}
 /* stream mode: only the picture, full screen */
 body.streaming{background:#000}
 body.streaming .device{margin:0;width:100%;max-width:none;border:0;border-radius:0;box-shadow:none;padding:0;background:#000}
-body.streaming header,body.streaming .textbar,body.streaming .bar,body.streaming .screw,body.streaming .glare,body.streaming .badge,body.streaming .toast{display:none!important}
+body.streaming header,body.streaming .textbar,body.streaming .bar,body.streaming .glare,body.streaming .badge,body.streaming .toast{display:none!important}
 body.streaming .bezel{padding:0;border-radius:0;background:#000}
 body.streaming #stage{border-radius:0}
 #exitStream{position:fixed;top:max(14px,env(safe-area-inset-top));right:14px;display:none;z-index:20;background:#fff;border:2.5px solid var(--line);border-radius:999px;padding:10px 16px 7px;font:400 16px/1 var(--display);letter-spacing:.04em;box-shadow:3px 3px 0 var(--line);transition:opacity .4s}
@@ -131,7 +129,6 @@ body.streaming #exitStream{display:block}
 </head>
 <body>
 <div class="device">
-  <i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
   <header>
     <div class="brand"><h1>NIBBLE<span>FILTER</span></h1><div class="credit">BUILT by <b>GEAUX</b></div></div>
     <label class="toggle" id="camToggle"><span>Camera</span><input type="checkbox" id="camSwitch"><i></i></label>
