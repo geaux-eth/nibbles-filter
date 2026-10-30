@@ -46,8 +46,8 @@ header .credit b{font-weight:400}
 .toggle input:checked + i::after{transform:translateX(22px)}
 .toggle input:focus-visible + i{outline:3px dashed var(--ink);outline-offset:2px}
 .toggle.busy{opacity:.6}
-/* both switches: red pill while off; on, the pill turns green and the track inside turns gold */
-#camToggle,#txtToggle{background:var(--red);color:#fff;-webkit-text-stroke:1.2px var(--ink);paint-order:stroke fill;transition:background .15s}
+/* both switches: white pill while off; on, the pill turns green and the track inside turns gold */
+#camToggle,#txtToggle{background:var(--paper);color:var(--ink);transition:background .15s}
 #camToggle.on,#txtToggle.on{background:var(--green)}
 /* Safari paints a rounded box's fill square for a moment while it animates; keep every fill inside its outline */
 .toggle,.aa,#txtIn,.pop,.chipb,.sw,.badge,.toast,#exitStream,.bezel,.device,.circ{background-clip:padding-box;isolation:isolate}
@@ -192,7 +192,7 @@ body.streaming #exitStream{display:block}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261030-1640';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261030-1650';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -210,7 +210,23 @@ const NIBBLES = {
 };
 const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest', Cockfight:'cleeroy' };
 // backdrops that hang a sign: it goes in open space the Nibble can never reach, and the text keeps clear of it too
-const SIGNS = { Cockfight:'cleeroy_logo' };   // Cleeroy's Cockfight Club (Cleeroy owns Cock #8212)
+const SIGNS = { Cockfight:'cleeroy_logo' };
+// when the screen is tall enough, the club's own entrance art is used instead, cropped so its sign sits at the top
+// (sign box as fractions of that picture); otherwise the stage with the sign hung over it
+const ENTRANCE = { Cockfight:{ name:'cleeroy_ent', sign:[.058, .157, .941, .44] } };
+const entCache = {};
+function entrance() {
+  const E = ENTRANCE[S.bg], A = S.art; if (!E || !A || !A.bounds) return null;
+  if (!entCache[E.name]) { const i = new Image(); i.src = `bg/${E.name}.webp?v=${ART_V}`; entCache[E.name] = i; }
+  const img = entCache[E.name]; if (!(img.complete && img.naturalWidth)) return null;
+  const W = stage.width, H = stage.height, m = Math.min(W, H), iw = img.naturalWidth, ih = img.naturalHeight;
+  const sc = Math.max(W / iw, H / ih), tx = (W - iw * sc) / 2, ty = Math.max(H - ih * sc, m * 0.02 - E.sign[1] * ih * sc);
+  if (ty > 0.5) return null;
+  const sr = [tx + E.sign[0] * iw * sc, ty + E.sign[1] * ih * sc, tx + E.sign[2] * iw * sc, ty + E.sign[3] * ih * sc];
+  const size = Math.min(m, (H - sr[3] - m * 0.12) / (1 - A.bounds[1] / 1000 + 0.05));
+  if (size < m * 0.8) return null;   // the Nibble would have to shrink too much: use the stage instead
+  return { img, sc, tx, ty, sr, size };
+}   // Cleeroy's Cockfight Club (Cleeroy owns Cock #8212)
 const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS), 'Green screen'];
 const ASPECTS = { 'Square':[1080,1080], 'Vertical':[1080,1920], 'Wide':[1920,1080] };
 
@@ -300,7 +316,8 @@ function showNibbleThumb(id) {
 }
 function showSceneThumb() {
   const f = $('bgFace');
-  f.style.backgroundImage = BONKD_BGS[S.bg] ? `url(bg/${BONKD_BGS[S.bg]}.webp?v=${ART_V})` : 'none';
+  const tb = ENTRANCE[S.bg] ? ENTRANCE[S.bg].name : BONKD_BGS[S.bg];
+  f.style.backgroundImage = tb ? `url(bg/${tb}.webp?v=${ART_V})` : 'none';
   f.style.backgroundColor = S.bg === 'Green screen' ? '#00ff00' : S.bg === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
 }
 $('nibbleSel').onchange = e => { loadNibble(+e.target.value); showNibbleThumb(+e.target.value); };
@@ -574,12 +591,13 @@ function signImg() {
 }
 let signAt = null;
 function signRect() {
+  const ent = entrance(); if (ent) return ent.sr;
   const img = signImg(); if (!img) return null;
   const R = freeRegions(), W = stage.width, H = stage.height, m = Math.min(W, H), a = img.naturalWidth / img.naturalHeight;
   const key = R.map(r => r.map(Math.round).join()).join('|') + S.bg;
   if (signAt && signAt.key === key) return signAt.r;
   // the biggest sign that fits an open space while leaving room under it for text; the space above the head wins if it's close
-  const fit = ([x0, y0, x1, y1]) => { const rw = x1 - x0, rh = y1 - y0, w = Math.min(rw * 0.9, rh * 0.55 * a), h = w / a;
+  const fit = ([x0, y0, x1, y1]) => { const rw = x1 - x0, rh = y1 - y0, w = Math.max(0, Math.min(rw * 0.8, (rh - m * 0.2) * a)), h = w / a;
     return { w, r:[x0 + (rw - w) / 2, y0 + m * 0.03, x0 + (rw + w) / 2, y0 + m * 0.03 + h] }; };
   const all = R.map(fit), best = all.reduce((p, c) => !p || c.w > p.w ? c : p, null);
   const top = R.length && R[0][0] === 0 && R[0][2] === W ? all[0] : null;
@@ -589,6 +607,8 @@ function signRect() {
 }
 function drawBackground() {
   const img = BONKD_BGS[S.bg] && bonkdBg(S.bg);
+  const ent = entrance();
+  if (ent) { ctx.drawImage(ent.img, ent.tx, ent.ty, ent.img.naturalWidth * ent.sc, ent.img.naturalHeight * ent.sc); return; }
   if (img) {
     drawCover(img);
     const sr = signRect(), si = signImg();
@@ -630,7 +650,15 @@ function drawNibble(t) {
   const A = S.art; if (!A) return;
   const W = stage.width, H = stage.height;
   // Square on a wide screen (desktop): the Nibble stands a little smaller so there's room above its head for text
-  const size = S.shape === 'Square' && W > H * 1.05 ? H * 0.82 : Math.min(W, H);
+  let size = S.shape === 'Square' && W > H * 1.05 ? H * 0.82 : Math.min(W, H);
+  const ent = entrance();
+  const si = !ent && SIGNS[S.bg] && signImg();
+  if (ent) size = Math.min(size, ent.size);
+  if (si && S.art && S.art.bounds) {
+    const m = Math.min(W, H), sw = Math.min(W * 0.8, H * 0.5 * si.naturalWidth / si.naturalHeight), need = m * 0.03 + sw * si.naturalHeight / si.naturalWidth + m * 0.17;
+    const fitSize = (H - need) / (1 - S.art.bounds[1] / 1000 + 0.05);
+    size = Math.max(Math.min(size, fitSize), Math.min(W, H) * 0.72);
+  }
   const f = S.face, live = S.tracking && f.seen;
   const roll = live ? f.roll : Math.sin(t/1400) * 0.03;
   const yaw = live ? f.yaw : 0, pitch = live ? f.pitch : 0;
