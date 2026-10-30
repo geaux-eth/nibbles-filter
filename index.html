@@ -237,7 +237,15 @@ loadNibble(4075).then(() => { for (const id of Object.keys(NIBBLES)) fetchNibble
 async function cameraOn() {
   $('camToggle').classList.add('busy');
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:640}, height:{ideal:480} }, audio:false });
+    const vid = { facingMode:'user', width:{ideal:640}, height:{ideal:480} };
+    let stream;
+    if (IN_WALLET) stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:false });
+    else {
+      try { stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } }); }
+      catch (e) { stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:false }); }
+      S.audioTracks = stream.getAudioTracks();
+      stream = new MediaStream(stream.getVideoTracks());
+    }
     video.srcObject = stream; await video.play();
     startVoice();   // the voice tells the mouth exactly when you start and stop making sound
     if (!S.landmarker) {
@@ -257,7 +265,7 @@ async function cameraOn() {
   $('camToggle').classList.remove('busy');
 }
 // Voice activity: lips can only be read on camera, but the voice shows the instant a sound starts and stops.
-const V = { an:null, buf:null, rms:0, floor:[], voiced:false, lastVoice:0, on:false };
+const V = { an:null, buf:null, rms:0, floor:[], voiced:false, lastVoice:0, on:false, peak:0, trusted:false };
 async function startVoice() {
   if (IN_WALLET || V.on) return;
   try {
@@ -267,7 +275,8 @@ async function startVoice() {
     V.an = ac.createAnalyser(); V.an.fftSize = 1024; V.an.smoothingTimeConstant = 0.3;
     V.buf = new Float32Array(V.an.fftSize); V.spec = new Float32Array(V.an.frequencyBinCount); V.hz = ac.sampleRate / V.an.fftSize;
     src.connect(V.an); V.on = true;   // analysed only; never played back
-    if (ac.state === 'suspended') document.addEventListener('pointerdown', () => ac.resume(), { once:true });
+    if (ac.state !== 'running') { try { await ac.resume(); } catch (e) {} }
+    if (ac.state !== 'running') document.addEventListener('pointerdown', () => ac.resume(), { once:true });
   } catch (e) { V.on = false; }
 }
 function readVoice(now) {
@@ -277,6 +286,10 @@ function readVoice(now) {
   V.floor.push(V.rms); if (V.floor.length > 180) V.floor.shift();
   const fl = [...V.floor].sort((a, b) => a - b)[Math.floor(V.floor.length * 0.1)] || 0;
   V.voiced = V.rms > Math.max(fl * 3, 0.008);
+  V.peak = Math.max(V.peak * 0.999, V.rms);
+  // trusted only after it has clearly heard speech; a silent or blocked mic never gets to shut the mouth
+  if (V.voiced && V.rms > 0.02) V.trusted = true;
+  if (!V.ac || V.ac.state !== 'running' || V.peak < 0.004) V.trusted = false;
   if (V.voiced) V.lastVoice = now;
   // hiss = energy above 3.5 kHz vs 150 Hz–1.5 kHz: high for F, V, S, SH, TH; low for vowels, L, M, N
   V.an.getFloatFrequencyData(V.spec);
@@ -294,7 +307,6 @@ function cameraOff() {
 }
 $('camSwitch').onchange = e => {
   // Safari only lets sound analysis start during a tap, so create it right here, before any waiting
-  if (e.target.checked && !IN_WALLET) { try { V.ac = V.ac || new (window.AudioContext || window.webkitAudioContext)(); V.ac.resume(); } catch (err) {} }
   e.target.checked ? cameraOn() : cameraOff();
 };
 
@@ -359,11 +371,11 @@ function track(now) {
 // (hysteresis), so the face doesn't flicker on the border between two shapes.
 let openLvl = 0;   // 0 closed, 1 slightly open, 2 wide open
 function pickMouth(f, now) {
-  if (openLvl === 0 && f.open > 0.15) openLvl = 1;
+  if (openLvl === 0 && f.open > 0.12) openLvl = 1;
   else if (openLvl === 1 && f.open > 0.58) openLvl = 2;
   else if (openLvl === 2 && f.open < 0.5) openLvl = 1;
   else if (openLvl === 1 && f.open < 0.1) openLvl = 0;
-  if (V.on) {
+  if (V.on && V.trusted) {
     const quiet = now - V.lastVoice > 110;
     if (quiet && f.open < 0.35) openLvl = 0;                         // sound stopped: shut the mouth right away
     else if (V.voiced && openLvl === 0 && f.open > 0.05) openLvl = 1; // sound started: open right away
@@ -372,18 +384,18 @@ function pickMouth(f, now) {
   // so a pucker reading alone (which spikes on L) no longer counts as round.
   const narrow = f.wide < -0.3, round = narrow && (f.round > 0.35 || f.wide < -0.55);
   const wideM = f.wide > 0.5 && f.smile > 0.45;                  // teeth only for a real open "EE"/grin
-  const hiss = V.on ? V.hiss : 0;
+  const hiss = V.on && V.trusted ? V.hiss : 0;
   // F / V: lower lip rolled in under the top teeth while the upper lip stays put; with the mic, also a hiss
   const fvLook = f.lowIn > 0.45 && f.upIn < 0.35 && f.open < 0.3;
-  if (fvLook && (!V.on || hiss > 0.12 || f.lowIn > 0.7)) return 7;
-  if (V.on && V.voiced && hiss > 0.3 && f.open < 0.35 && !round) return f.lowIn > 0.3 ? 7 : 4;   // S / SH / F hiss
+  if (fvLook && (!(V.on && V.trusted) || hiss > 0.12 || f.lowIn > 0.7)) return 7;
+  if (V.on && V.trusted && V.voiced && hiss > 0.3 && f.open < 0.35 && !round) return f.lowIn > 0.3 ? 7 : 4;   // S / SH / F hiss
   if (openLvl === 2) return round ? 5 : 3;                       // O or AH
   if (openLvl === 1) {
     if (round) return 5;                                         // O
     if (wideM) return 4;                                         // EE
     return f.open < 0.38 ? 8 : 2;                                // L, D, T, N (tongue up behind the teeth) / open vowel
   }
-  if (round && f.round > 0.5) return 6;                          // OO / W
+  if (round && f.round > 0.5 && f.open < 0.12) return 6;        // OO / W — only while the lips are nearly shut
   if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;   // M B P: both lips pressed
   if (f.frown > 0.55) return 9;                                  // frown
   return 0;
