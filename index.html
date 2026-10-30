@@ -192,7 +192,7 @@ body.streaming #exitStream{display:block}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261030-1610';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261030-1640';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -208,7 +208,9 @@ const NIBBLES = {
   // and each mouth frame comes with its beak (+ mohawk) cut out to sit in front of the flames
   8212: { bg:'#ff8588', fullFace:true, trait:{ frames:6, fps:8, under:true }, eyesAlways:true, noBlink:true, overlay:true },
 };
-const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest' };
+const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest', Cockfight:'cleeroy' };
+// backdrops that hang a sign: it goes in open space the Nibble can never reach, and the text keeps clear of it too
+const SIGNS = { Cockfight:'cleeroy_logo' };   // Cleeroy's Cockfight Club (Cleeroy owns Cock #8212)
 const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS), 'Green screen'];
 const ASPECTS = { 'Square':[1080,1080], 'Vertical':[1080,1920], 'Wide':[1920,1080] };
 
@@ -288,7 +290,7 @@ new ResizeObserver(fitStage).observe($('bezel'));
 addEventListener('resize', fitStage);
 setShape('Square');
 // Each control shows a picture of its current choice; the name sits underneath.
-const FACE_AT = { 4075:[600,560,1.25], 4248:[560,500,1.2], 3133:[600,520,1.15], 8549:[570,520,1.25], 8212:[560,500,1.2] };   // face centre + zoom in the 1000px art
+const FACE_AT = { 4075:[534,551,1.35], 4248:[499,469,1.35], 3133:[560,494,1.35], 8549:[507,533,1.35], 8212:[496,520,1.35] };   // face centre + zoom in the 1000px art
 function showNibbleThumb(id) {
   const f = $('nibFace'), [cx, cy, zoom] = FACE_AT[id];               // show the face, centred
   const pos = c => (Math.min(1, Math.max(0, (c / 1000 * zoom - 0.5) / (zoom - 1))) * 100).toFixed(1) + '%';
@@ -564,9 +566,35 @@ function drawCover(img) {
   const W = stage.width, H = stage.height, sc = Math.max(W / img.width, H / img.height);
   ctx.drawImage(img, (W - img.width*sc)/2, (H - img.height*sc)/2, img.width*sc, img.height*sc);
 }
+const signCache = {};
+function signImg() {
+  const n = SIGNS[S.bg]; if (!n) return null;
+  if (!signCache[n]) { const i = new Image(); i.src = `bg/${n}.webp?v=${ART_V}`; signCache[n] = i; }
+  const i = signCache[n]; return i.complete && i.naturalWidth ? i : null;
+}
+let signAt = null;
+function signRect() {
+  const img = signImg(); if (!img) return null;
+  const R = freeRegions(), W = stage.width, H = stage.height, m = Math.min(W, H), a = img.naturalWidth / img.naturalHeight;
+  const key = R.map(r => r.map(Math.round).join()).join('|') + S.bg;
+  if (signAt && signAt.key === key) return signAt.r;
+  // the biggest sign that fits an open space while leaving room under it for text; the space above the head wins if it's close
+  const fit = ([x0, y0, x1, y1]) => { const rw = x1 - x0, rh = y1 - y0, w = Math.min(rw * 0.9, rh * 0.55 * a), h = w / a;
+    return { w, r:[x0 + (rw - w) / 2, y0 + m * 0.03, x0 + (rw + w) / 2, y0 + m * 0.03 + h] }; };
+  const all = R.map(fit), best = all.reduce((p, c) => !p || c.w > p.w ? c : p, null);
+  const top = R.length && R[0][0] === 0 && R[0][2] === W ? all[0] : null;
+  const pick = top && best && top.w >= best.w * 0.7 ? top : best;
+  signAt = { key, r:pick ? pick.r : null };
+  return signAt.r;
+}
 function drawBackground() {
   const img = BONKD_BGS[S.bg] && bonkdBg(S.bg);
-  if (img) { drawCover(img); return; }
+  if (img) {
+    drawCover(img);
+    const sr = signRect(), si = signImg();
+    if (sr && si) ctx.drawImage(si, sr[0], sr[1], sr[2] - sr[0], sr[3] - sr[1]);
+    return;
+  }
   ctx.fillStyle = S.bg === 'Green screen' ? '#00ff00' : (S.id ? NIBBLES[S.id].bg : '#fff');
   ctx.fillRect(0, 0, stage.width, stage.height);
 }
@@ -758,7 +786,14 @@ function drawText() {
   if (!TX.on || !TX.text) { TX.rect = null; return; }
   const W = stage.width, H = stage.height, m = Math.min(W, H), f = fontOf(); ensureFont(f);
   if (TX.shapeN !== S.shapeN) { TX.shapeN = S.shapeN; TX.placed = false; }   // a new shape starts the text back in its default spot
-  const regions = freeRegions();
+  let regions = freeRegions();
+  const sr = signRect();
+  if (sr) {   // keep the text off the sign as well: use the open space below it, or beside it
+    const g = m * 0.02, ok = ([x0, y0, x1, y1]) => x1 - x0 > m * 0.2 && y1 - y0 > m * 0.07;
+    const cut = r => (r[2] <= sr[0] || r[0] >= sr[2] || r[3] <= sr[1] || r[1] >= sr[3]) ? [r]
+      : [[r[0], sr[3] + g, r[2], r[3]], [r[0], r[1], r[2], sr[1] - g], [r[0], r[1], sr[0] - g, r[3]], [sr[2] + g, r[1], r[2], r[3]]].filter(ok);
+    const left = regions.flatMap(cut); if (left.length) regions = left;
+  }
   const key = [TX.text, TX.font, TX.size, TX.box, W, H, S.id, regions.map(r => r.map(Math.round).join()).join('|'), document.fonts.status].join('/');
   if (!txtCache || txtCache.key !== key) {
     // the space above the head comes first; otherwise whichever side lets the words be biggest
