@@ -147,7 +147,7 @@ const S = {
   eye:{ cur:0, prev:0, t:0 }, mouth:{ cur:0, prev:0, t:0 },
   recorder:null, chunks:[], audioTracks:[],
 };
-window.__nibble = S;
+window.__nibble = S; window.__voice = () => V;
 let toastT = 0;
 function setStatus(el, msg, kind='', ms=3200) {
   const t = $('toast'); clearTimeout(toastT);
@@ -238,6 +238,7 @@ async function cameraOn() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:640}, height:{ideal:480} }, audio:false });
     video.srcObject = stream; await video.play();
+    startVoice();   // the voice tells the mouth exactly when you start and stop making sound
     if (!S.landmarker) {
       setStatus('camStatus', 'Loading face tracker…');
       const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`);
@@ -247,7 +248,6 @@ async function cameraOn() {
       catch (e) { opts.baseOptions.delegate = 'CPU'; S.landmarker = await vision.FaceLandmarker.createFromOptions(files, opts); }
     }
     resetBaselines(); S.tracking = true;
-    startVoice();   // the voice tells the mouth exactly when you start and stop making sound
     setStatus('camStatus', '');
   } catch (e) {
     $('camSwitch').checked = false;
@@ -261,7 +261,7 @@ async function startVoice() {
   if (IN_WALLET || V.on) return;
   try {
     const tracks = await getMic(); if (!tracks.length) return;
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const ac = V.ac || (V.ac = new (window.AudioContext || window.webkitAudioContext)());
     const src = ac.createMediaStreamSource(new MediaStream(tracks));
     V.an = ac.createAnalyser(); V.an.fftSize = 1024; V.an.smoothingTimeConstant = 0.3;
     V.buf = new Float32Array(V.an.fftSize); V.spec = new Float32Array(V.an.frequencyBinCount); V.hz = ac.sampleRate / V.an.fftSize;
@@ -291,7 +291,11 @@ function cameraOff() {
   try { video.srcObject?.getTracks().forEach(t => t.stop()); } catch (e) {}
   video.srcObject = null;
 }
-$('camSwitch').onchange = e => e.target.checked ? cameraOn() : cameraOff();
+$('camSwitch').onchange = e => {
+  // Safari only lets sound analysis start during a tap, so create it right here, before any waiting
+  if (e.target.checked && !IN_WALLET) { try { V.ac = V.ac || new (window.AudioContext || window.webkitAudioContext)(); V.ac.resume(); } catch (err) {} }
+  e.target.checked ? cameraOn() : cameraOff();
+};
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // Every signal is judged against this person's own resting level, learned continuously from the last few seconds
