@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Nibble FACE</title>
+<title>Nibble FILTER</title>
 <style>
 :root{
   --bg:#fff4e6; --panel:#ffffff; --ink:#1d1b20; --muted:#6b6470; --line:#1d1b20;
@@ -52,6 +52,7 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;padding:10px 12px 0;
 #recBtn.on{animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{50%{box-shadow:0 2.5px 0 var(--line),0 0 0 6px rgba(255,77,77,.25)}}
 .shape-i{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:2.5px solid var(--line);border-radius:4px;background:#ffd34d}
+@media (max-width:370px){ header{padding-left:12px;padding-right:12px;gap:8px} header h1{font-size:21px} header h1 span{font-size:17px;padding:0 5px 1px} .toggle{gap:6px;padding:3px 4px 3px 9px;font-size:14px} .toggle i{width:46px;height:27px} .toggle i::after{width:19px;height:19px} .toggle input:checked + i::after{transform:translateX(19px)} }
 @media (max-width:350px){ .circ{width:44px;height:44px} .ctl.rec-c .circ{width:54px;height:54px} .lbl{font-size:10px} .bar{padding:8px 4px 6px} }
 .toggle{display:flex;align-items:center;gap:8px;font-weight:800;cursor:pointer;user-select:none;background:#fff;border:2.5px solid var(--line);border-radius:999px;padding:4px 5px 4px 12px;box-shadow:0 2.5px 0 var(--line)}
 .toggle input{position:absolute;opacity:0;width:0;height:0}
@@ -70,7 +71,7 @@ body.streaming #exitStream{display:block}
 </head>
 <body>
 <header>
-  <h1>Nibble<span>FACE</span></h1>
+  <h1>Nibble<span>FILTER</span></h1>
   <label class="toggle" id="camToggle"><span>Camera</span><input type="checkbox" id="camSwitch"><i></i></label>
 </header>
 
@@ -546,7 +547,7 @@ $('recBtn').onclick = async () => {
     S.recorder.onstop = () => {
       const type = (S.recorder && S.recorder.mimeType) || mimeType || 'video/webm';
       const blob = new Blob(S.chunks, { type });
-      const name = `nibbleface-${S.id}-${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`;
+      const name = `nibblefilter-${S.id}-${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`;
       S.recorder = null; $('recBtn').classList.remove('on'); $('recLbl').textContent = 'Record'; $('recBadge').style.display = 'none';
       const t = $('toast'); clearTimeout(toastT); t.className = 'toast'; t.innerHTML = ''; t.style.display = 'block';
       const dl = document.createElement('a'); dl.href = URL.createObjectURL(blob); dl.download = name; dl.textContent = 'Save clip'; dl.className = 'save';
