@@ -40,6 +40,13 @@ select{width:100%;border:2.5px solid var(--line);border-radius:12px;padding:10px
 .status.ok{color:var(--ok)}
 .hint{font-size:12px;color:var(--muted);margin:6px 0 0}
 #dl{display:none}
+.toggle{display:flex;align-items:center;gap:10px;font-weight:800;cursor:pointer;user-select:none}
+.toggle input{position:absolute;opacity:0;width:0;height:0}
+.toggle i{position:relative;width:56px;height:32px;border:2.5px solid var(--line);border-radius:999px;background:#e8e3dc;transition:background .15s}
+.toggle i::after{content:"";position:absolute;top:2px;left:2px;width:23px;height:23px;border-radius:50%;background:#fff;border:2.5px solid var(--line);box-sizing:border-box;transition:transform .15s}
+.toggle input:checked + i{background:var(--ok)}
+.toggle input:checked + i::after{transform:translateX(24px)}
+.toggle.busy{opacity:.6}
 body.streaming header, body.streaming .panel, body.streaming .badge{display:none!important}
 body.streaming main{display:block;padding:0;max-width:none}
 body.streaming .stage-wrap{border:0;border-radius:0;height:100vh;background:#000}
@@ -52,7 +59,7 @@ body.streaming #exitStream{display:block}
 <body>
 <header>
   <h1>Nibble<span>ME</span></h1>
-  <button class="btn primary small" id="camBtn">Start camera</button>
+  <label class="toggle" id="camToggle"><span>Camera</span><input type="checkbox" id="camSwitch"><i></i></label>
 </header>
 
 <main>
@@ -184,31 +191,45 @@ loadNibble(4075);
 // ---------------------------------------------------------------------------
 // Camera + face tracking (MediaPipe Face Landmarker, on-device)
 // ---------------------------------------------------------------------------
-$('camBtn').onclick = async () => {
-  if (S.tracking) return;
+async function cameraOn() {
+  $('camToggle').classList.add('busy');
   try {
-    $('camBtn').textContent = 'Starting…';
     const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:640}, height:{ideal:480} }, audio:false });
     video.srcObject = stream; await video.play();
     if (!S.landmarker) {
-      $('camBtn').textContent = 'Loading…';
+      setStatus('camStatus', 'Loading face tracker…');
       const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`);
       const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`);
       const opts = { baseOptions:{ modelAssetPath:MP_MODEL, delegate: IN_WALLET ? 'CPU' : 'GPU' }, runningMode:'VIDEO', numFaces:1, outputFaceBlendshapes:true };
       try { S.landmarker = await vision.FaceLandmarker.createFromOptions(files, opts); }
       catch (e) { opts.baseOptions.delegate = 'CPU'; S.landmarker = await vision.FaceLandmarker.createFromOptions(files, opts); }
     }
-    S.tracking = true; S.calib = { n:0, open:0, wide:0, pitch:0 };
-    $('camBtn').textContent = 'Camera on'; $('camBtn').classList.add('on');
-    setStatus('camStatus', 'Hold a relaxed face for a second while it calibrates.');
-    setTimeout(() => setStatus('camStatus', ''), 2500);
+    resetBaselines(); S.tracking = true;
+    setStatus('camStatus', '');
   } catch (e) {
-    $('camBtn').textContent = 'Start camera';
+    $('camSwitch').checked = false;
     setStatus('camStatus', 'Camera blocked or unavailable. Allow camera access and try again.', 'err');
   }
-};
+  $('camToggle').classList.remove('busy');
+}
+function cameraOff() {
+  S.tracking = false; S.face.seen = false;
+  try { video.srcObject?.getTracks().forEach(t => t.stop()); } catch (e) {}
+  video.srcObject = null;
+}
+$('camSwitch').onchange = e => e.target.checked ? cameraOn() : cameraOff();
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+// Every signal is judged against this person's own resting level, learned continuously from the last few seconds
+// (a low percentile, so talking or blinking never raises the baseline).
+const HIST = 150;
+const H = {};
+function resetBaselines() { for (const k of Object.keys(H)) delete H[k]; }
+function base(name, v, pct=0.2) {
+  const a = H[name] || (H[name] = []); a.push(v); if (a.length > HIST) a.shift();
+  if (a.length < 12) return v;
+  const s = [...a].sort((x, y) => x - y); return s[Math.floor((s.length - 1) * pct)];
+}
 function track(now) {
   if (!S.tracking || !S.landmarker || video.readyState < 2 || video.currentTime === S.lastVideoTime) return;
   S.lastVideoTime = video.currentTime;
@@ -217,58 +238,67 @@ function track(now) {
   f.seen = true;
   const L = r.faceLandmarks[0];
   const bs = {}; (r.faceBlendshapes?.[0]?.categories || []).forEach(c => bs[c.categoryName] = c.score);
-  // head pose (mirrored)
   const roll = -Math.atan2(L[263].y - L[33].y, L[263].x - L[33].x);
   const yaw = -(((L[1].x - L[234].x) / ((L[454].x - L[234].x) || 1e-6)) - 0.5) * 2;
   const eyeY = (L[33].y + L[263].y) / 2, mouthY = (L[13].y + L[14].y) / 2;
   const pr = (L[1].y - eyeY) / ((mouthY - eyeY) || 1e-6);
-  // lip shape straight from the landmarks: far more sensitive than the blendshapes for small speech movements
   const faceH = dist(L[10], L[152]) || 1e-6;
-  const open = dist(L[13], L[14]) / faceH;              // inner lip gap
-  const wide = dist(L[78], L[308]) / faceH;             // mouth corner to corner
-  // first ~40 frames: learn this person's relaxed face so small movements count
-  const c = S.calib;
-  if (c.n < 40) { c.open += open; c.wide += wide; c.pitch += pr; c.n++; if (c.n === 40) { c.open /= 40; c.wide /= 40; c.pitch /= 40; } }
-  const ready = c.n >= 40;
-  const o0 = ready ? c.open : 0.004, w0 = ready ? c.wide : wide;
-  const openN = clamp((open - o0) / 0.075, 0, 1);         // 0 closed … 1 fully open
-  const wideN = clamp((wide - w0) / 0.06, -1, 1);          // + stretched, − narrowed
-  const k = 0.65;                                          // fast follow, light smoothing
-  f.open = lerp(f.open, openN, k);
-  f.wide = lerp(f.wide, wideN, k);
-  f.round = lerp(f.round, Math.max(bs.mouthFunnel || 0, bs.mouthPucker || 0), k);
-  f.smile = lerp(f.smile, ((bs.mouthSmileLeft || 0) + (bs.mouthSmileRight || 0)) / 2, k);
-  f.press = lerp(f.press, ((bs.mouthPressLeft || 0) + (bs.mouthPressRight || 0)) / 2 + (bs.mouthRollLower || 0) * .6, k);
-  f.blink = lerp(f.blink, ((bs.eyeBlinkLeft || 0) + (bs.eyeBlinkRight || 0)) / 2, .75);
-  f.brow = lerp(f.brow, ((bs.browDownLeft || 0) + (bs.browDownRight || 0)) / 2, .5);
-  f.browUp = lerp(f.browUp, bs.browInnerUp || 0, .5);
+  const open = dist(L[13], L[14]) / faceH;                 // inner lip gap
+  const wide = dist(L[78], L[308]) / faceH;                // corner to corner
+  const blink = ((bs.eyeBlinkLeft || 0) + (bs.eyeBlinkRight || 0)) / 2;
+  const brow = ((bs.browDownLeft || 0) + (bs.browDownRight || 0)) / 2;
+  const browUp = bs.browInnerUp || 0;
+  const round = Math.max(bs.mouthFunnel || 0, bs.mouthPucker || 0);
+  const smile = ((bs.mouthSmileLeft || 0) + (bs.mouthSmileRight || 0)) / 2;
+  const press = ((bs.mouthPressLeft || 0) + (bs.mouthPressRight || 0)) / 2 + (bs.mouthRollLower || 0) * .6;
+  const rel = (v, b, span) => clamp((v - b) / span, 0, 1);
+  const k = 0.6;
+  f.open = lerp(f.open, rel(open, base('open', open, 0.1), 0.06), k);            // ~6% of face height = fully open
+  f.wide = lerp(f.wide, clamp((wide - base('wide', wide, 0.5)) / 0.05, -1, 1), k);
+  f.round = lerp(f.round, rel(round, base('round', round), 0.5), k);
+  f.smile = lerp(f.smile, rel(smile, base('smile', smile), 0.5), k);
+  f.press = lerp(f.press, rel(press, base('press', press), 0.45), k);
+  const bb = base('blink', blink, 0.3);                                           // resting lids (e.g. looking down at the phone)
+  f.blink = lerp(f.blink, rel(blink, bb, Math.max(0.25, 0.92 - bb)), .8);
+  f.brow = lerp(f.brow, rel(brow, base('brow', brow, 0.3), 0.45), .5);
+  f.browUp = lerp(f.browUp, rel(browUp, base('browUp', browUp, 0.3), 0.45), .5);
   f.roll = lerp(f.roll, roll, .5); f.yaw = lerp(f.yaw, clamp(yaw, -1, 1), .5);
-  f.pitch = lerp(f.pitch, ready ? clamp((pr - c.pitch) * 3, -1, 1) : 0, .4);
+  f.pitch = lerp(f.pitch, clamp((pr - base('pitch', pr, 0.5)) * 3, -1, 1), .4);
 }
 
-// Which drawn mouth / eyes match the face right now.
+// Which drawn mouth / eyes match the face right now. Each state has to be clearly entered and clearly left
+// (hysteresis), so the face doesn't flicker on the border between two shapes.
+let openLvl = 0;   // 0 closed, 1 slightly open, 2 wide open
 function pickMouth(f) {
-  if (f.round > 0.42 && f.open < 0.35) return 6;                 // OO / W
-  if (f.open > 0.55) return (f.round > 0.3 || f.wide < -0.25) ? 5 : 3;   // O or AH
-  if (f.open > 0.16) {
-    if (f.round > 0.3 || f.wide < -0.3) return 5;                // O
-    if (f.wide > 0.3 || f.smile > 0.45) return 4;                // EE
-    return 2;                                                    // most speech
-  }
-  if (f.open > 0.07) return (f.wide > 0.35 || f.smile > 0.5) ? 4 : 2;
-  if (f.press > 0.3) return 1;                                   // M B P
-  if (f.smile > 0.55) return 4;
+  if (openLvl === 0 && f.open > 0.20) openLvl = 1;
+  else if (openLvl === 1 && f.open > 0.62) openLvl = 2;
+  else if (openLvl === 2 && f.open < 0.48) openLvl = 1;
+  else if (openLvl === 1 && f.open < 0.11) openLvl = 0;
+  const round = f.round > 0.45 || f.wide < -0.45, wideM = f.wide > 0.45 || f.smile > 0.55;
+  if (openLvl === 2) return round ? 5 : 3;                       // O or AH
+  if (openLvl === 1) return round ? 5 : wideM ? 4 : 2;           // O, EE or most speech
+  if (round && f.round > 0.6) return 6;                          // OO / W
+  if (f.press > 0.55) return 1;                                  // M B P
+  if (f.smile > 0.7) return 4;
   return 0;
 }
-function pickEyes(f) {
-  if (f.blink > 0.62) return 4;
-  if (f.blink > 0.36) return 3;
-  if (f.brow > 0.42) return 1;
-  if (f.browUp > 0.5) return 2;
+const eyeHold = { want:0, since:0 };
+function pickEyes(f, now) {
+  let want = 0;
+  if (f.blink > 0.7) want = 4;
+  else if (f.blink > 0.45) want = 3;
+  else if (f.brow > 0.5) want = 1;
+  else if (f.browUp > 0.55) want = 2;
+  if (want !== eyeHold.want) { eyeHold.want = want; eyeHold.since = now; }
+  const held = now - eyeHold.since;
+  // blinks land right away; a squint, frown or raised brows has to be held a moment before the Nibble copies it
+  if (want === 4) return 4;
+  if (want === 3) return held > 260 ? 3 : (S.eye.cur === 4 ? 3 : 0);
+  if (want === 1 || want === 2) return held > 220 ? want : S.eye.cur === want ? want : 0;
   return 0;
 }
-// Switch with a short cross-fade so changes blend instead of popping. Blinks always pass through half-closed.
-const FADE = { mouth:70, eye:55 };
+// Switch with a short cross-fade so changes blend instead of popping.
+const FADE = { mouth:60, eye:50 };
 function step(slot, want, now, minHold) {
   if (want !== slot.cur && now - slot.t > minHold) { slot.prev = slot.cur; slot.cur = want; slot.t = now; }
 }
@@ -326,11 +356,12 @@ function drawNibble(t) {
   const yaw = live ? f.yaw : 0, pitch = live ? f.pitch : 0;
   const breathe = Math.sin(t/650) * 0.006;
   if (live) {
-    step(S.mouth, pickMouth(f), t, 40);
-    const e = pickEyes(f);
+    step(S.mouth, pickMouth(f), t, 55);
+    const e = pickEyes(f, t);
     // a blink never jumps straight from open to shut: it passes through half-closed
     if (e === 4 && S.eye.cur !== 4 && S.eye.cur !== 3) step(S.eye, 3, t, 0);
-    else step(S.eye, e, t, e === 4 || S.eye.cur === 4 ? 30 : 90);
+    else if (e === 0 && S.eye.cur === 4) step(S.eye, 3, t, 40);
+    else step(S.eye, e, t, e === 4 || S.eye.cur === 3 ? 35 : 90);
   } else {
     step(S.mouth, 0, t, 0);
     // idle blink every few seconds
