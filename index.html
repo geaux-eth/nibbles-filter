@@ -89,6 +89,8 @@ body.streaming #exitStream{display:block}
         <label class="btn small">Upload image<input type="file" id="fileInput" accept="image/*" hidden></label>
       </div>
       <div class="status" id="nibStatus"></div>
+      <button class="btn small" id="handoffBtn" style="display:none;margin-top:6px">Open in Safari to record with sound</button>
+      <div class="hint" id="handoffHint"></div>
     </div>
 
     <div>
@@ -164,6 +166,12 @@ const ASPECTS = { 'Square 1:1':[1080,1080], 'Vertical 9:16':[1080,1920], 'Wide 1
 // State
 // ---------------------------------------------------------------------------
 const $ = id => document.getElementById(id);
+// Wallet apps' built-in browsers (Rainbow, MetaMask, Coinbase, Trust…). Some of them crash the whole app when a page
+// asks for the microphone, so inside them we only ever use the camera and run the face tracker on the CPU.
+const UA = navigator.userAgent;
+const IS_IOS = /iPhone|iPad|iPod/.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IS_MOBILE = IS_IOS || /Android/i.test(UA);
+const IN_WALLET = /Rainbow|MetaMask|CoinbaseWallet|Coinbase|Trust|imToken|TokenPocket|OKApp|Phantom/i.test(UA) || (IS_MOBILE && !!window.ethereum);
 const stage = $('stage'), ctx = stage.getContext('2d');
 const video = $('cam');
 const S = {
@@ -456,7 +464,7 @@ function disconnectWallet() {
   try { window.ethereum?.request({ method:'wallet_revokePermissions', params:[{ eth_accounts:{} }] }).catch(() => {}); } catch (e) {}
   S.account = null; S.verified = false;
   try { Object.keys(localStorage).filter(k => k.startsWith('verified:')).forEach(k => localStorage.removeItem(k)); } catch (e) {}
-  setWalletBtn(); setStatus('nibStatus', 'Wallet disconnected.');
+  setWalletBtn(); showHandoff(); setStatus('nibStatus', 'Wallet disconnected.');
 }
 $('walletBtn').onclick = async () => {
   if (S.account) { disconnectWallet(); return; }
@@ -482,8 +490,47 @@ async function ownerOf(id) {
 function cachedVerify(id) {
   try { const v = JSON.parse(localStorage.getItem('verified:' + id) || 'null'); return v && Date.now() - v.at < 7*864e5 ? v : null; } catch (e) { return null; }
 }
+// Proof of ownership that travels to another browser: a signed message + the token, checked on-chain again there.
+const b64u = o => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const unb64u = t => JSON.parse(decodeURIComponent(escape(atob(t.replace(/-/g,'+').replace(/_/g,'/')))));
+const proofMsg = (id, a, e) => `Nibbles Filter\nI hold Nibble #${id}\nAddress: ${a}\nValid until: ${new Date(e).toISOString()}`;
+function showHandoff() {
+  const ok = IN_WALLET && S.verified && S.mode === 'token' && S.account;
+  $('handoffBtn').style.display = ok ? 'inline-block' : 'none';
+  if (!ok) $('handoffHint').textContent = '';
+}
+$('handoffBtn').onclick = async () => {
+  try {
+    const id = S.tokenId, a = S.account, e = Date.now() + 7*864e5;
+    const msg = proofMsg(id, a, e);
+    const hex = '0x' + [...new TextEncoder().encode(msg)].map(x => x.toString(16).padStart(2,'0')).join('');
+    const sig = await window.ethereum.request({ method:'personal_sign', params:[hex, a] });
+    const url = `${location.origin}${location.pathname}?v=${b64u({ id, a, e, s:sig })}`;
+    try { await navigator.clipboard.writeText(url); } catch (err) {}
+    $('handoffHint').textContent = 'Link copied. If Safari doesn\'t open, paste it into Safari or Chrome.';
+    if (IS_IOS) location.href = 'x-safari-' + url;
+    else if (/Android/i.test(UA)) location.href = `intent://${location.host}${location.pathname}?v=${b64u({ id, a, e, s:sig })}#Intent;scheme=https;package=com.android.chrome;end`;
+  } catch (err) { $('handoffHint').textContent = 'Signing was cancelled.'; }
+};
+async function acceptProof() {
+  const q = new URLSearchParams(location.search).get('v'); if (!q) return;
+  history.replaceState(null, '', location.pathname);
+  try {
+    const p = unb64u(q);
+    if (!(p.e > Date.now())) throw new Error('expired');
+    const { verifyMessage } = await import('https://cdn.jsdelivr.net/npm/ethers@6.13.4/+esm');
+    const signer = verifyMessage(proofMsg(p.id, p.a, p.e), p.s).toLowerCase();
+    if (signer !== p.a) throw new Error('bad signature');
+    if (await ownerOf(p.id) !== p.a) throw new Error('not owner');
+    try { localStorage.setItem('verified:' + p.id, JSON.stringify({ account:p.a, at:Date.now() })); } catch (e) {}
+    const chip = document.querySelector(`#quick .chip[data-id="${p.id}"]`); if (chip) mark(null, chip);
+    await loadToken(+p.id);
+  } catch (e) { setStatus('nibStatus', 'That link has expired or could not be verified. Verify again in your wallet app.', 'err'); }
+}
+acceptProof();
+
 async function verifyOwnership() {
-  S.verified = false;
+  S.verified = false; showHandoff();
   if (S.tokenId == null) return;
   if (!S.account) {
     const v = cachedVerify(S.tokenId);
@@ -496,6 +543,7 @@ async function verifyOwnership() {
     try { if (S.verified) localStorage.setItem('verified:' + S.tokenId, JSON.stringify({ account:S.account, at:Date.now() })); } catch (e) {}
     setStatus('nibStatus', S.verified ? `Verified: you hold Nibble #${S.tokenId}.` : `Nibble #${S.tokenId} belongs to another wallet — preview only.`, S.verified ? 'ok' : 'err');
   } catch (e) { setStatus('nibStatus', 'Could not check ownership right now.', 'err'); }
+  showHandoff();
 }
 
 // ---------------------------------------------------------------------------
@@ -505,16 +553,13 @@ $('camBtn').onclick = async () => {
   try {
     setStatus('camStatus', 'Starting…');
     const vid = { facingMode:'user', width:{ideal:640}, height:{ideal:480} };
-    let stream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:{ echoCancellation:true, noiseSuppression:true } }); }
-    catch (e) { stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:false }); }
-    S.audioTracks = stream.getAudioTracks();
-    video.srcObject = new MediaStream(stream.getVideoTracks()); await video.play();
+    const stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:false });   // never the mic here
+    video.srcObject = stream; await video.play();
     if (!S.landmarker) {
       setStatus('camStatus', 'Loading face tracker…');
       const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`);
       const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`);
-      const opts = { baseOptions:{ modelAssetPath:MP_MODEL, delegate:'GPU' }, runningMode:'VIDEO', numFaces:1, outputFaceBlendshapes:true };
+      const opts = { baseOptions:{ modelAssetPath:MP_MODEL, delegate: IN_WALLET ? 'CPU' : 'GPU' }, runningMode:'VIDEO', numFaces:1, outputFaceBlendshapes:true };
       try { S.landmarker = await vision.FaceLandmarker.createFromOptions(files, opts); }
       catch (e) { opts.baseOptions.delegate = 'CPU'; S.landmarker = await vision.FaceLandmarker.createFromOptions(files, opts); }
     }
@@ -600,7 +645,14 @@ $('bgFile').onchange = async e => {
 // ---------------------------------------------------------------------------
 // Recording
 // ---------------------------------------------------------------------------
-$('recBtn').onclick = () => {
+async function getMic() {
+  if (IN_WALLET) return [];
+  if (S.audioTracks.length && S.audioTracks[0].readyState === 'live') return S.audioTracks;
+  try { const m = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true }, video:false }); S.audioTracks = m.getAudioTracks(); }
+  catch (e) { S.audioTracks = []; }
+  return S.audioTracks;
+}
+$('recBtn').onclick = async () => {
   if (S.recorder) { try { S.recorder.stop(); } catch (e) {} return; }
   if (!S.mode) { setStatus('recStatus', 'Pick a Nibble first.', 'err'); return; }
   if (!stage.captureStream || !window.MediaRecorder) {
@@ -608,7 +660,7 @@ $('recBtn').onclick = () => {
   }
   try {
     const out = stage.captureStream(30);
-    (S.audioTracks || []).forEach(tr => { if (tr.readyState === 'live') out.addTrack(tr); });
+    (await getMic()).forEach(tr => { if (tr.readyState === 'live') out.addTrack(tr); });
     const mimeType = ['video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t)) || '';
     S.chunks = [];
     S.recorder = new MediaRecorder(out, mimeType ? { mimeType, videoBitsPerSecond:3_000_000 } : undefined);
@@ -628,7 +680,7 @@ $('recBtn').onclick = () => {
     };
     S.recorder.start(1000);
     $('recBtn').textContent = 'Stop'; $('recBadge').style.display = 'block'; $('dl').style.display = 'none';
-    setStatus('recStatus', S.audioTracks && S.audioTracks.length ? 'Recording…' : 'Recording (no mic access, so no sound)…');
+    setStatus('recStatus', S.audioTracks.length ? 'Recording…' : IN_WALLET ? 'Recording without sound (wallet browsers block the mic). Use "Open in Safari" for sound.' : 'Recording (no mic access, so no sound)…');
   } catch (e) { S.recorder = null; setStatus('recStatus', 'Recording isn\'t supported in this browser. Try Safari or Chrome.', 'err'); }
 };
 
