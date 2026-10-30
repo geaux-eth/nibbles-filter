@@ -972,17 +972,25 @@ $('recBtn').onclick = async () => {
     S.recorder.ondataavailable = e => e.data && e.data.size && S.chunks.push(e.data);
     S.recorder.onerror = () => { S.recorder = null; $('recBtn').classList.remove('on'); $('recLbl').textContent = 'Record'; $('recBadge').style.display = 'none'; setStatus('recStatus', 'Recording stopped unexpectedly.', 'err'); };
     S.recorder.onstop = () => {
-      const type = (S.recorder && S.recorder.mimeType) || mimeType || 'video/webm';
+      // plain MIME type for the file: Chrome's share sheet and Photos reject types like "video/mp4;codecs=avc1,opus"
+      const full = (S.recorder && S.recorder.mimeType) || mimeType || 'video/webm', type = full.split(';')[0].trim() || 'video/webm';
       const blob = new Blob(S.chunks, { type });
-      const name = `nibblefilter-${S.id}-${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`;
+      const name = `nibblefilter-${S.id}-${Date.now()}.${type === 'video/mp4' ? 'mp4' : 'webm'}`;
       S.recorder = null; fitStage(); $('recBtn').classList.remove('on'); $('recLbl').textContent = 'Record'; $('recBadge').style.display = 'none';
+      if (!blob.size) { setStatus('recStatus', 'That recording came out empty. Try again (record for at least a second).', 'err', 6000); return; }
+      const url = URL.createObjectURL(blob);
+      const download = () => { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
       const t = $('toast'); clearTimeout(toastT); t.className = 'toast'; t.innerHTML = ''; t.style.display = 'block';
-      const dl = document.createElement('a'); dl.href = URL.createObjectURL(blob); dl.download = name; dl.textContent = 'Save clip'; dl.className = 'save';
+      const dl = document.createElement('a'); dl.href = url; dl.download = name; dl.textContent = 'Save clip'; dl.className = 'save';
       let file = null; try { file = new File([blob], name, { type }); } catch (e) {}
-      if (file && navigator.canShare && navigator.canShare({ files:[file] })) {
-        dl.onclick = async ev => { ev.preventDefault(); try { await navigator.share({ files:[file] }); } catch (e) {} };
+      // phones: the share sheet (Save Video / Save to gallery). If it can't share, fall straight back to a download.
+      // computers: a normal download.
+      if (IS_MOBILE && file && navigator.canShare && navigator.canShare({ files:[file] })) {
+        dl.onclick = async ev => { ev.preventDefault();
+          try { await navigator.share({ files:[file] }); }
+          catch (e) { if (e && e.name !== 'AbortError') download(); } };
       }
-      const x = document.createElement('a'); x.href = '#'; x.textContent = '✕'; x.className = 'close'; x.setAttribute('aria-label', 'Close'); 
+      const x = document.createElement('a'); x.href = '#'; x.textContent = '✕'; x.className = 'close'; x.setAttribute('aria-label', 'Close');
       x.onclick = ev => { ev.preventDefault(); setStatus('recStatus', ''); };
       t.append(dl, x);
     };
