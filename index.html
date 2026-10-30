@@ -142,6 +142,11 @@ const CAST = {
 // GEAUX's own Nibbles (token art; whole-art motion until each has its own expression frames)
 const MY_NIBBLES = { 4075:'Ghost', 3133:'Wolf', 4248:'Bear', 5502:'Beaver', 4240:'Gnome', 8102:'Raccoon', 2525:'Gecko', 1353:'Cock' };
 
+// Token Nibbles with drawn face layers (eyes and mouths line up with the token art at 1000x1000).
+// eyes: 0 as-drawn, 1 angry, 2 surprised, 3 heavy-lidded, 4 closed
+// mouths: 0 as-drawn, 1 closed (M B P), 2 slightly open, 3 wide "AH", 4 grin "EE", 5 round "O", 6 pucker "OO"
+const FACES = { 4075: true };
+
 const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest' };
 const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS), 'Green screen'];
 const ASPECTS = { 'Square 1:1':[1080,1080], 'Vertical 9:16':[1080,1920], 'Wide 16:9':[1920,1080] };
@@ -158,9 +163,10 @@ const S = {
   tokenId:null, keyed:null, bgColor:'#ffbf85', verified:false,
   bg:'Nibble color', bgImg:null, account:null,
   landmarker:null, tracking:false, lastVideoTime:-1,
-  face:{ roll:0, yaw:0, pitch:0, jaw:0, blink:0, brow:0, browUp:0, pucker:0, seen:false },
+  face:{ roll:0, yaw:0, pitch:0, jaw:0, blink:0, brow:0, browUp:0, pucker:0, funnel:0, smile:0, press:0, seen:false },
   pitchBase:null, pitchSamples:[],
   expr:-1, exprSince:0, pop:0,
+  face2:null, eyeIdx:-1, mouthIdx:-1, eyeSince:0, mouthSince:0,
   recorder:null, chunks:[], audioTracks:[],
 };
 window.__nibble = S;
@@ -274,13 +280,25 @@ $('fileInput').onchange = async e => {
   const img = await loadImg(URL.createObjectURL(f));
   if (S.tokenId == null) S.tokenId = +($('tokenInput').value || 0);
   S.mode = 'token'; S.keyed = keyImage(img);
+  if (!S.face2) loadFaces(S.tokenId);
   setStatus('nibStatus', `Using uploaded art for #${S.tokenId}.`, 'ok');
   await verifyOwnership();
 };
 function ipfs(u) { return u.startsWith('ipfs://') ? 'https://ipfs.io/ipfs/' + u.slice(7) : u; }
+async function loadFaces(id) {
+  S.face2 = null; S.eyeIdx = -1; S.mouthIdx = -1;
+  if (!FACES[id]) return;
+  try {
+    const [eyes, mouths] = await Promise.all([
+      Promise.all([0,1,2,3,4].map(i => loadImg(`faces/${id}/e${i}.webp`))),
+      Promise.all([0,1,2,3,4,5,6].map(i => loadImg(`faces/${id}/m${i}.webp`))) ]);
+    if (S.tokenId === id) S.face2 = { eyes, mouths };
+  } catch (e) {}
+}
 async function loadToken(id) {
   if (!(id >= 0 && id <= 8887)) { setStatus('nibStatus', 'Token must be 0–8887.', 'err'); return; }
   S.mode = 'token'; S.tokenId = id; S.keyed = null; S.verified = false; S.cast = null;
+  loadFaces(id);
   $('tokenInput').value = id;
   setStatus('nibStatus', `Loading Nibble #${id}…`);
   try {
@@ -323,13 +341,35 @@ function keyImage(img) {
   return c;
 }
 
+// Eyes and mouth are separate: the mouth follows your lips, the eyes follow your blinks and brows.
+function chooseFace(now) {
+  const f = S.face;
+  if (!(S.tracking && f.seen) || !S.face2) return [-1, -1];
+  let e = -1;
+  if (f.blink > 0.6) e = 4;
+  else if (f.blink > 0.38) e = 3;
+  else if (f.brow > 0.45) e = 1;
+  else if (f.browUp > 0.5) e = 2;
+  let m = -1;
+  if (f.pucker > 0.5 && f.jaw < 0.25) m = 6;
+  else if (f.jaw > 0.45) m = f.funnel > 0.3 ? 5 : 3;
+  else if (f.smile > 0.45 && f.jaw > 0.06) m = 4;
+  else if (f.jaw > 0.15) m = f.funnel > 0.35 ? 5 : 2;
+  else if (f.jaw > 0.07) m = 2;
+  else if (f.press > 0.35) m = 1;
+  // blinks land instantly; other eye changes and mouth shapes hold briefly so they read
+  if (e !== S.eyeIdx && (e === 4 || S.eyeIdx === 4 || now - S.eyeSince > 90)) { S.eyeIdx = e; S.eyeSince = now; }
+  if (m !== S.mouthIdx && now - S.mouthSince > 45) { S.mouthIdx = m; S.mouthSince = now; }
+  return [S.eyeIdx, S.mouthIdx];
+}
+
 function drawToken(t) {
   if (!S.keyed) return;
   const W = stage.width, H = stage.height, size = Math.min(W, H);
   const f = S.face, live = S.tracking && f.seen;
   const roll = live ? f.roll : Math.sin(t/1400) * 0.03;
   const yaw = live ? f.yaw : 0, pitch = live ? f.pitch : 0;
-  const talk = live ? f.jaw : 0;
+  const talk = live ? f.jaw * (S.face2 ? 0.3 : 1) : 0;   // less bounce once the mouth really moves
   const breathe = Math.sin(t/650) * 0.006;
   const px = W/2, py = H;                                // sway from the bottom, like a hand puppet
   ctx.save();
@@ -339,6 +379,9 @@ function drawToken(t) {
   ctx.translate(-px, -py);
   const x = (W - size)/2, y = H - size;
   ctx.drawImage(S.keyed, x, y, size, size);
+  const [ei, mi] = chooseFace(t);
+  if (ei >= 0) ctx.drawImage(S.face2.eyes[ei], x, y, size, size);
+  if (mi >= 0) ctx.drawImage(S.face2.mouths[mi], x, y, size, size);
   ctx.drawImage(S.keyed, 0, 997, 1000, 3, x, H - 1, size, size * 0.3);   // body continues below the frame edge
   ctx.restore();
 }
@@ -441,6 +484,9 @@ function track(now) {
   f.brow = lerp(f.brow, ((bs.browDownLeft || 0) + (bs.browDownRight || 0)) / 2, .5);
   f.browUp = lerp(f.browUp, bs.browInnerUp || 0, .5);
   f.pucker = lerp(f.pucker, Math.max(bs.mouthPucker || 0, bs.mouthFunnel || 0), .5);
+  f.funnel = lerp(f.funnel, bs.mouthFunnel || 0, .5);
+  f.smile = lerp(f.smile, ((bs.mouthSmileLeft || 0) + (bs.mouthSmileRight || 0)) / 2, .5);
+  f.press = lerp(f.press, ((bs.mouthPressLeft || 0) + (bs.mouthPressRight || 0)) / 2 + (bs.mouthRollLower || 0) * .5, .5);
 }
 
 // ---------------------------------------------------------------------------
