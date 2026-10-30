@@ -311,7 +311,9 @@ function fitStage() {
   // Square: the Nibble's square sits at the bottom of the screen and the picture grows to fill the rest
   // (the backdrop continues and the text goes in the space above), so there's never any black around it.
   if (S.shape === 'Square' && !S.recorder) {
-    const W = ah >= aw ? 1080 : Math.round(1080 * aw / ah), H = ah >= aw ? Math.round(1080 * ah / aw) : 1080;
+    // video encoders (Safari's especially) need even sizes: a 1080x1561 canvas records nothing, so round to a multiple of 8
+    const r8 = v => Math.round(v / 8) * 8;
+    const W = ah >= aw ? 1080 : r8(1080 * aw / ah), H = ah >= aw ? r8(1080 * ah / aw) : 1080;
     if (stage.width !== W || stage.height !== H) { stage.width = W; stage.height = H; }
   }
   const [w, h] = fitBox(aw, ah, stage.width / stage.height);
@@ -964,7 +966,7 @@ $('recBtn').onclick = async () => {
   try {
     const out = stage.captureStream(30);
     (await getMic()).forEach(tr => { if (tr.readyState === 'live') out.addTrack(tr); });
-    const mimeType = ['video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t)) || '';
+    const mimeType = ['video/mp4;codecs=avc1.42E01F,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t)) || '';   // H.264 MP4 first: plays and saves to Photos everywhere
     S.chunks = [];
     S.recorder = new MediaRecorder(out, mimeType ? { mimeType, videoBitsPerSecond:3_000_000 } : undefined);
     S.recorder.ondataavailable = e => e.data && e.data.size && S.chunks.push(e.data);
