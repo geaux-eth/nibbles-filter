@@ -28,7 +28,7 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;padding:10px 12px 0;
 .stage-wrap{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
 #stage{display:block;max-width:100%;max-height:100%;width:auto;height:auto;border:3px solid var(--line);border-radius:18px;background:#222}
 .badge{position:absolute;top:10px;right:10px;background:#ff4d4d;color:#fff;border:2px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;display:none}
-.toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);max-width:92%;background:#fff;border:2.5px solid var(--line);border-radius:14px;padding:8px 12px;font-size:13px;font-weight:700;text-align:center;box-shadow:0 3px 0 var(--line);display:none;z-index:5}
+.toast{white-space:normal;position:absolute;left:50%;bottom:14px;transform:translateX(-50%);max-width:92%;background:#fff;border:2.5px solid var(--line);border-radius:14px;padding:8px 12px;font-size:13px;font-weight:700;text-align:center;box-shadow:0 3px 0 var(--line);display:none;z-index:5}
 .toast.err{background:#ffe1dc}
 .toast a{color:var(--me)}
 .bar{flex:none;display:flex;align-items:center;justify-content:space-around;gap:6px;padding:8px 4px max(10px,env(safe-area-inset-bottom));width:100%;max-width:520px;margin:0 auto}
@@ -40,6 +40,8 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;padding:10px 12px 0;
 .rec.on i{width:26px;height:26px;border-radius:6px}
 .ctl button.face{cursor:pointer;font:inherit;font-size:12px;font-weight:800}
 @media (min-width:900px){ .ctl .face{width:58px;height:58px} }
+.report{margin-left:auto;margin-right:10px;white-space:nowrap;border:2px solid var(--line);border-radius:999px;background:#fff;font-weight:800;font-size:12px;padding:5px 10px;cursor:pointer}
+.report.busy{opacity:.5}
 .toggle{display:flex;align-items:center;gap:10px;font-weight:800;cursor:pointer;user-select:none}
 .toggle input{position:absolute;opacity:0;width:0;height:0}
 .toggle i{position:relative;width:56px;height:32px;border:2.5px solid var(--line);border-radius:999px;background:#e8e3dc;transition:background .15s}
@@ -50,14 +52,15 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;padding:10px 12px 0;
 body.streaming header, body.streaming .bar, body.streaming .badge, body.streaming .toast{display:none!important}
 body.streaming main{padding:0;max-width:none;background:#000}
 body.streaming #stage{border:0;border-radius:0}
-#exitStream{position:fixed;bottom:12px;right:12px;display:none;opacity:.15}
+#exitStream{position:fixed;top:max(14px,env(safe-area-inset-top));right:14px;display:none;z-index:20;background:#fff;border:2.5px solid var(--line);border-radius:999px;padding:10px 16px;font-weight:800;font-size:15px;box-shadow:0 3px 0 var(--line);transition:opacity .4s}
 body.streaming #exitStream{display:block}
-#exitStream:hover{opacity:1}
+#exitStream.dim{opacity:.35}
 </style>
 </head>
 <body>
 <header>
   <h1>Nibble<span>ME</span></h1>
+  <button class="report" id="reportBtn" title="Send the last 10 seconds to Claude">Send to Claude</button>
   <label class="toggle" id="camToggle"><span>Camera</span><input type="checkbox" id="camSwitch"><i></i></label>
 </header>
 
@@ -84,7 +87,7 @@ body.streaming #exitStream{display:block}
     <select id="shapeSel" aria-label="Shape"></select></label>
   <div class="ctl"><button class="face" id="streamBtn" aria-label="Stream mode">LIVE</button>Stream</div>
 </nav>
-<button class="btn small" id="exitStream">Exit stream mode</button>
+<button id="exitStream">✕ Exit stream</button>
 
 <script type="module">
 // ---------------------------------------------------------------------------
@@ -130,7 +133,7 @@ window.__nibble = S;
 let toastT = 0;
 function setStatus(el, msg, kind='', ms=3200) {
   const t = $('toast'); clearTimeout(toastT);
-  if (!msg) { t.style.display = 'none'; return; }
+  if (!msg) { t.style.display = 'none'; return t; }
   t.textContent = msg; t.className = 'toast ' + (kind === 'err' ? 'err' : ''); t.style.display = 'block';
   if (ms) toastT = setTimeout(() => { t.style.display = 'none'; }, ms);
   return t;
@@ -372,10 +375,47 @@ function drawNibble(t) {
   ctx.restore();
 }
 
+const REPORT_URL = 'https://jmiesqhrpcmrthrquqpq.supabase.co/rest/v1/nibbleme_reports';
+const REPORT_KEY = 'sb_publishable_e7oqQbX2PJ5qV5ge2vUSbg_H9t0A9-d';
+const LOG = { sig:[], snaps:[], events:[], lastSig:0, lastSnap:0 };
+const snapC = document.createElement('canvas');
+function logEvent(e) { LOG.events.push({ t:Math.round(performance.now()), e:String(e).slice(0, 300) }); if (LOG.events.length > 60) LOG.events.shift(); }
+window.addEventListener('error', e => logEvent('error: ' + (e.message || e)));
+window.addEventListener('unhandledrejection', e => logEvent('reject: ' + (e.reason && e.reason.message || e.reason)));
+function record(now) {
+  if (now - LOG.lastSig > 66) {                 // ~15 samples a second
+    LOG.lastSig = now; const f = S.face, r = v => Math.round(v * 100) / 100;
+    LOG.sig.push([Math.round(now), f.seen ? 1 : 0, r(f.open), r(f.wide), r(f.round), r(f.smile), r(f.press), r(f.blink), r(f.brow), r(f.browUp), r(f.roll), r(f.yaw), r(f.pitch), S.mouth.cur, S.eye.cur, typeof openLvl === 'number' ? openLvl : -1]);
+    if (LOG.sig.length > 180) LOG.sig.shift();
+  }
+  if (now - LOG.lastSnap > 400 && S.art) {      // ~2.5 snapshots a second of the Nibble only
+    LOG.lastSnap = now;
+    const w = 320, h = Math.round(320 * stage.height / stage.width); snapC.width = w; snapC.height = h;
+    snapC.getContext('2d').drawImage(stage, 0, 0, w, h);
+    LOG.snaps.push([Math.round(now), snapC.toDataURL('image/jpeg', 0.6)]);
+    if (LOG.snaps.length > 30) LOG.snaps.shift();
+  }
+}
+$('reportBtn').onclick = async () => {
+  const b = $('reportBtn'); if (b.classList.contains('busy')) return;
+  b.classList.add('busy'); b.textContent = 'Sending…';
+  try {
+    const body = { nibble:S.id, ua:navigator.userAgent, frames:LOG.snaps,
+      data:{ cols:['t','seen','open','wide','round','smile','press','blink','brow','browUp','roll','yaw','pitch','mouth','eye','openLvl'],
+             sig:LOG.sig, events:LOG.events, tracking:S.tracking, inWallet:IN_WALLET, bg:S.bg, shape:S.shape || 'Square',
+             screen:[innerWidth, innerHeight, devicePixelRatio], sentAt:new Date().toISOString() } };
+    const res = await fetch(REPORT_URL, { method:'POST', headers:{ 'apikey':REPORT_KEY, 'Authorization':'Bearer ' + REPORT_KEY, 'Content-Type':'application/json', 'Prefer':'return=minimal' }, body:JSON.stringify(body) });
+    if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 120));
+    setStatus('x', 'Sent the last 10 seconds to Claude. Tell Claude in chat what to look at.', 'ok');
+  } catch (e) { setStatus('x', 'Couldn\'t send: ' + e.message, 'err'); }
+  b.classList.remove('busy'); b.textContent = 'Send to Claude';
+};
+
 function frame(now) {
   track(now);
   drawBackground();
   drawNibble(now);
+  record(now);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -406,13 +446,13 @@ $('recBtn').onclick = async () => {
       const blob = new Blob(S.chunks, { type });
       const name = `nibbleme-${S.id}-${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`;
       S.recorder = null; $('recBtn').classList.remove('on'); $('recBadge').style.display = 'none';
-      const t = setStatus('recStatus', '', 'ok', 0); t.innerHTML = ''; t.style.display = 'block';
+      const t = $('toast'); clearTimeout(toastT); t.className = 'toast'; t.innerHTML = ''; t.style.display = 'block';
       const dl = document.createElement('a'); dl.href = URL.createObjectURL(blob); dl.download = name; dl.textContent = 'Clip ready — tap to save';
       let file = null; try { file = new File([blob], name, { type }); } catch (e) {}
       if (file && navigator.canShare && navigator.canShare({ files:[file] })) {
         dl.onclick = async ev => { ev.preventDefault(); try { await navigator.share({ files:[file] }); } catch (e) {} };
       }
-      const x = document.createElement('a'); x.href = '#'; x.textContent = '  ✕'; x.style.color = 'inherit'; x.style.textDecoration = 'none';
+      const x = document.createElement('a'); x.href = '#'; x.textContent = ' ✕'; x.style.marginLeft = '8px'; x.style.color = 'inherit'; x.style.textDecoration = 'none';
       x.onclick = ev => { ev.preventDefault(); setStatus('recStatus', ''); };
       t.append(dl, x);
     };
@@ -429,9 +469,12 @@ function sessionStorageSet(k) { try { sessionStorage.setItem(k, '1'); } catch (e
 // ---------------------------------------------------------------------------
 $('streamBtn').onclick = async () => {
   if (!sessionStorageGet('streamTip')) { setStatus('x', 'Stream mode: your Nibble fills the screen so OBS can capture this window. Use Green screen + a Chroma Key filter to drop it over a game. Tap again to start.', '', 6000); sessionStorageSet('streamTip'); return; }
-  document.body.classList.add('streaming'); try { await document.documentElement.requestFullscreen?.(); } catch (e) {} };
+  document.body.classList.add('streaming'); wakeExit(); try { await document.documentElement.requestFullscreen?.(); } catch (e) {} };
 function exitStream() { document.body.classList.remove('streaming'); if (document.fullscreenElement) document.exitFullscreen(); }
 $('exitStream').onclick = exitStream;
+let dimT = 0;
+function wakeExit() { const b = $('exitStream'); b.classList.remove('dim'); clearTimeout(dimT); dimT = setTimeout(() => b.classList.add('dim'), 4000); }
+['pointerdown','pointermove','touchstart'].forEach(ev => document.addEventListener(ev, () => { if (document.body.classList.contains('streaming')) wakeExit(); }, { passive:true }));
 document.addEventListener('keydown', e => { if (e.key === 'Escape') exitStream(); });
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) document.body.classList.remove('streaming'); });
 </script>
