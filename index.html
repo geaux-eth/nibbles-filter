@@ -7,11 +7,13 @@
 <title>Nibble FILTER</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Luckiest+Guy&family=Bangers&family=Permanent+Marker&family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
+<link rel="preload" href="frankys.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+@font-face{font-family:'Frankys';src:url(frankys.woff2) format('woff2');font-weight:400;font-display:swap}
 :root{
   --page:#ffd23f; --paper:#ffffff; --ink:#161616; --line:#161616;
   --gold:#ffd23f; --red:#df3a4e; --green:#8ee26b; --sky:#9fe3fb; --cream:#fff3c4; --pink:#f48aa8; --ok:#8ee26b;
-  --display:'Lilita One','Arial Black',Impact,sans-serif; --body:'Baloo 2',ui-rounded,'Trebuchet MS',system-ui,sans-serif;
+  --display:'Frankys','Lilita One','Arial Black',Impact,sans-serif; --body:'Baloo 2',ui-rounded,'Trebuchet MS',system-ui,sans-serif;
   --pad:14px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -27,14 +29,15 @@ button,select,input{font:inherit;color:var(--ink)}
 
 header{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 8px 0 12px}
 header .brand{display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:0}
+header .logo{display:block;height:46px;width:auto}
 header h1{margin:0;font:400 30px/1 var(--display);letter-spacing:.02em;display:flex;align-items:center;gap:6px;white-space:nowrap;
   color:var(--gold);-webkit-text-stroke:2.5px var(--ink);paint-order:stroke fill;text-shadow:3px 3px 0 var(--ink)}
 header h1 span{font-size:15px;letter-spacing:.06em;color:#fff;-webkit-text-stroke:0;text-shadow:none;background:var(--red);border:2.5px solid var(--ink);
   border-radius:8px;padding:4px 7px 1px;box-shadow:2px 2px 0 var(--ink);transform:rotate(-6deg);display:inline-block;line-height:1}
-header .credit{font:400 10px/1 var(--display);letter-spacing:.14em;color:var(--ink);opacity:.5;margin-left:2px}
+header .credit{font:400 8.5px/1 var(--display);letter-spacing:.12em;color:var(--ink);opacity:.5;margin:3px 0 0 24px}
 header .credit b{font-weight:400}
 
-.toggle{flex:none;display:flex;align-items:center;gap:8px;font:400 15px/1 var(--display);letter-spacing:.04em;cursor:pointer;user-select:none;-webkit-user-select:none;
+.toggle{flex:none;display:flex;align-items:center;gap:8px;font:400 13px/1 var(--display);letter-spacing:.03em;cursor:pointer;user-select:none;-webkit-user-select:none;
   background:var(--paper);border:2.5px solid var(--line);border-radius:999px;padding:4px 5px 4px 12px;box-shadow:2px 2px 0 var(--line)}
 .toggle input{position:absolute;opacity:0;width:0;height:0}
 .toggle i{position:relative;width:52px;height:30px;border:2.5px solid var(--line);border-radius:999px;background:#e8e3dc;transition:background .15s}
@@ -66,7 +69,7 @@ header .credit b{font-weight:400}
 /* text bar: a switch, a chat-style box (Enter puts it on screen), and the Aa style card.
    It sits above the screen so the phone keyboard never has to push the page up to reach it. */
 .textbar{position:relative;flex:none;display:flex;align-items:center;gap:8px}
-.textbar .toggle{padding:4px 4px 4px 10px;gap:6px;font-size:14px}
+.textbar .toggle{padding:4px 4px 4px 10px;gap:6px;font-size:12px;letter-spacing:.02em}
 .textbar .toggle i{width:44px;height:26px}
 .textbar .toggle i::after{width:18px;height:18px}
 .textbar .toggle input:checked + i::after{transform:translateX(18px)}
@@ -75,7 +78,7 @@ header .credit b{font-weight:400}
 #txtIn:focus{border-color:var(--ink);box-shadow:2px 2px 0 var(--ink),0 0 0 3px var(--gold)}
 #txtIn::placeholder{color:#8f887c}
 #txtIn:disabled{background:#f3eee4;box-shadow:none;opacity:1}
-.aa{flex:none;width:40px;height:40px;padding:2px 0 0;border:2.5px solid var(--ink);border-radius:12px;background:var(--gold);font:400 18px/1 var(--display);letter-spacing:.02em;
+.aa{flex:none;width:40px;height:40px;padding:2px 0 0;border:2.5px solid var(--ink);border-radius:12px;background:var(--gold);font:400 18px/1 'Lilita One',var(--display);letter-spacing:.02em;
   box-shadow:2px 2px 0 var(--ink);cursor:pointer}
 .aa:active,.aa.on{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
 .pop{position:absolute;left:0;right:0;top:calc(100% + 12px);z-index:10;background:var(--paper);border:3px solid var(--ink);border-radius:20px;box-shadow:5px 5px 0 var(--ink);
@@ -86,7 +89,7 @@ header .credit b{font-weight:400}
 @media (max-width:400px){ .pop{padding:8px 10px 12px} .chipb{font-size:15px;padding:6px 9px 4px} .chipb.seg{font-size:13px;padding:6px 9px 4px} .sw{width:26px;height:26px} .prow .sep{margin:0 1px} }
 .chipb{border:2px solid var(--ink);border-radius:999px;background:var(--paper);padding:6px 11px 4px;font-size:16px;line-height:1;cursor:pointer}
 .chipb.on{background:var(--gold);box-shadow:2px 2px 0 var(--ink)}
-.chipb.seg{font:400 14px/1 var(--display);letter-spacing:.04em;padding:7px 12px 5px}
+.chipb.seg{font:400 12px/1 var(--display);letter-spacing:.02em;padding:7px 10px 5px}
 .sw{width:28px;height:28px;border-radius:50%;border:2.5px solid var(--ink);padding:0;cursor:pointer}
 .sw.on{box-shadow:0 0 0 2.5px var(--paper),0 0 0 5px var(--ink)}
 .prow .sep{width:2px;height:22px;background:var(--ink);opacity:.2;margin:0 4px}
@@ -99,7 +102,7 @@ header .credit b{font-weight:400}
   position:relative;padding:0;-webkit-appearance:none;appearance:none;cursor:pointer;overflow:hidden;box-shadow:2px 2px 0 var(--line);transition:transform .06s}
 .ctl:active .circ{transform:translate(2px,2px);box-shadow:0 0 0 var(--line)}
 .circ svg{position:absolute;inset:0;width:100%;height:100%;display:block}
-.lbl{display:block;max-width:100%;font:400 11.5px/1.15 var(--display);letter-spacing:.04em;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lbl{display:block;max-width:100%;font:400 10px/1.15 var(--display);letter-spacing:.01em;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ctl select{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;font-size:16px;-webkit-appearance:none;appearance:none}
 .ctl.rec-c .circ{width:60px;height:60px;margin:0;border-width:3px;background:#fff;box-shadow:3px 3px 0 var(--line)}
 .rec-dot{fill:var(--red)}
@@ -112,13 +115,13 @@ header .credit b{font-weight:400}
 
 @media (max-width:400px){
   .device{width:calc(100% - 18px);--pad:11px;padding-top:11px;border-radius:26px;box-shadow:4px 5px 0 var(--ink)}
-  header{padding:0 10px 0 9px;gap:6px} header h1{font-size:25px;gap:5px} header h1 span{font-size:12.5px;padding:3px 6px 1px}
-  .toggle{gap:6px;padding:3px 4px 3px 9px;font-size:14px} .toggle i{width:46px;height:27px} .toggle i::after{width:19px;height:19px} .toggle input:checked + i::after{transform:translateX(19px)}
+  header{padding:0 10px 0 9px;gap:6px} header .logo{height:40px}
+  .toggle{gap:6px;padding:3px 4px 3px 9px;font-size:12px} .toggle i{width:46px;height:27px} .toggle i::after{width:19px;height:19px} .toggle input:checked + i::after{transform:translateX(19px)}
 }
 @media (max-width:350px){
-  header h1{font-size:22px} header h1 span{font-size:11px} header .credit{font-size:9px}
-  .toggle{font-size:13px} .textbar .toggle{font-size:13px;padding-left:8px}
-  .pop{padding:8px 8px 12px} .prow{gap:5px} .sw{width:24px;height:24px} .chipb.seg{padding:6px 8px 4px} .circ{width:44px;height:44px} .ctl.rec-c .circ{width:54px;height:54px} .lbl{font-size:10px} .bar{padding:8px 4px 0}
+  header .logo{height:36px} header .credit{font-size:7.5px;margin-left:20px}
+  .toggle{font-size:11px} .textbar .toggle{font-size:11px;padding-left:8px}
+  .pop{padding:8px 8px 12px} .prow{gap:5px} .sw{width:24px;height:24px} .chipb.seg{padding:6px 8px 4px} .circ{width:44px;height:44px} .ctl.rec-c .circ{width:54px;height:54px} .lbl{font-size:8.5px} .bar{padding:8px 4px 0}
 }
 
 /* stream mode: only the picture, full screen */
@@ -135,7 +138,7 @@ body.streaming #exitStream{display:block}
 <body>
 <div class="device">
   <header>
-    <div class="brand"><h1>NIBBLE<span>FILTER</span></h1><div class="credit">BUILT by <b>GEAUX</b></div></div>
+    <div class="brand"><h1 style="margin:0"><img class="logo" src="logo.webp" alt="Nibble FILTER" width="138" height="46"></h1><div class="credit">BUILT by <b>GEAUX</b></div></div>
     <label class="toggle" id="camToggle"><span>Camera</span><input type="checkbox" id="camSwitch"><i></i></label>
   </header>
 
@@ -679,7 +682,7 @@ requestAnimationFrame(frame);
 // It's drawn into the picture itself, so it's in recordings and streams. Drag it on the screen to move it.
 // ---------------------------------------------------------------------------
 const FONTS = [
-  ['bonkd', 'Bonkd', "'Lilita One'", 400], ['luckiest', 'Luckiest', "'Luckiest Guy'", 400], ['bangers', 'Bangers', "'Bangers'", 400],
+  ['bonkd', 'Bonkd', "'Lilita One'", 400], ['frankys', 'Frankys', "'Frankys'", 400], ['luckiest', 'Luckiest', "'Luckiest Guy'", 400], ['bangers', 'Bangers', "'Bangers'", 400],
   ['marker', 'Marker', "'Permanent Marker'", 400], ['baloo', 'Baloo', "'Baloo 2'", 800],
 ];
 const COLORS = ['#161616', '#ffffff', '#ffd23f', '#df3a4e', '#8ee26b', '#9fe3fb', '#f48aa8', '#f2a03d'];
