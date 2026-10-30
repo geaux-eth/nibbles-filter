@@ -146,6 +146,9 @@ const MY_NIBBLES = { 4075:'Grumble', 4248:'Todd', 3133:'Wolf', 8549:'Dark Magic 
 // eyes: 0 as-drawn, 1 angry, 2 surprised, 3 heavy-lidded, 4 closed
 // mouths: 0 as-drawn, 1 closed (M B P), 2 slightly open, 3 wide "AH", 4 grin "EE", 5 round "O", 6 pucker "OO"
 const FACES = { 4075: true, 4248: true, 3133: true, 8549: true };
+// Animated traits: the old trait is erased from the token, the hidden area is filled from a clean drawing,
+// then drawn loop frames play on top.
+const TRAITS = { 4248: { frames:6, fps:8 } };
 
 const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest' };
 const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS), 'Green screen'];
@@ -166,6 +169,7 @@ const S = {
   face:{ roll:0, yaw:0, pitch:0, jaw:0, blink:0, brow:0, browUp:0, pucker:0, funnel:0, smile:0, press:0, seen:false },
   pitchBase:null, pitchSamples:[],
   expr:-1, exprSince:0, pop:0,
+  trait:null, keyedT:null,
   face2:null, eyeIdx:-1, mouthIdx:-1, eyeSince:0, mouthSince:0,
   recorder:null, chunks:[], audioTracks:[],
 };
@@ -281,10 +285,29 @@ $('fileInput').onchange = async e => {
   if (S.tokenId == null) S.tokenId = +($('tokenInput').value || 0);
   S.mode = 'token'; S.keyed = keyImage(img);
   if (!S.face2) loadFaces(S.tokenId);
+  if (S.trait) applyTrait(); else loadTraits(S.tokenId);
   setStatus('nibStatus', `Using uploaded art for #${S.tokenId}.`, 'ok');
   await verifyOwnership();
 };
 function ipfs(u) { return u.startsWith('ipfs://') ? 'https://ipfs.io/ipfs/' + u.slice(7) : u; }
+async function loadTraits(id) {
+  S.trait = null; S.keyedT = null;
+  const t = TRAITS[id]; if (!t) return;
+  try {
+    const [erase, clean, ...frames] = await Promise.all(['erase','clean', ...Array.from({length:t.frames}, (_, i) => 'f' + i)]
+      .map(n => loadImg(`traits/${id}/${n}.webp`)));
+    if (S.tokenId === id) { S.trait = { erase, clean, frames, fps:t.fps }; applyTrait(); }
+  } catch (e) {}
+}
+function applyTrait() {
+  if (!S.trait || !S.keyed) return;
+  const c = document.createElement('canvas'); c.width = c.height = 1000;
+  const g = c.getContext('2d');
+  g.drawImage(S.keyed, 0, 0);
+  g.globalCompositeOperation = 'destination-out'; g.drawImage(S.trait.erase, 0, 0);
+  g.globalCompositeOperation = 'source-over'; g.drawImage(S.trait.clean, 0, 0);
+  S.keyedT = c;
+}
 async function loadFaces(id) {
   S.face2 = null; S.eyeIdx = -1; S.mouthIdx = -1;
   if (!FACES[id]) return;
@@ -298,12 +321,12 @@ async function loadFaces(id) {
 async function loadToken(id) {
   if (!(id >= 0 && id <= 8887)) { setStatus('nibStatus', 'Token must be 0–8887.', 'err'); return; }
   S.mode = 'token'; S.tokenId = id; S.keyed = null; S.verified = false; S.cast = null;
-  loadFaces(id);
+  loadFaces(id); loadTraits(id);
   $('tokenInput').value = id;
   setStatus('nibStatus', `Loading Nibble #${id}…`);
   try {
     const meta = await (await fetch(META_URL(id))).json();
-    S.keyed = keyImage(await loadImg(ipfs(meta.image), true));
+    S.keyed = keyImage(await loadImg(ipfs(meta.image), true)); applyTrait();
     setStatus('nibStatus', `Loaded ${meta.name || 'Nibble #' + id}.`, 'ok');
   } catch (e) {
     setStatus('nibStatus', `Couldn't fetch #${id}'s art automatically — tap "Upload image" and pick your Nibble's picture.`, 'err');
@@ -378,11 +401,13 @@ function drawToken(t) {
   ctx.scale(1 - Math.abs(yaw) * 0.04, 1 + breathe + talk * 0.035);
   ctx.translate(-px, -py);
   const x = (W - size)/2, y = H - size;
-  ctx.drawImage(S.keyed, x, y, size, size);
+  const art = S.keyedT || S.keyed;
+  ctx.drawImage(art, x, y, size, size);
   const [ei, mi] = chooseFace(t);
   if (ei >= 0) ctx.drawImage(S.face2.eyes[ei], x, y, size, size);
   if (mi >= 0) ctx.drawImage(S.face2.mouths[mi], x, y, size, size);
-  ctx.drawImage(S.keyed, 0, 997, 1000, 3, x, H - 1, size, size * 0.3);   // body continues below the frame edge
+  if (S.keyedT) { const tr = S.trait; ctx.drawImage(tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length], x, y, size, size); }
+  ctx.drawImage(art, 0, 997, 1000, 3, x, H - 1, size, size * 0.3);   // body continues below the frame edge
   ctx.restore();
 }
 
