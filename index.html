@@ -148,7 +148,13 @@ const MY_NIBBLES = { 4075:'Grumble', 4248:'Todd', 3133:'Wolf', 8549:'Dark Magic 
 const FACES = { 4075: true, 4248: true, 3133: true, 8549: true };
 // Animated traits: the old trait is erased from the token, the hidden area is filled from a clean drawing,
 // then drawn loop frames play on top.
-const TRAITS = { 4248: { frames:6, fps:8 } };
+// box: where the frames sit in token space [x, y, w, h] (full 1000x1000 when absent)
+// wobble: the trait swings on a spring around 'centre' when the head moves fast
+const TRAITS = {
+  4248: { frames:6, fps:8 },
+  8549: { frames:50, fps:10 },
+  3133: { frames:50, fps:12.5, box:[254.5, 73.6, 364, 174.9], wobble:{ centre:[436.5, 156] } },
+};
 
 const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest' };
 const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS), 'Green screen'];
@@ -296,7 +302,7 @@ async function loadTraits(id) {
   try {
     const [erase, clean, ...frames] = await Promise.all(['erase','clean', ...Array.from({length:t.frames}, (_, i) => 'f' + i)]
       .map(n => loadImg(`traits/${id}/${n}.webp`)));
-    if (S.tokenId === id) { S.trait = { erase, clean, frames, fps:t.fps }; applyTrait(); }
+    if (S.tokenId === id) { S.trait = { erase, clean, frames, fps:t.fps, box:t.box, wobble:t.wobble }; applyTrait(); }
   } catch (e) {}
 }
 function applyTrait() {
@@ -386,6 +392,37 @@ function chooseFace(now) {
   return [S.eyeIdx, S.mouthIdx];
 }
 
+// Spring wobble: fast head moves kick the trait, it swings and settles. Bigger, faster moves swing it more.
+const W8 = { a:0, va:0, x:0, vx:0, y:0, vy:0, pr:null, pyw:null, pp:null, t:0 };
+function stepWobble(t, f) {
+  const dt = Math.min(0.05, Math.max(0.001, (t - (W8.t || t - 16)) / 1000)); W8.t = t;
+  if (f) {
+    if (W8.pr !== null) {
+      const dr = f.roll - W8.pr, dy = f.yaw - W8.pyw, dp = f.pitch - W8.pp;
+      W8.va -= dr * 55;  W8.vx -= dy * 2600;  W8.vy -= dp * 1400;      // lag behind the head
+    }
+    W8.pr = f.roll; W8.pyw = f.yaw; W8.pp = f.pitch;
+  } else { W8.pr = null; }
+  const k = 140, c = 7;                                                  // ~1.9 Hz, settles in about a second
+  W8.va += (-k * W8.a - c * W8.va) * dt; W8.a += W8.va * dt;
+  W8.vx += (-k * W8.x - c * W8.vx) * dt; W8.x += W8.vx * dt;
+  W8.vy += (-k * W8.y - c * W8.vy) * dt; W8.y += W8.vy * dt;
+  W8.a = Math.max(-.45, Math.min(.45, W8.a)); W8.x = Math.max(-70, Math.min(70, W8.x)); W8.y = Math.max(-40, Math.min(40, W8.y));
+}
+function drawTrait(t, x, y, size, f) {
+  const tr = S.trait, img = tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length], k = size / 1000;
+  const [bx, by, bw, bh] = tr.box || [0, 0, 1000, 1000];
+  ctx.save();
+  ctx.translate(x, y); ctx.scale(k, k);                                  // token space
+  if (tr.wobble) {
+    stepWobble(t, f);
+    const [cx, cy] = tr.wobble.centre;
+    ctx.translate(cx + W8.x, cy + W8.y); ctx.rotate(W8.a); ctx.translate(-cx, -cy);
+  }
+  ctx.drawImage(img, bx, by, bw, bh);
+  ctx.restore();
+}
+
 function drawToken(t) {
   if (!S.keyed) return;
   const W = stage.width, H = stage.height, size = Math.min(W, H);
@@ -406,7 +443,7 @@ function drawToken(t) {
   const [ei, mi] = chooseFace(t);
   if (ei >= 0) ctx.drawImage(S.face2.eyes[ei], x, y, size, size);
   if (mi >= 0) ctx.drawImage(S.face2.mouths[mi], x, y, size, size);
-  if (S.keyedT) { const tr = S.trait; ctx.drawImage(tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length], x, y, size, size); }
+  if (S.keyedT) drawTrait(t, x, y, size, live ? f : null);
   ctx.drawImage(art, 0, 997, 1000, 3, x, H - 1, size, size * 0.3);   // body continues below the frame edge
   ctx.restore();
 }
