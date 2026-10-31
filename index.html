@@ -426,14 +426,64 @@ async function cameraOn() {
   $('camToggle').classList.remove('busy');
 }
 // Voice activity: lips can only be read on camera, but the voice shows the instant a sound starts and stops.
-const V = { an:null, buf:null, rms:0, floor:[], voiced:false, lastVoice:0, on:false, peak:0, trusted:false };
+// LIPS: reads mouth shapes from the voice. Pure function of a block of samples, so it runs the same live and in tests.
+const LIPS = (() => {
+  const D = 4, ORDER = 12;
+  let fir = null, firSr = 0;
+  function lowpass(sr) {   // windowed-sinc, cutoff ~5 kHz, before taking every 4th sample
+    if (fir && firSr === sr) return fir;
+    const N = 31, fc = 5000 / sr, h = new Float32Array(N); let s = 0;
+    for (let i = 0; i < N; i++) { const k = i - (N - 1) / 2; h[i] = (k ? Math.sin(2 * Math.PI * fc * k) / (Math.PI * k) : 2 * fc) * (0.54 - 0.46 * Math.cos(2 * Math.PI * i / (N - 1))); s += h[i]; }
+    for (let i = 0; i < N; i++) h[i] /= s; fir = h; firSr = sr; return h;
+  }
+  function analyse(x, sr) {
+    const n = x.length; let e = 0, de = 0;
+    for (let i = 0; i < n; i++) { e += x[i] * x[i]; if (i) { const d = x[i] - x[i - 1]; de += d * d; } }
+    const rms = Math.sqrt(e / n), bright = de / (e + 1e-12);           // bright: high for S, SH, F, T; low for vowels, M, N, L
+    // downsample to sr/4 and run LPC to find the formants
+    const h = lowpass(sr), m = Math.floor((n - h.length) / D), y = new Float32Array(m);
+    for (let j = 0; j < m; j++) { let a = 0; const o = j * D; for (let k = 0; k < h.length; k++) a += h[k] * x[o + k]; y[j] = a; }
+    for (let j = m - 1; j > 0; j--) y[j] -= 0.94 * y[j - 1];          // pre-emphasis
+    for (let j = 0; j < m; j++) y[j] *= 0.54 - 0.46 * Math.cos(2 * Math.PI * j / (m - 1));
+    const r = new Float64Array(ORDER + 1);
+    for (let k = 0; k <= ORDER; k++) { let a = 0; for (let j = k; j < m; j++) a += y[j] * y[j - k]; r[k] = a; }
+    r[0] *= 1.0001; if (r[0] <= 0) return { rms, bright, f1:0, f2:0, low:0 };
+    const a = new Float64Array(ORDER + 1); a[0] = 1; let err = r[0];
+    for (let i = 1; i <= ORDER; i++) { let acc = r[i]; for (let j = 1; j < i; j++) acc += a[j] * r[i - j]; const k = -acc / err;
+      const prev = a.slice(); for (let j = 1; j < i; j++) a[j] = prev[j] + k * prev[i - j]; a[i] = k; err *= 1 - k * k; }
+    const fs = sr / D, env = [];
+    for (let f = 100; f <= 4500; f += 25) { let re = 0, im = 0; for (let j = 0; j <= ORDER; j++) { const w = -2 * Math.PI * f / fs * j; re += a[j] * Math.cos(w); im += a[j] * Math.sin(w); } env.push([f, -10 * Math.log10(re * re + im * im)]); }
+    const peaks = [];
+    for (let i = 1; i < env.length - 1; i++) if (env[i][1] > env[i - 1][1] && env[i][1] >= env[i + 1][1]) peaks.push(env[i]);
+    const f1p = peaks.find(p => p[0] >= 200 && p[0] <= 1100), f1 = f1p ? f1p[0] : 0;
+    const f2p = peaks.find(p => p[0] > Math.max(f1 + 250, 700) && p[0] <= 3000), f2 = f2p ? f2p[0] : 0;
+    // nasal / closed-lips hum: almost all the energy sits under ~400 Hz
+    let lo = 0, hi = 0; for (const [f, v] of env) { const p = Math.pow(10, v / 10); if (f < 400) lo += p; else if (f < 2500) hi += p; }
+    return { rms, bright, f1, f2, low: lo / (lo + hi + 1e-12) };
+  }
+  // Which drawn mouth the sound asks for. Returns null when it can't tell (camera decides).
+  // 1 M/B/P (lips shut, humming), 2 slightly open, 3 AH, 4 EE/teeth (also S), 5 O, 6 OO/W, 7 F/V, 8 L/D/T/N
+  function shape(A) {
+    if (A.bright > 0.55) return { m:4, fric:true, open:.15 };                          // S, SH, F, T: teeth (camera picks F/V)
+    if (A.low > 0.80 && A.f1 && A.f1 < 380) return { m:1, nasal:true, open:0 };       // M / N / NG hum
+    const f1 = A.f1, f2 = A.f2; if (!f1) return null;
+    const open = Math.max(0, Math.min(1, (f1 - 300) / 500));
+    if (f2 >= 1800 && f1 < 560 || f2 >= 2000 && f1 < 700) return { m:4, open };       // EE / front vowels (see, day, -ing)
+    if (f1 >= 620) return { m:3, open };                                              // AH (father, what, mor-)
+    if (f2 && f2 < 1100 && f1 < 470) return { m:6, back:true, open };                 // OO / W, or L (camera tells which)
+    if (f2 && f2 < 1350) return { m:5, open };                                        // O (go, all)
+    return { m:2, open };                                                            // the rest: a relaxed open vowel
+  }
+  return { analyse, shape };
+})();
+const V = { an:null, buf:null, rms:0, floor:[], voiced:false, lastVoice:0, on:false, peak:0, trusted:false, sh:null, level:0, loud:0.05 };
 async function startVoice() {
   if (IN_WALLET || V.on) return;
   try {
     const tracks = await getMic(); if (!tracks.length) return;
     const ac = V.ac || (V.ac = new (window.AudioContext || window.webkitAudioContext)());
     const src = ac.createMediaStreamSource(new MediaStream(tracks));
-    V.an = ac.createAnalyser(); V.an.fftSize = 1024; V.an.smoothingTimeConstant = 0.3;
+    V.an = ac.createAnalyser(); V.an.fftSize = 2048; V.an.smoothingTimeConstant = 0.3;
     V.buf = new Float32Array(V.an.fftSize); V.spec = new Float32Array(V.an.frequencyBinCount); V.hz = ac.sampleRate / V.an.fftSize;
     src.connect(V.an); V.on = true;   // analysed only; never played back
     if (ac.state !== 'running') { try { await ac.resume(); } catch (e) {} }
@@ -460,6 +510,12 @@ function readVoice(now) {
     if (f > 150 && f < 1500) lo += p; else if (f > 3500 && f < 9000) hi += p;
   }
   V.hiss = V.voiced ? hi / (lo + hi + 1e-12) : 0;
+  // what the voice says about the mouth: the shape (from the formants) and how loud (how wide the jaw goes)
+  if (V.voiced) {
+    V.loud = Math.max(V.loud * 0.9995, V.rms);                              // typical loud speech level for this person and mic
+    V.level = Math.max(0, Math.min(1, (V.rms - fl * 2) / (V.loud * 0.6 + 1e-6)));
+    V.sh = LIPS.shape(LIPS.analyse(V.buf, V.ac.sampleRate));
+  } else { V.level = 0; V.sh = null; }
 }
 function cameraOff() {
   S.tracking = false; S.face.seen = false;
@@ -517,6 +573,8 @@ function track(now) {
   f.press = lerp(f.press, rel(press, base('press', press), 0.45), k);
   f.frown = lerp(f.frown, rel(frown, base('frown', frown), 0.4), k);
   f.fv = lerp(f.fv, rel(fv, base('fv', fv), 0.4), k);
+  const jaw = bs.jawOpen || 0;                                                    // the jaw drops even when the lips barely part
+  f.jaw = lerp(f.jaw || 0, rel(jaw, base('jaw', jaw, 0.1), 0.22), k);
   const ll0 = base('lowLip', lowLip, 0.6), ul0 = base('upLip', upLip, 0.6);
   f.lowIn = lerp(f.lowIn || 0, clamp((1 - lowLip / ll0) / 0.4, 0, 1), k);     // 1 = lower lip rolled fully in
   f.upIn = lerp(f.upIn || 0, clamp((1 - upLip / ul0) / 0.4, 0, 1), k);
@@ -545,6 +603,21 @@ function pickMouth(f, now) {
   // Rounded (O, OO, W) needs the lips actually pulled narrower than at rest. L, D, T, N keep the mouth its normal width,
   // so a pucker reading alone (which spikes on L) no longer counts as round.
   const narrow = f.wide < -0.3, round = narrow && (f.round > 0.35 || f.wide < -0.55);
+  const lip = Math.max(f.open, (f.jaw || 0) * 0.9);
+  // Talking (the mic hears you): the voice opens the mouth and says which shape; the camera adds what it can see
+  // (pressed lips, a pucker, the lower lip tucked for F/V, a grin). Lips that barely move still get a moving mouth.
+  if (V.on && V.trusted && V.voiced && now - V.lastVoice < 60) {
+    const sh = V.sh, open = Math.max(lip, sh ? sh.open : 0, V.level * 0.8);
+    if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;              // lips pressed: M B P
+    if (sh && sh.nasal) return lip > 0.3 ? 8 : 1;                                  // N (mouth open a bit) / M (shut)
+    if ((f.lowIn > 0.45 && f.upIn < 0.35) || (sh && sh.fric && f.lowIn > 0.3)) return 7;   // F V
+    if (sh && sh.fric) return 4;                                                   // S SH T: teeth
+    if (round) return open > 0.45 ? 5 : 6;                                         // O / OO W
+    if (sh && sh.back) return 8;                                                   // back sound, lips not rounded: L
+    if (f.wide > 0.6 && f.smile > 0.55) return 4;                                  // a grin
+    if (sh) { if (sh.m === 3) return open > 0.3 ? 3 : 2; if (sh.m === 4 || sh.m === 5) return sh.m; }
+    return open > 0.6 ? 3 : 2;
+  }
   const wideM = f.wide > 0.6 && f.smile > 0.55;                  // teeth only for a real open "EE"/grin
   const hiss = V.on && V.trusted ? V.hiss : 0;
   // F / V: lower lip rolled in under the top teeth while the upper lip stays put; with the mic, also a hiss
