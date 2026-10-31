@@ -985,10 +985,20 @@ $('recBtn').onclick = async () => {
       let file = null; try { file = new File([blob], name, { type }); } catch (e) {}
       // phones: the share sheet (Save Video / Save to gallery). If it can't share, fall straight back to a download.
       // computers: a normal download.
+      // iPhone: a web page can't write to the camera roll itself; the share sheet's "Save Video" is the way in,
+      // so the button says so. If the share sheet won't open, offer the clip in Safari's own player (its share button has Save Video too).
+      if (IS_IOS) dl.textContent = 'Save to Photos';
       if (IS_MOBILE && file && navigator.canShare && navigator.canShare({ files:[file] })) {
         dl.onclick = async ev => { ev.preventDefault();
           try { await navigator.share({ files:[file] }); }
-          catch (e) { if (e && e.name !== 'AbortError') download(); } };
+          catch (e) {
+            if (!e || e.name === 'AbortError') return;
+            if (!IS_IOS) { download(); return; }
+            t.innerHTML = '';
+            const op = document.createElement('a'); op.href = url; op.target = '_blank'; op.rel = 'noopener'; op.className = 'save'; op.textContent = 'Open clip';
+            const tip = document.createElement('div'); tip.style.cssText = 'margin-top:6px;font-size:12px'; tip.textContent = 'Then tap the share button and choose Save Video.';
+            t.append(op, x, tip);
+          } };
       }
       const x = document.createElement('a'); x.href = '#'; x.textContent = '✕'; x.className = 'close'; x.setAttribute('aria-label', 'Close');
       x.onclick = ev => { ev.preventDefault(); setStatus('recStatus', ''); };
