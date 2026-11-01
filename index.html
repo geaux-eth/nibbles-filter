@@ -513,6 +513,13 @@ function readVoice(now) {
     if (f > 150 && f < 1500) lo += p; else if (f > 3500 && f < 9000) hi += p;
   }
   V.hiss = V.voiced ? hi / (lo + hi + 1e-12) : 0;
+  // a whistle: nearly all the sound in one narrow tone (500 Hz to 4.5 kHz)
+  let tot = 0, pk = 0, pi = 0;
+  for (let i = 1; i < V.spec.length; i++) { const f = i * V.hz; if (f < 300 || f > 6000) continue; const p = Math.pow(10, V.spec[i] / 10); tot += p; if (p > pk) { pk = p; pi = i; } }
+  let near = 0; for (let i = Math.max(1, pi - 3); i <= Math.min(V.spec.length - 1, pi + 3); i++) near += Math.pow(10, V.spec[i] / 10);
+  const pf = pi * V.hz;
+  V.whistle = V.voiced && pf > 500 && pf < 4500 && near / (tot + 1e-12) > 0.6;
+  if (V.whistle) V.lastWhistle = now;
   // what the voice says about the mouth: the shape (from the formants) and how loud (how wide the jaw goes)
   if (V.voiced) {
     V.loud = Math.max(V.loud * 0.9995, V.rms);                              // typical loud speech level for this person and mic
@@ -609,17 +616,26 @@ function pickMouth(f, now) {
   const lip = Math.max(f.open, (f.jaw || 0) * 0.9);
   // Talking (the mic hears you): the voice opens the mouth and says which shape; the camera adds what it can see
   // (pressed lips, a pucker, the lower lip tucked for F/V, a grin). Lips that barely move still get a moving mouth.
+  if (V.on && now - (V.lastWhistle || -1e9) < 120) return 6;                       // whistling: OO pucker
   if (V.on && V.trusted && V.voiced && now - V.lastVoice < 60) {
     const sh = V.sh, open = Math.max(lip, sh ? sh.open : 0, V.level * 0.8);
     if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;              // lips pressed: M B P
-    if (sh && sh.nasal) return lip > 0.3 ? 8 : 1;                                  // N (mouth open a bit) / M (shut)
+    if (sh && sh.nasal) return f.open > 0.5 ? 8 : 1;                               // M (shut) unless the lips are clearly apart (N)
     if ((f.lowIn > 0.45 && f.upIn < 0.35) || (sh && sh.fric && f.lowIn > 0.3)) return 7;   // F V
     if (sh && sh.fric) return 4;                                                   // S SH T: teeth
-    if (round) return open > 0.45 ? 5 : 6;                                         // O / OO W
+    // rounded lips on camera only count when the voice agrees (or can't tell, or it's a clear pucker):
+    // lips narrow a little on most words, which used to turn whole sentences into O
+    if (round && (!sh || sh.m === 5 || sh.m === 6 || f.round > 0.6)) return open > 0.45 ? 5 : 6;   // O / OO W
     if (sh && sh.back) return 8;                                                   // back sound, lips not rounded: L
     if (f.wide > 0.6 && f.smile > 0.55) return 4;                                  // a grin
     if (sh) { if (sh.m === 3) return open > 0.3 ? 3 : 2; if (sh.m === 4 || sh.m === 5) return sh.m; }
     return open > 0.6 ? 3 : 2;
+  }
+  // the voice just stopped: the mouth shuts with it (the camera runs a little behind and would hold it open)
+  if (V.on && V.trusted && !V.voiced && now - V.lastVoice > 70 && f.open < 0.5) {
+    if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;
+    if (round && f.round > 0.5) return 6;
+    return f.frown > 0.55 ? 9 : 0;
   }
   const wideM = f.wide > 0.6 && f.smile > 0.55;                  // teeth only for a real open "EE"/grin
   const hiss = V.on && V.trusted ? V.hiss : 0;
@@ -629,7 +645,7 @@ function pickMouth(f, now) {
   if (V.on && V.trusted && V.voiced && hiss > 0.3 && f.open < 0.35 && !round) return f.lowIn > 0.3 ? 7 : 4;   // S / SH / F hiss
   if (openLvl === 2) return round ? 5 : 3;                       // O or AH
   if (openLvl === 1) {
-    if (round) return 5;                                         // O
+    if (round) return f.open < 0.3 ? 6 : 5;                      // small round opening: OO; bigger: O
     if (wideM) return 4;                                         // EE
     return f.open < 0.38 ? 8 : 2;                                // L, D, T, N (tongue up behind the teeth) / open vowel
   }
@@ -656,18 +672,19 @@ function pickEyes(f, now) {
 }
 // Switch with a short cross-fade so changes blend instead of popping.
 const FADE = { mouth:40, eye:40 };
-// Mouth shapes are held like hand-drawn lip-sync (about 2 frames at 12 fps): a new shape must be asked for
-// steadily for a moment, and each shape stays up long enough to read. Closing for silence or M/B/P is quicker.
-const MH = [];   // recent shape requests
+// Mouth shapes are held like hand-drawn lip-sync on twos (about 80 ms): a new shape must be asked for
+// steadily for a moment, and each shape stays up long enough to read. Closing for silence or M/B/P lands at once.
+const MH = [];   // recent shape requests (last ~60 ms)
 function settleMouth(want, now) {
-  MH.push([now, want]); while (MH.length && now - MH[0][0] > 100) MH.shift();
+  MH.push([now, want]); while (MH.length && now - MH[0][0] > 60) MH.shift();
   // the shape asked for most over the last ~0.1 s wins, so jitter between two shapes can't flicker
   const tally = {}; for (const [, w] of MH) tally[w] = (tally[w] || 0) + 1;
   let best = want, bn = 0; for (const w in tally) if (tally[w] > bn) { bn = tally[w]; best = +w; }
   const m = S.mouth, shown = now - m.t;
   if (best === m.cur) return;
   const closing = best === 0 || best === 1;
-  if (bn / MH.length >= 0.5 && shown >= (closing ? 70 : 110)) { m.prev = m.cur; m.cur = best; m.t = now; }
+  if (closing && want === best && shown >= 45) { m.prev = m.cur; m.cur = best; m.t = now; return; }
+  if (bn / MH.length >= 0.5 && shown >= 80) { m.prev = m.cur; m.cur = best; m.t = now; }
 }
 function step(slot, want, now, minHold) {
   if (want !== slot.cur && now - slot.t > minHold) { slot.prev = slot.cur; slot.cur = want; slot.t = now; }
@@ -1035,7 +1052,7 @@ stage.addEventListener('pointerup', endDrag); stage.addEventListener('pointercan
 async function getMic() {
   if (IN_WALLET) return [];
   if (S.audioTracks.length && S.audioTracks[0].readyState === 'live') return S.audioTracks;
-  try { const m = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true }, video:false }); S.audioTracks = m.getAudioTracks(); }
+  try { const m = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false }, video:false }); S.audioTracks = m.getAudioTracks(); }
   catch (e) { S.audioTracks = []; }
   return S.audioTracks;
 }
