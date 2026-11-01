@@ -405,7 +405,7 @@ async function cameraOn() {
     let stream;
     if (IN_WALLET) stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:false });
     else {
-      try { stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:true } }); }
+      try { stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } }); }
       catch (e) { stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:false }); }
       S.audioTracks = stream.getAudioTracks();
       stream = new MediaStream(stream.getVideoTracks());
@@ -499,11 +499,11 @@ function readVoice(now) {
   V.rms = Math.sqrt(s / V.buf.length);
   V.floor.push(V.rms); if (V.floor.length > 180) V.floor.shift();
   const fl = [...V.floor].sort((a, b) => a - b)[Math.floor(V.floor.length * 0.1)] || 0;
-  V.voiced = V.rms > Math.max(fl * 3, 0.008);
+  V.voiced = V.rms > Math.max(fl * 3, 0.003);
   V.peak = Math.max(V.peak * 0.999, V.rms);
   // trusted only after it has clearly heard speech; a silent or blocked mic never gets to shut the mouth
-  if (V.voiced && V.rms > 0.02) V.trusted = true;
-  if (!V.ac || V.ac.state !== 'running' || V.peak < 0.004) V.trusted = false;
+  if (V.voiced && V.rms > Math.max(fl * 8, 0.006)) V.trusted = true;
+  if (!V.ac || V.ac.state !== 'running' || V.peak < 0.002) V.trusted = false;
   if (V.voiced) V.lastVoice = now;
   // hiss = energy above 3.5 kHz vs 150 Hz–1.5 kHz: high for F, V, S, SH, TH; low for vowels, L, M, N
   V.an.getFloatFrequencyData(V.spec);
@@ -1062,7 +1062,7 @@ stage.addEventListener('pointerup', endDrag); stage.addEventListener('pointercan
 async function getMic() {
   if (IN_WALLET) return [];
   if (S.audioTracks.length && S.audioTracks[0].readyState === 'live') return S.audioTracks;
-  try { const m = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false }, video:false }); S.audioTracks = m.getAudioTracks(); }
+  try { const m = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true }, video:false }); S.audioTracks = m.getAudioTracks(); }
   catch (e) { S.audioTracks = []; }
   return S.audioTracks;
 }
