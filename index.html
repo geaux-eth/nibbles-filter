@@ -405,7 +405,7 @@ async function cameraOn() {
     let stream;
     if (IN_WALLET) stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:false });
     else {
-      try { stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } }); }
+      try { stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:true } }); }
       catch (e) { stream = await navigator.mediaDevices.getUserMedia({ video:vid, audio:false }); }
       S.audioTracks = stream.getAudioTracks();
       stream = new MediaStream(stream.getVideoTracks());
@@ -488,9 +488,9 @@ async function startVoice() {
     const src = ac.createMediaStreamSource(new MediaStream(tracks));
     V.an = ac.createAnalyser(); V.an.fftSize = 2048; V.an.smoothingTimeConstant = 0.3;
     V.buf = new Float32Array(V.an.fftSize); V.spec = new Float32Array(V.an.frequencyBinCount); V.hz = ac.sampleRate / V.an.fftSize;
-    src.connect(V.an); V.on = true;   // analysed only; never played back
+    const mute = ac.createGain(); mute.gain.value = 0;
+    src.connect(V.an); V.an.connect(mute); mute.connect(ac.destination); V.on = true;   // analysed only; silent (Safari needs the path to the output)
     if (ac.state !== 'running') { try { await ac.resume(); } catch (e) {} }
-    if (ac.state !== 'running') document.addEventListener('pointerdown', () => ac.resume(), { once:true });
   } catch (e) { V.on = false; }
 }
 function readVoice(now) {
@@ -533,10 +533,19 @@ function cameraOff() {
   video.srcObject = null;
 }
 $('camSwitch').addEventListener('change', e => $('camToggle').classList.toggle('on', e.target.checked));
+function wakeAudio() {
+  try {
+    if (!V.ac) V.ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (V.ac.state !== 'running') V.ac.resume().catch(() => {});
+  } catch (e) {}
+}
 $('camSwitch').onchange = e => {
   // Safari only lets sound analysis start during a tap, so create it right here, before any waiting
+  if (e.target.checked) wakeAudio();
   e.target.checked ? cameraOn() : cameraOff();
 };
+// any later tap (record, text, picking a Nibble) also wakes it if Safari put it to sleep
+['pointerdown', 'touchend', 'keydown'].forEach(ev => document.addEventListener(ev, () => { if (V.ac && V.ac.state !== 'running') wakeAudio(); }, { passive:true }));
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // Every signal is judged against this person's own resting level, learned continuously from the last few seconds
@@ -612,7 +621,7 @@ function pickMouth(f, now) {
   }
   // Rounded (O, OO, W) needs the lips actually pulled narrower than at rest. L, D, T, N keep the mouth its normal width,
   // so a pucker reading alone (which spikes on L) no longer counts as round.
-  const narrow = f.wide < -0.3, round = narrow && (f.round > 0.35 || f.wide < -0.55);
+  const narrow = f.wide < -0.3, round = narrow && f.round > 0.4;
   const lip = Math.max(f.open, (f.jaw || 0) * 0.9);
   // Talking (the mic hears you): the voice opens the mouth and says which shape; the camera adds what it can see
   // (pressed lips, a pucker, the lower lip tucked for F/V, a grin). Lips that barely move still get a moving mouth.
@@ -823,7 +832,7 @@ function drawDebug() {
   if (!DEBUG) return;
   const f = S.face, rows = [['open',f.open],['wide',(f.wide+1)/2],['round',f.round],['smile',f.smile],['press',f.press],['blink',f.blink],['frown',f.brow],['brows up',f.browUp]];
   const k = Math.min(stage.width, stage.height) / 1080, x = 16*k, y = 16*k, w = 300*k, rh = 30*k;
-  ctx.save(); ctx.globalAlpha = .82; ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, rh*(rows.length+1.4)); ctx.globalAlpha = 1;
+  ctx.save(); ctx.globalAlpha = .82; ctx.fillStyle = '#000'; ctx.fillRect(x, y, w * 1.45, rh*(rows.length+2.2)); ctx.globalAlpha = 1;
   ctx.font = `700 ${18*k}px system-ui, sans-serif`; ctx.textBaseline = 'middle';
   rows.forEach(([n, v], i) => {
     const yy = y + rh*(i+0.7);
@@ -833,6 +842,7 @@ function drawDebug() {
   });
   ctx.fillStyle = '#ffd34d';
   ctx.fillText(`mouth ${S.mouth.cur}  eyes ${S.eye.cur}  lvl ${openLvl}  ${f.seen ? 'face' : 'NO FACE'}`, x+10*k, y + rh*(rows.length+0.75));
+  ctx.fillText(`voice ${V.on ? (V.ac ? V.ac.state : 'no ctx') : 'off'}  ${V.trusted ? 'trusted' : 'not trusted'}  peak ${V.peak.toFixed(3)}  ${V.voiced ? 'VOICE' : ''}`, x+10*k, y + rh*(rows.length+1.6));
   ctx.restore();
 }
 
