@@ -627,19 +627,24 @@ function pickMouth(f, now) {
   // (pressed lips, a pucker, the lower lip tucked for F/V, a grin). Lips that barely move still get a moving mouth.
   if (V.on && now - (V.lastWhistle || -1e9) < 120) return 6;                       // whistling: OO pucker
   if (V.on && V.trusted && V.voiced && now - V.lastVoice < 60) {
-    const sh = V.sh, open = Math.max(lip, sh ? sh.open : 0, V.level * 0.8);
+    // Everyday talking is mostly the small open mouth. The big shapes (wide AH, round O, the teeth grin) are
+    // saved for loud, stressed sounds, like a cartoon animator would: flapping between extremes reads as shouting.
+    const sh = V.sh, loud = V.level > 0.42;
+    const open = Math.max(Math.min(lip, 0.7), sh ? sh.open : 0);   // the camera's lip gap tops out on ordinary words
+    const big = (loud && open > 0.4) || V.level > 0.75;
     if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;              // lips pressed: M B P
     if (sh && sh.nasal) return f.open > 0.5 ? 8 : 1;                               // M (shut) unless the lips are clearly apart (N)
     if ((f.lowIn > 0.45 && f.upIn < 0.35) || (sh && sh.fric && f.lowIn > 0.3)) return 7;   // F V
-    if (sh && sh.fric) return 4;                                                   // S SH T: teeth
-    // rounded lips on camera only count when the voice agrees (or can't tell, or it's a clear pucker):
-    // lips narrow a little on most words, which used to turn whole sentences into O
-    if (round && (!sh || sh.m === 5 || sh.m === 6 || f.round > 0.6)) return open > 0.45 ? 5 : 6;   // O / OO W
+    if (sh && sh.fric) return f.wide > 0.2 || f.smile > 0.4 ? 4 : 2;              // S SH T: teeth only if the lips spread
+    // rounded lips on camera only count when the voice agrees (or can't tell, or it's a clear pucker)
+    if (round && (!sh || sh.m === 5 || sh.m === 6 || f.round > 0.6)) return big ? 5 : 6;   // O / OO W
     if (sh && sh.back) return 8;                                                   // back sound, lips not rounded: L
-    if (f.wide > 0.6 && f.smile > 0.55) return 4;                                  // a grin
-    if (sh) { if (sh.m === 3) return open > 0.3 ? 3 : 2; if (sh.m === 4 || sh.m === 5) return sh.m; }
-    return open > 0.6 ? 3 : 2;
+    if (f.wide > 0.6 && f.smile > 0.55) return 4;                                  // a real grin
+    if (sh && sh.m === 5) return loud ? 5 : 2;                                     // O, when it's said out
+    if (sh && sh.m === 4) return f.wide > 0.3 ? 4 : 2;                             // EE with lips spread; plain vowel otherwise
+    return big ? 3 : 2;                                                            // AH when loud and wide, else the small open mouth
   }
+
   // the voice just stopped: the mouth shuts with it (the camera runs a little behind and would hold it open)
   if (V.on && V.trusted && !V.voiced && now - V.lastVoice > 70 && f.open < 0.5) {
     if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;
@@ -681,11 +686,11 @@ function pickEyes(f, now) {
 }
 // Switch with a short cross-fade so changes blend instead of popping.
 const FADE = { mouth:40, eye:40 };
-// Mouth shapes are held like hand-drawn lip-sync on twos (about 80 ms): a new shape must be asked for
+// Mouth shapes are held like hand-drawn lip-sync (about 100 ms a shape): a new shape must be asked for
 // steadily for a moment, and each shape stays up long enough to read. Closing for silence or M/B/P lands at once.
-const MH = [];   // recent shape requests (last ~60 ms)
+const MH = [];   // recent shape requests (last ~80 ms)
 function settleMouth(want, now) {
-  MH.push([now, want]); while (MH.length && now - MH[0][0] > 60) MH.shift();
+  MH.push([now, want]); while (MH.length && now - MH[0][0] > 80) MH.shift();
   // the shape asked for most over the last ~0.1 s wins, so jitter between two shapes can't flicker
   const tally = {}; for (const [, w] of MH) tally[w] = (tally[w] || 0) + 1;
   let best = want, bn = 0; for (const w in tally) if (tally[w] > bn) { bn = tally[w]; best = +w; }
@@ -693,7 +698,7 @@ function settleMouth(want, now) {
   if (best === m.cur) return;
   const closing = best === 0 || best === 1;
   if (closing && want === best && shown >= 45) { m.prev = m.cur; m.cur = best; m.t = now; return; }
-  if (bn / MH.length >= 0.5 && shown >= 80) { m.prev = m.cur; m.cur = best; m.t = now; }
+  if (bn / MH.length >= 0.5 && shown >= 100) { m.prev = m.cur; m.cur = best; m.t = now; }
 }
 function step(slot, want, now, minHold) {
   if (want !== slot.cur && now - slot.t > minHold) { slot.prev = slot.cur; slot.cur = want; slot.t = now; }
