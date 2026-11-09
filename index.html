@@ -210,7 +210,7 @@ body.streaming #exitStream{display:block}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261109-0850';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261109-0840';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -224,7 +224,7 @@ const NIBBLES = {
   // another Wolf: his own ten mouths (two Gemini sheets) on his upper snout, eyes, hat and apron; blink eyes from a third sheet
   271: { bg:'#ffc186', fullFace:true },
   // his own ten mouths (two Gemini sheets) on his upper snout, halo, bruise and robe; blink from a third sheet
-  7996: { bg:'#9de8ff', fullFace:true },
+  7996: { bg:'#9de8ff', fullFace:true, trait:{ frames:1, fps:1, box:[271, 86, 332, 149], wobble:{ centre:[437, 160.5] } } },   // his halo floats on its own and bobs
   8549: { bg:'#ffb7dc', fullFace:true, trait:{ frames:20, fps:6.67 } },
   // his own ten mouths (two Gemini sheets) set into his wood-grain beard; blink drawn inside his glasses
   3385: { bg:'#ffb7dc', fullFace:true },
