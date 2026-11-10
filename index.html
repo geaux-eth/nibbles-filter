@@ -158,6 +158,31 @@ header .credit b{font-weight:400}
 .pad:active,.pad.hit{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
 .note{font-size:12px;opacity:.7;margin:2px 0 0}
 body.streaming .tools{display:none!important}
+/* Nibble a Video window */
+.vm{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(22,22,22,.45)}
+.vm[hidden]{display:none}
+.vm.rendering{align-items:flex-start;background:none;pointer-events:none}
+.vm.rendering .vm-card{pointer-events:auto;margin-top:max(8px,env(safe-area-inset-top));padding:10px 14px 12px}
+.vm.rendering .vm-x{display:none}
+.vm-card{position:relative;width:100%;max-width:440px;max-height:calc(100dvh - 32px);overflow:auto;background:var(--paper);border:3px solid var(--ink);border-radius:22px;box-shadow:5px 6px 0 var(--ink);padding:14px 16px 16px}
+.vm-card h3{margin:2px 34px 8px 0;font:400 22px/1.05 var(--display);letter-spacing:.02em}
+.vm-card p{margin:6px 0}
+.vm-x{position:absolute;top:10px;right:10px;width:34px;height:34px;border:2.5px solid var(--ink);border-radius:50%;background:var(--paper);font:700 16px/1 var(--body);cursor:pointer}
+.vm-go{display:block;width:100%;margin:12px 0 2px;padding:12px 14px 9px;border:3px solid var(--ink);border-radius:999px;background:var(--red);color:#fff;font:400 19px/1 var(--display);letter-spacing:.04em;box-shadow:3px 3px 0 var(--ink);cursor:pointer}
+.vm-go:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink)}
+.vm-bar{height:16px;border:2.5px solid var(--ink);border-radius:999px;overflow:hidden;background:#f3eee4;margin:8px 0}
+.vm-bar i{display:block;height:100%;width:0;background:var(--gold);transition:width .2s}
+.vm-cast{display:grid;gap:8px;margin:4px 0 8px}
+.vm-person{display:grid;grid-template-columns:62px 18px 62px 1fr;align-items:center;gap:8px;font:400 18px/1 var(--display)}
+.vm-face{width:62px;height:62px;border-radius:50%;border:2.5px solid var(--ink);background:#ddd;object-fit:cover}
+.vm-nib{position:relative;display:block;width:62px;height:62px}
+.vm-nib .circ{width:62px;height:62px;margin:0}
+.vm-nib select{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;font-size:16px}
+.vm-person .lbl{font-size:13px;text-align:left}
+.vm-row{display:flex;gap:8px;margin:2px 0 8px}
+.vm-opts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.vm-opts label{display:grid;gap:4px;font:400 11px/1 var(--display);letter-spacing:.04em;text-transform:uppercase}
+.vm-opts select{width:100%;min-width:0;height:38px;padding:0 6px;border:2.5px solid var(--ink);border-radius:10px;background:var(--paper);font:600 14px/1 var(--body)}
 
 /* stream mode: only the picture, full screen */
 body.streaming{background:#000}
@@ -239,6 +264,10 @@ body.streaming #exitStream{display:block}
   </div></nav>
 </div>
 <button id="exitStream">✕ Exit stream</button>
+<div class="vm" id="vm" hidden><div class="vm-card" role="dialog" aria-modal="true" aria-labelledby="vmTitle">
+  <button class="vm-x" id="vmClose" type="button" aria-label="Close">✕</button>
+  <h3 id="vmTitle">Nibble a Video</h3><div id="vmBody"></div>
+</div></div>
 <video id="cam" playsinline muted style="display:none"></video>
 
 <script type="module">
@@ -358,7 +387,7 @@ function fitStage() {
   const [aw, ah] = screenSpace(); if (aw <= 0 || ah <= 0) return;
   // Square: the Nibble's square sits at the bottom of the screen and the picture grows to fill the rest
   // (the backdrop continues and the text goes in the space above), so there's never any black around it.
-  if (S.shape === 'Square' && !S.recorder) {
+  if (S.shape === 'Square' && !S.recorder && !(typeof VM !== 'undefined' && VM.rendering)) {
     // video encoders (Safari's especially) need even sizes: a 1080x1561 canvas records nothing, so round to a multiple of 8
     const r8 = v => Math.round(v / 8) * 8;
     const W = ah >= aw ? 1080 : r8(1080 * aw / ah), H = ah >= aw ? r8(1080 * ah / aw) : 1080;
@@ -440,6 +469,19 @@ loadNibble(4075).then(() => { for (const id of Object.keys(NIBBLES)) fetchNibble
 // ---------------------------------------------------------------------------
 // Camera + face tracking (MediaPipe Face Landmarker, on-device)
 // ---------------------------------------------------------------------------
+// MediaPipe's face tracker (loaded once); numFaces 1 for the camera, more for an uploaded video
+let VISION = null;
+async function makeLandmarker(numFaces) {
+  if (!VISION) VISION = (async () => {
+    const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`);
+    const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`);
+    return { vision, files };
+  })();
+  const { vision, files } = await VISION;
+  const opts = { baseOptions:{ modelAssetPath:MP_MODEL, delegate: IN_WALLET ? 'CPU' : 'GPU' }, runningMode:'VIDEO', numFaces, outputFaceBlendshapes:true };
+  try { return await vision.FaceLandmarker.createFromOptions(files, opts); }
+  catch (e) { opts.baseOptions.delegate = 'CPU'; return await vision.FaceLandmarker.createFromOptions(files, opts); }
+}
 async function cameraOn() {
   $('camToggle').classList.add('busy');
   try {
@@ -456,11 +498,7 @@ async function cameraOn() {
     startVoice();   // the voice tells the mouth exactly when you start and stop making sound
     if (!S.landmarker) {
       setStatus('camStatus', 'Loading face tracker…');
-      const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`);
-      const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`);
-      const opts = { baseOptions:{ modelAssetPath:MP_MODEL, delegate: IN_WALLET ? 'CPU' : 'GPU' }, runningMode:'VIDEO', numFaces:1, outputFaceBlendshapes:true };
-      try { S.landmarker = await vision.FaceLandmarker.createFromOptions(files, opts); }
-      catch (e) { opts.baseOptions.delegate = 'CPU'; S.landmarker = await vision.FaceLandmarker.createFromOptions(files, opts); }
+      S.landmarker = await makeLandmarker(1);
     }
     resetBaselines(); S.tracking = true;
     setStatus('camStatus', '');
@@ -595,9 +633,10 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // (a low percentile, so talking or blinking never raises the baseline).
 const HIST = 150;
 const H = {};
+let HB = H;   // the baseline store in use (the live camera's, or one person's in an uploaded video)
 function resetBaselines() { for (const k of Object.keys(H)) delete H[k]; }
 function base(name, v, pct=0.2) {
-  const a = H[name] || (H[name] = []); a.push(v); if (a.length > HIST) a.shift();
+  const a = HB[name] || (HB[name] = []); a.push(v); if (a.length > HIST) a.shift();
   if (a.length < 12) return v;
   const s = [...a].sort((x, y) => x - y); return s[Math.floor((s.length - 1) * pct)];
 }
@@ -606,9 +645,14 @@ function track(now) {
   S.lastVideoTime = video.currentTime;
   const r = S.landmarker.detectForVideo(video, now), f = S.face;
   if (!r.faceLandmarks || !r.faceLandmarks.length) { f.seen = false; return; }
-  f.seen = true;
-  const L = r.faceLandmarks[0];
   const bs = {}; (r.faceBlendshapes?.[0]?.categories || []).forEach(c => bs[c.categoryName] = c.score);
+  readFace(r.faceLandmarks[0], bs, f, H, now);
+  if (f.blinkUntil) S.blinkUntil = f.blinkUntil;
+}
+// one face's landmarks and blendshapes -> the signals the mouth and eye pickers use, judged against that face's own baselines
+function readFace(L, bs, f, store, now) {
+  HB = store;
+  f.seen = true;
   const roll = -Math.atan2(L[263].y - L[33].y, L[263].x - L[33].x);
   const yaw = -(((L[1].x - L[234].x) / ((L[454].x - L[234].x) || 1e-6)) - 0.5) * 2;
   const eyeY = (L[33].y + L[263].y) / 2, mouthY = (L[13].y + L[14].y) / 2;
@@ -642,11 +686,12 @@ function track(now) {
   f.upIn = lerp(f.upIn || 0, clamp((1 - upLip / ul0) / 0.4, 0, 1), k);
   const bb = base('blink', blink, 0.3);                                           // resting lids (e.g. looking down at the phone)
   f.blink = rel(blink, bb, Math.max(0.25, 0.92 - bb));   // raw: a blink only lasts a frame or two
-  if (f.blink > 0.55) S.blinkUntil = now + 170;         // play a full blink even if the tracker only caught one frame of it
+  if (f.blink > 0.55) f.blinkUntil = now + 170;         // play a full blink even if the tracker only caught one frame of it
   f.brow = lerp(f.brow, rel(brow, base('brow', brow, 0.3), 0.45), .5);
   f.browUp = lerp(f.browUp, rel(browUp, base('browUp', browUp, 0.3), 0.45), .5);
   f.roll = lerp(f.roll, roll, .5); f.yaw = lerp(f.yaw, clamp(yaw, -1, 1), .5);
   f.pitch = lerp(f.pitch, clamp((pr - base('pitch', pr, 0.5)) * 3, -1, 1), .4);
+  HB = H;
 }
 
 // Which drawn mouth / eyes match the face right now. Each state has to be clearly entered and clearly left
@@ -895,6 +940,7 @@ function drawDebug() {
 }
 
 function frame(now) {
+  if (VM.rendering && VM.v) { vmFrame(now); requestAnimationFrame(frame); return; }
   track(now);
   drawBackground();
   drawNibble(now);
@@ -1132,6 +1178,16 @@ $('recBtn').onclick = async () => {
       const name = `nibblefilter-${S.id}-${Date.now()}.${type === 'video/mp4' ? 'mp4' : 'webm'}`;
       S.recorder = null; fitStage(); $('recBtn').classList.remove('on'); $('recLbl').textContent = 'Record'; $('recBadge').style.display = 'none';
       if (!blob.size) { setStatus('recStatus', 'That recording came out empty. Try again (record for at least a second).', 'err', 6000); return; }
+      offerClip(blob, type, name);
+    };
+    S.recorder.start(1000);
+    $('recBtn').classList.add('on'); $('recLbl').textContent = 'Stop'; $('recBadge').style.display = 'block';
+    setStatus('recStatus', S.audioTracks.length || AU.trk ? '' : IN_WALLET ? 'Recording without sound (wallet browsers block the mic — open in Safari for sound).' : 'Recording (no mic access, so no sound)…');
+  } catch (e) { S.recorder = null; setStatus('recStatus', 'Recording isn\'t supported in this browser. Try Safari or Chrome.', 'err'); }
+};
+const REC_TYPES = ['video/mp4;codecs=avc1.42E01F,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+// a finished clip: Save button (share sheet on phones, download on computers)
+function offerClip(blob, type, name) {
       const url = URL.createObjectURL(blob);
       const download = () => { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
       const t = $('toast'); clearTimeout(toastT); t.className = 'toast'; t.innerHTML = ''; t.style.display = 'block';
@@ -1157,12 +1213,7 @@ $('recBtn').onclick = async () => {
       const x = document.createElement('a'); x.href = '#'; x.textContent = '✕'; x.className = 'close'; x.setAttribute('aria-label', 'Close');
       x.onclick = ev => { ev.preventDefault(); setStatus('recStatus', ''); };
       t.append(dl, x);
-    };
-    S.recorder.start(1000);
-    $('recBtn').classList.add('on'); $('recLbl').textContent = 'Stop'; $('recBadge').style.display = 'block';
-    setStatus('recStatus', S.audioTracks.length || AU.trk ? '' : IN_WALLET ? 'Recording without sound (wallet browsers block the mic — open in Safari for sound).' : 'Recording (no mic access, so no sound)…');
-  } catch (e) { S.recorder = null; setStatus('recStatus', 'Recording isn\'t supported in this browser. Try Safari or Chrome.', 'err'); }
-};
+}
 
 // ---------------------------------------------------------------------------
 // Background music and the sound board. Everything is mixed into one bus (MIX) that the recorder uses,
@@ -1244,6 +1295,318 @@ async function recordAudioTracks() {
   if (!mix) return mic;
   if (mic.length && AU.micTrack !== mic[0]) { try { AU.micSrc && AU.micSrc.disconnect(); } catch (e) {} AU.micSrc = V.ac.createMediaStreamSource(new MediaStream(mic)); AU.micSrc.connect(mix); AU.micTrack = mic[0]; }
   return mix.stream.getAudioTracks();
+}
+
+// ---------------------------------------------------------------------------
+// Nibble a Video: add a clip (up to 60 s); every face in it is found and followed, the sound tells who is
+// talking when, you pick a Nibble for each person (or Random), and the filter plays the clip back as Nibbles:
+// it cuts to whoever is talking, the first speaker faces the usual way and everyone who answers is flipped to
+// face them, and when nobody talks it rests on the main character. All on the device; nothing is uploaded.
+// ---------------------------------------------------------------------------
+var VM = { lm:null, url:null, dur:0, people:[], timeline:[], cast:{}, mirror:{}, main:0, bg:'Random', music:'', shape:'Square', rendering:false, cancel:false }; window.__vm = VM;
+const vmBody = () => $('vmBody');
+function vmShow(title, html) { $('vm').hidden = false; $('vmTitle').textContent = title; vmBody().innerHTML = html || ''; }
+function vmHide() { $('vm').hidden = true; }
+$('vidBtn').onclick = () => {
+  if (S.recorder) { setStatus('x', 'Stop recording first.'); return; }
+  vmShow('Nibble a Video', `
+    <p>Add a video of up to 60 seconds. The filter finds everyone in it, you pick who becomes which Nibble,
+    and it makes a Nibbled copy with the original sound. Nothing is uploaded: it all happens on this ${IS_MOBILE ? 'phone' : 'computer'}.</p>
+    <label class="vm-go" style="display:block;text-align:center">Choose a video<input id="vmFile" type="file" accept="video/*" hidden></label>
+    <p class="note">Works best when faces look toward the camera.</p>`);
+  $('vmFile').onchange = e => { const f = e.target.files && e.target.files[0]; if (f) vmAnalyse(f); };
+};
+$('vmClose').onclick = () => { if (VM.rendering) vmStop(true); VM.cancel = true; vmHide(); };
+
+// the sound, as a loudness curve (50 per second), straight from the file
+async function vmEnvelope(file) {
+  try {
+    const ac = audioCtx(); const ab = await file.arrayBuffer();
+    const b = await new Promise((res, rej) => ac.decodeAudioData(ab, res, rej));
+    const sr = b.sampleRate, hop = Math.round(sr / 50), n = Math.floor(b.length / hop), out = new Float32Array(n);
+    const chs = Array.from({ length:b.numberOfChannels }, (_, i) => b.getChannelData(i));
+    for (let k = 0; k < n; k++) { let e = 0; for (let i = k * hop; i < (k + 1) * hop; i++) { let x = 0; for (const c of chs) x += c[i]; x /= chs.length; e += x * x; } out[k] = Math.sqrt(e / hop); }
+    return out;
+  } catch (e) { return null; }
+}
+// a face's shape, to tell people apart across camera cuts (judged only on faces turned toward the camera)
+function vmShapeOf(L) {
+  const fh = dist(L[10], L[152]) || 1e-6;
+  return [dist(L[33], L[263]) / fh, dist(L[1], L[168]) / fh, dist(L[61], L[291]) / fh, dist(L[234], L[454]) / fh, dist(L[17], L[152]) / fh, dist(L[70], L[300]) / fh];
+}
+function vmColourOf(v, box) {
+  const c = vmColourOf.c || (vmColourOf.c = document.createElement('canvas')); c.width = c.height = 8;
+  const g = c.getContext('2d', { willReadFrequently:true });
+  try { g.drawImage(v, box[0] + box[2] * .25, box[1] + box[3] * .45, box[2] * .5, box[3] * .3, 0, 0, 8, 8); } catch (e) { return null; }
+  const d = g.getImageData(0, 0, 8, 8).data; let r = 0, gg = 0, b = 0; for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; }
+  return [r / 64, gg / 64, b / 64];
+}
+async function vmAnalyse(file) {
+  VM.cancel = false;
+  vmShow('Finding everyone…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Loading the face tracker…</p>`);
+  try {
+    if (VM.url) URL.revokeObjectURL(VM.url);
+    VM.url = URL.createObjectURL(file);
+    const v = document.createElement('video'); v.src = VM.url; v.muted = true; v.playsInline = true; v.preload = 'auto';
+    await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej('load'); });
+    if (!isFinite(v.duration) || v.duration > 61) throw 'long';
+    VM.dur = v.duration; VM.vw = v.videoWidth; VM.vh = v.videoHeight;
+    const envP = vmEnvelope(file); vmCut.prev = null; VM.cuts = 0;
+    VM.lm = VM.lm || await makeLandmarker(4);
+    $('vmMsg').textContent = 'Watching the video for faces…';
+    // step through the clip a twelfth of a second at a time (seeking, not playing), so slow phones read every step too
+    const tracks = []; let ts = performance.now(); const step = 1 / 12;
+    const seek = t => new Promise(res => {
+      let done = false; const fin = () => { if (!done) { done = true; res(); } };
+      v.onseeked = () => { if (v.requestVideoFrameCallback) { v.requestVideoFrameCallback(fin); setTimeout(fin, 250); } else requestAnimationFrame(fin); };
+      setTimeout(fin, 1500); v.currentTime = t;
+    });
+    for (let t = 0; t < VM.dur && !VM.cancel; t += step) {
+      await seek(Math.min(t, VM.dur - 0.01));
+      ts = Math.max(ts + 1, performance.now());
+      try { const r = VM.lm.detectForVideo(v, ts); VM.calls = (VM.calls || 0) + 1; VM.hits = (VM.hits || 0) + (r.faceLandmarks || []).length; vmFaces(r, t, v, tracks); } catch (e) { VM.err = String(e); }
+      $('vmProg').style.width = (100 * t / VM.dur).toFixed(1) + '%';
+    }
+    if (VM.cancel) return;
+    VM.env = await envP; VM.tracks = tracks.length;
+    vmPeople(tracks);
+    vmTimeline();
+    vmCastStep();
+  } catch (e) {
+    vmShow('Nibble a Video', `<p>${e === 'long' ? 'That video is longer than 60 seconds. Trim it and try again.' : 'That video wouldn’t open here. Try another file (MP4 or MOV).'}</p>`);
+  }
+}
+// a camera cut: the whole picture changes at once (then nobody carries over from the last shot)
+function vmCut(v) {
+  const c = vmCut.c || (vmCut.c = document.createElement('canvas')); c.width = c.height = 16;
+  const g = c.getContext('2d', { willReadFrequently:true });
+  try { g.drawImage(v, 0, 0, 16, 16); } catch (e) { return false; }
+  const d = g.getImageData(0, 0, 16, 16).data, cur = new Float32Array(256);
+  for (let i = 0; i < 256; i++) cur[i] = (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]) / 3;
+  const prev = vmCut.prev; vmCut.prev = cur; if (!prev) return false;
+  let diff = 0; for (let i = 0; i < 256; i++) diff += Math.abs(cur[i] - prev[i]); diff /= 256;
+  return diff > 28;
+}
+function vmFaces(r, t, v, tracks) {
+  if (vmCut(v)) { VM.cuts = (VM.cuts || 0) + 1; for (const tr of tracks) tr.lt = -9; }
+  const faces = (r.faceLandmarks || []).map((L, i) => {
+    let x0 = 1, y0 = 1, x1 = 0, y1 = 0; for (const p of L) { if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; }
+    const bs = {}; (r.faceBlendshapes?.[i]?.categories || []).forEach(c => bs[c.categoryName] = c.score);
+    return { L, bs, cx:(x0 + x1) / 2, cy:(y0 + y1) / 2, s:y1 - y0, box:[x0 * VM.vw, y0 * VM.vh, (x1 - x0) * VM.vw, (y1 - y0) * VM.vh] };
+  }).filter(f => f.s > 0.06);
+  const used = new Set();
+  for (const fc of faces) {
+    let best = null, bc = 0.7;
+    for (const tr of tracks) {
+      if (used.has(tr) || t - tr.lt > 0.6) continue;
+      const c = Math.hypot(fc.cx - tr.lx, (fc.cy - tr.ly) * VM.vh / VM.vw) / Math.max(fc.s, tr.ls), sr = fc.s / tr.ls;
+      if (c < bc && sr > 0.6 && sr < 1.6) { bc = c; best = tr; }
+    }
+    if (!best) { best = { f:{ roll:0, yaw:0, pitch:0, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 }, H:{}, smp:[], shape:[0,0,0,0,0,0], nshape:0, col:[0,0,0], ncol:0, best:0 }; tracks.push(best); }
+    used.add(best); best.lt = t; best.lx = fc.cx; best.ly = fc.cy; best.ls = fc.s;
+    const f = best.f; readFace(fc.L, fc.bs, f, best.H, t * 1000);
+    best.smp.push({ t, open:f.open, wide:f.wide, round:f.round, smile:f.smile, press:f.press, frown:f.frown, fv:f.fv, jaw:f.jaw, lowIn:f.lowIn, upIn:f.upIn,
+      blink:f.blink, bu:f.blinkUntil || 0, brow:f.brow, browUp:f.browUp, roll:f.roll, yaw:f.yaw, pitch:f.pitch,
+      mo:dist(fc.L[13], fc.L[14]) / (dist(fc.L[10], fc.L[152]) || 1e-6), cx:fc.cx });
+    if (Math.abs(f.yaw) < 0.35) {
+      const sh = vmShapeOf(fc.L); sh.forEach((x, i) => best.shape[i] += x); best.nshape++;
+      if (best.ncol < 40) { const c = vmColourOf(v, fc.box); if (c) { c.forEach((x, i) => best.col[i] += x); best.ncol++; } }
+    }
+    const score = fc.s * (1 - Math.min(1, Math.abs(f.yaw)));
+    if (score > best.best * 1.08) {   // the clearest look at this face, for the picker
+      best.best = score; const c = best.thumb || (best.thumb = document.createElement('canvas')); c.width = c.height = 120;
+      const b = fc.box, m = Math.max(b[2], b[3]) * 1.35, cx = b[0] + b[2] / 2, cy = b[1] + b[3] / 2;
+      try { c.getContext('2d').drawImage(v, cx - m / 2, cy - m / 2, m, m, 0, 0, 120, 120); } catch (e) {}
+    }
+  }
+}
+// tracks that are really the same person (seen again after a camera cut) are joined; tiny or brief ones dropped
+function vmPeople(tracks) {
+  const T = tracks.filter(tr => tr.smp.length >= 6 && tr.smp[tr.smp.length - 1].t - tr.smp[0].t > 0.4).map(tr => ({
+    smp:tr.smp, thumb:tr.thumb, t0:tr.smp[0].t, t1:tr.smp[tr.smp.length - 1].t,
+    shape:tr.nshape ? tr.shape.map(x => x / tr.nshape) : null, col:tr.ncol ? tr.col.map(x => x / tr.ncol) : null, best:tr.best, n:tr.smp.length }));
+  const overlap = (a, b) => { let o = 0; for (const x of a.spans || [[a.t0, a.t1]]) for (const y of b.spans || [[b.t0, b.t1]]) o += Math.max(0, Math.min(x[1], y[1]) - Math.max(x[0], y[0])); return o; };
+  const diff = (a, b) => {
+    if (!a.shape || !b.shape) return 9;
+    let d = 0; a.shape.forEach((x, i) => d += Math.abs(x - b.shape[i]) / (x + b.shape[i] + 1e-6)); d /= a.shape.length;
+    let c = 0; if (a.col && b.col) { a.col.forEach((x, i) => c += Math.abs(x - b.col[i])); c /= 3 * 255; } else c = 0.1;
+    return d * 4 + c * 2;
+  };
+  let merged = true;
+  while (merged) {
+    merged = false; let best = null, bd = 0.11;   // test footage: same person 0.04, different people 0.20+
+    for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
+      if (overlap(T[i], T[j]) > 0.25) continue;   // on screen together: two people
+      const d = diff(T[i], T[j]); if (d < bd) { bd = d; best = [i, j]; }
+    }
+    if (best) {
+      const [i, j] = best, a = T[i], b = T[j], w = a.n / (a.n + b.n);
+      a.spans = [...(a.spans || [[a.t0, a.t1]]), ...(b.spans || [[b.t0, b.t1]])];
+      a.smp = [...a.smp, ...b.smp].sort((x, y) => x.t - y.t); a.t0 = Math.min(a.t0, b.t0); a.t1 = Math.max(a.t1, b.t1);
+      if (a.shape && b.shape) a.shape = a.shape.map((x, k) => x * w + b.shape[k] * (1 - w));
+      if (a.col && b.col) a.col = a.col.map((x, k) => x * w + b.col[k] * (1 - w));
+      if (b.best > a.best) { a.best = b.best; a.thumb = b.thumb; }
+      a.n += b.n; T.splice(j, 1); merged = true;
+    }
+  }
+  VM.people = T.sort((a, b) => a.t0 - b.t0).slice(0, 6);
+}
+// who is talking when: while there is sound, the visible person whose mouth is moving most; short blips are smoothed out
+function vmTimeline() {
+  const P = VM.people, dt = 0.05, n = Math.ceil(VM.dur / dt), env = VM.env;
+  if (!P.length) { VM.timeline = []; return; }
+  const loud = t => env ? env[Math.min(env.length - 1, Math.floor(t * 50))] || 0 : 1;
+  let floor = 0.002; if (env) { const s = Array.from(env).sort((a, b) => a - b); floor = Math.max(0.002, s[Math.floor(s.length * 0.15)] || 0); }
+  for (const p of P) { const m = p.smp.map(x => x.mo).sort((a, b) => a - b); p.moScale = Math.max(0.01, m[Math.floor(m.length * 0.9)] || 0.01); }
+  const activity = (p, t) => {   // how much the lips are moving around time t (0 = not seen)
+    let a = 0, c = 0, prev = null;
+    for (const x of p.smp) { if (x.t < t - 0.25) continue; if (x.t > t + 0.25) break; if (prev) { a += Math.abs(x.mo - prev.mo); c++; } prev = x; }
+    return c ? a / c / p.moScale * 6 : -1;
+  };
+  const raw = [];
+  for (let k = 0; k < n; k++) {
+    const t = k * dt, speech = !env || loud(t) > floor * 2.5;
+    let who = -1, ba = 0.15;
+    if (speech) P.forEach((p, i) => { const a = activity(p, t); if (a > ba) { ba = a; who = i; } });
+    raw.push({ speech, who });
+  }
+  // fill: talking but no moving mouth seen -> the last speaker; silence longer than 1 s -> the main character
+  const talk = P.map(() => 0); raw.forEach(r => { if (r.who >= 0) talk[r.who]++; });
+  VM.main = talk.indexOf(Math.max(...talk));
+  const tl = []; let last = -1, quiet = 0;
+  for (const r of raw) {
+    if (r.speech) quiet = 0; else quiet += dt;
+    let w = r.who >= 0 ? r.who : last;
+    if (!r.speech && quiet > 1.0) w = VM.main;
+    if (w < 0) w = VM.main;
+    tl.push(w); if (r.who >= 0) last = r.who;
+  }
+  // a shot shorter than 0.6 s isn't worth a cut: it stays with what came before
+  const runs = []; for (const w of tl) { if (runs.length && runs[runs.length - 1].w === w) runs[runs.length - 1].n++; else runs.push({ w, n:1 }); }
+  for (let i = 1; i < runs.length; i++) if (runs[i].n * dt < 0.6) { runs[i].w = runs[i - 1].w; }
+  VM.timeline = []; for (const r of runs) for (let k = 0; k < r.n; k++) VM.timeline.push(r.w);
+  const first = raw.find(r => r.who >= 0);
+  VM.first = first ? first.who : VM.main;
+}
+const NIB_NAMES = () => Array.from($('nibbleSel').options).map(o => [+o.value, o.textContent]);
+function nibThumb(el, id) {
+  const [cx, cy, zoom] = FACE_AT[id], pos = c => (Math.min(1, Math.max(0, (c / 1000 * zoom - 0.5) / (zoom - 1))) * 100).toFixed(1) + '%';
+  el.style.backgroundImage = `url(faces/${id}/base.webp?v=${ART_V})`; el.style.backgroundSize = (zoom * 100) + '%';
+  el.style.backgroundPosition = `${pos(cx)} ${pos(cy)}`; el.style.backgroundColor = NIBBLES[id].bg;
+}
+function vmRandom() {
+  const ids = NIB_NAMES().map(x => x[0]).sort(() => Math.random() - 0.5);
+  VM.people.forEach((p, i) => VM.cast[i] = ids[i % ids.length]);
+  const bgs = ['Nibble color', ...Object.keys(BONKD_BGS)]; VM.bg = bgs[Math.floor(Math.random() * bgs.length)];
+}
+function vmCastStep() {
+  const P = VM.people;
+  if (!P.length) { vmShow('Nibble a Video', '<p>No faces turned up in that video. Try one where people face the camera.</p>'); return; }
+  P.forEach((p, i) => { if (!VM.cast[i] || !NIBBLES[VM.cast[i]]) VM.cast[i] = NIB_NAMES()[i % NIB_NAMES().length][0]; });
+  if (!VM.bgSet) { vmRandom(); VM.bgSet = true; }
+  VM.shape = S.shape || 'Square';
+  const opt = (list, cur) => list.map(([v, t]) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${t}</option>`).join('');
+  vmShow(P.length === 1 ? 'Found 1 person' : `Found ${P.length} people`, `
+    <div class="vm-cast" id="vmCast"></div>
+    <div class="vm-row"><button class="chipb seg" id="vmRand" type="button">🎲 Random</button></div>
+    <div class="vm-opts">
+      <label>Background<select id="vmBg">${opt([['Nibble color', 'Nibble color'], ...Object.keys(BONKD_BGS).map(k => [k, k]), ['Green screen', 'Green screen']], VM.bg)}</select></label>
+      <label>Music<select id="vmMusic">${opt([['', 'No music'], ...TRACKS.map(t => [t[0], t[1]])], VM.music)}</select></label>
+      <label>Shape<select id="vmShape">${opt(Object.keys(ASPECTS).map(k => [k, RATIO_TXT[k]]), VM.shape)}</select></label>
+    </div>
+    <button class="vm-go" id="vmMake" type="button">Make my video</button>`);
+  const box = $('vmCast');
+  P.forEach((p, i) => {
+    const d = document.createElement('div'); d.className = 'vm-person';
+    const face = p.thumb || document.createElement('canvas'); face.className = 'vm-face';
+    const nib = document.createElement('label'); nib.className = 'vm-nib';
+    const circ = document.createElement('span'); circ.className = 'circ'; nibThumb(circ, VM.cast[i]);
+    const sel = document.createElement('select'); sel.innerHTML = opt(NIB_NAMES(), VM.cast[i]); sel.setAttribute('aria-label', 'Nibble for person ' + (i + 1));
+    sel.onchange = () => { VM.cast[i] = +sel.value; nibThumb(circ, VM.cast[i]); };
+    nib.append(circ, sel);
+    const tag = document.createElement('span'); tag.className = 'lbl'; tag.textContent = i === VM.main ? 'Main' : 'Person ' + (i + 1);
+    d.append(face, document.createTextNode('→'), nib, tag); box.appendChild(d);
+  });
+  $('vmRand').onclick = () => { vmRandom(); vmCastStep(); };
+  $('vmBg').onchange = e => VM.bg = e.target.value;
+  $('vmMusic').onchange = e => VM.music = e.target.value;
+  $('vmShape').onchange = e => VM.shape = e.target.value;
+  $('vmMake').onclick = vmRender;
+}
+// the face reading for person p at time t (the nearest one the tracker caught, if it's recent)
+function vmSample(p, t) {
+  const a = VM.people[p].smp; let lo = 0, hi = a.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (a[m].t <= t) lo = m; else hi = m - 1; }
+  const x = a[lo]; return x && Math.abs(x.t - t) < 0.2 ? x : null;
+}
+async function vmRender() {
+  const P = VM.people;
+  vmShow('Getting ready…', `<div class="vm-bar"><i id="vmProg"></i></div>`);
+  try {
+    if ($('camSwitch').checked) { $('camSwitch').checked = false; $('camToggle').classList.remove('on'); cameraOff(); }
+    stopMusic(); drawTracks();
+    const arts = {}; for (const id of new Set(Object.values(VM.cast))) arts[id] = await fetchNibble(+id);
+    VM.arts = arts;
+    VM.mirror = {}; P.forEach((p, i) => VM.mirror[i] = i !== VM.first);
+    VM.keep = { id:S.id, art:S.art, trait:S.trait, bg:S.bg, shape:S.shape || 'Square', face:S.face, mouth:S.mouth, eye:S.eye,
+      v:{ an:V.an, buf:V.buf, spec:V.spec, hz:V.hz, floor:V.floor, peak:V.peak, loud:V.loud, trusted:V.trusted, on:V.on, lastVoice:V.lastVoice } };
+    VM.ps = P.map(() => ({ mouth:{ cur:0, prev:0, t:0 }, eye:{ cur:0, prev:0, t:0 }, face:{ roll:0, yaw:0, pitch:0, seen:false, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 } }));
+    S.bg = VM.bg; if (BONKD_BGS[S.bg]) bonkdBg(S.bg);
+    VM.rendering = true; setShape(VM.shape);
+    const v = document.createElement('video'); v.src = VM.url; v.playsInline = true; v.preload = 'auto'; VM.v = v;
+    await new Promise((res, rej) => { v.oncanplay = res; v.onerror = rej; v.load(); });
+    const ac = audioCtx(); mixBus();
+    const src = ac.createMediaElementSource(v), an = ac.createAnalyser(); an.fftSize = 2048; an.smoothingTimeConstant = 0.3;
+    const dest = ac.createMediaStreamDestination();
+    src.connect(an); src.connect(dest); src.connect(AU.out);
+    if (VM.music) { try { const t = TRACKS.find(x => x[0] === VM.music), b = await sound(VM.music); const m = ac.createBufferSource(); m.buffer = b; m.loop = true; m.loopStart = t[2]; m.loopEnd = Math.min(t[3], b.duration);
+      const g = ac.createGain(); g.gain.value = 0.22; m.connect(g); g.connect(dest); g.connect(AU.out); VM.mus = m; } catch (e) {} }
+    Object.assign(V, { an, buf:new Float32Array(2048), spec:new Float32Array(1024), hz:ac.sampleRate / 2048, floor:[], peak:0, loud:0.05, trusted:false, on:true, lastVoice:0 });
+    const out = stage.captureStream(30); dest.stream.getAudioTracks().forEach(tr => out.addTrack(tr));
+    const mimeType = REC_TYPES.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+    const chunks = []; const rec = new MediaRecorder(out, mimeType ? { mimeType, videoBitsPerSecond:4_000_000 } : undefined); VM.rec = rec;
+    rec.ondataavailable = e => e.data && e.data.size && chunks.push(e.data);
+    rec.onstop = () => {
+      const type = ((rec.mimeType || mimeType || 'video/webm').split(';')[0].trim()) || 'video/webm';
+      const blob = new Blob(chunks, { type }); vmRestore();
+      if (VM.cancel || !blob.size) return;
+      vmHide(); offerClip(blob, type, `nibbled-video-${Date.now()}.${type === 'video/mp4' ? 'mp4' : 'webm'}`);
+    };
+    VM.cancel = false; VM.cur = -1;
+    $('vm').classList.add('rendering');
+    vmShow('Nibbling your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note">Keep this screen open until it's done. You'll hear it as it goes.</p><button class="chipb seg" id="vmStop" type="button">Cancel</button>`);
+    $('vmStop').onclick = () => vmStop(true);
+    v.onended = () => vmStop(false);
+    rec.start(1000); if (VM.mus) VM.mus.start();
+    await v.play();
+  } catch (e) { vmRestore(); vmShow('Nibble a Video', '<p>Something went wrong making the video. Try again.</p>'); }
+}
+function vmStop(cancel) {
+  if (!VM.rendering) return; VM.cancel = cancel;
+  try { VM.v.pause(); } catch (e) {} try { VM.mus && VM.mus.stop(); } catch (e) {} VM.mus = null;
+  try { VM.rec && VM.rec.state !== 'inactive' ? VM.rec.stop() : vmRestore(); } catch (e) { vmRestore(); }
+  if (cancel) vmHide();
+}
+function vmRestore() {
+  if (!VM.rendering) return; VM.rendering = false; $('vm').classList.remove('rendering');
+  const k = VM.keep; if (!k) return;
+  Object.assign(V, k.v); S.id = k.id; S.art = k.art; S.trait = k.trait; S.bg = k.bg; S.face = k.face; S.mouth = k.mouth; S.eye = k.eye; S.tracking = false;
+  setShape(k.shape); MH.length = 0; openLvl = 0;
+}
+// one frame of the Nibbled video: who's on screen now, their face, their mouth (from the clip's sound), flipped if they answer
+function vmFrame(now) {
+  const v = VM.v, t = v.currentTime, P = VM.people;
+  const p = VM.timeline[Math.min(VM.timeline.length - 1, Math.floor(t / 0.05))] ?? VM.main;
+  if (p !== VM.cur) {   // a cut
+    VM.cur = p; const id = +VM.cast[p], a = VM.arts[id];
+    S.id = id; S.art = a.art; S.trait = a.trait; S.mouth = VM.ps[p].mouth; S.eye = VM.ps[p].eye; MH.length = 0; openLvl = 0;
+  }
+  const x = vmSample(p, t), f = VM.ps[p].face; S.face = f; S.tracking = true;
+  if (x) { Object.assign(f, x); f.seen = true; if (x.bu > t * 1000) S.blinkUntil = now + (x.bu - t * 1000); } else f.seen = false;
+  drawBackground();
+  ctx.save(); if (VM.mirror[p]) { ctx.translate(stage.width, 0); ctx.scale(-1, 1); }
+  drawNibble(now); ctx.restore();
+  const pr = $('vmProg'); if (pr) pr.style.width = (100 * t / VM.dur).toFixed(1) + '%';
 }
 
 function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return S['_' + k]; } }
