@@ -239,6 +239,7 @@ body.streaming #exitStream{display:block}
     <label class="ctl"><span class="circ" id="nibFace"></span><span class="lbl">Nibble</span>
       <select id="nibbleSel" aria-label="Nibble">
         <option value="4075">Ghost #4075</option>
+        <option value="1486">Ghost #1486</option>
         <option value="4248">Bear #4248</option>
         <option value="3133">Wolf #3133</option>
         <option value="271">Wolf #271</option>
@@ -275,7 +276,7 @@ body.streaming #exitStream{display:block}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261109-0840';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261110-1640';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -284,6 +285,8 @@ const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarke
 // mouths: 0 rest, 1 M B P, 2 slightly open, 3 wide "AH", 4 "EE" teeth, 5 "O", 6 "OO" pucker, 7 F V, 8 L, 9 frown
 const NIBBLES = {
   4075: { bg:'#9de8ff', fullFace:true },
+  // same face template as Grumble: his ten drawn mouths and blink, set on this ghost's face (his own open mouth at rest)
+  1486: { bg:'#9de8ff', fullFace:true },
   4248: { bg:'#9de8ff', fullFace:true, trait:{ frames:6, fps:8 } },
   3133: { bg:'#ffb7dc', fullFace:true, trait:{ frames:50, fps:12.5, box:[254.5, 73.6, 364, 174.9], wobble:{ centre:[436.5, 156] } } },
   // another Wolf: his own ten mouths (two Gemini sheets) on his upper snout, eyes, hat and apron; blink eyes from a third sheet
@@ -400,7 +403,7 @@ new ResizeObserver(fitStage).observe($('bezel'));
 addEventListener('resize', fitStage);
 setShape('Square');
 // Each control shows a picture of its current choice; the name sits underneath.
-const FACE_AT = { 4075:[534,551,1.35], 4248:[499,469,1.35], 3133:[560,494,1.35], 271:[560,494,1.35], 7996:[600,520,1.35], 8549:[507,533,1.35], 3385:[585,560,1.35], 8212:[496,520,1.35], 3154:[496,520,1.35] };   // face centre + zoom in the 1000px art
+const FACE_AT = { 4075:[534,551,1.35], 1486:[600,560,1.35], 4248:[499,469,1.35], 3133:[560,494,1.35], 271:[560,494,1.35], 7996:[600,520,1.35], 8549:[507,533,1.35], 3385:[585,560,1.35], 8212:[496,520,1.35], 3154:[496,520,1.35] };   // face centre + zoom in the 1000px art
 function showNibbleThumb(id) {
   const f = $('nibFace'), [cx, cy, zoom] = FACE_AT[id];               // show the face, centred
   const pos = c => (Math.min(1, Math.max(0, (c / 1000 * zoom - 0.5) / (zoom - 1))) * 100).toFixed(1) + '%';
