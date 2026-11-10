@@ -100,7 +100,7 @@ header .credit b{font-weight:400}
 .pop[hidden]{display:none}
 .pop h4{margin:4px 0 2px;font:400 12px/1 var(--display);letter-spacing:.08em;text-transform:uppercase;opacity:.6}
 .prow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-@media (max-width:400px){ .pop{padding:8px 10px 12px} .chipb{font-size:15px;padding:6px 9px 4px} .chipb.seg{font-size:13px;padding:6px 9px 4px} .sw{width:26px;height:26px} .prow .sep{margin:0 1px} }
+@media (max-width:400px){ .tool{font-size:12px;letter-spacing:.01em} .pop{padding:8px 10px 12px} .chipb{font-size:15px;padding:6px 9px 4px} .chipb.seg{font-size:13px;padding:6px 9px 4px} .sw{width:26px;height:26px} .prow .sep{margin:0 1px} }
 .chipb{border:2px solid var(--ink);border-radius:999px;background:var(--paper);padding:6px 11px 4px;font-size:16px;line-height:1;cursor:pointer}
 .chipb.on{background:var(--gold);box-shadow:2px 2px 0 var(--ink)}
 .chipb.seg{font:400 12px/1 var(--display);letter-spacing:.02em;padding:7px 10px 5px}
@@ -138,6 +138,27 @@ header .credit b{font-weight:400}
   .pop{padding:8px 8px 12px} .prow{gap:5px} .sw{width:24px;height:24px} .chipb.seg{padding:6px 8px 4px} .circ{width:44px;height:44px} .ctl.rec-c .circ{width:54px;height:54px} .lbl{font-size:8.5px} .bar{padding:8px 4px 0}
 }
 
+/* tools row: music, sound board, Nibble a Video */
+.tools{position:relative;flex:none;display:grid;grid-template-columns:1fr 1fr 1.45fr;gap:8px;max-width:520px;width:100%;margin:0 auto}
+.tool{min-width:0;height:36px;padding:3px 6px 0;border:2.5px solid var(--ink);border-radius:999px;background:var(--paper);box-shadow:2px 2px 0 var(--ink);
+  font:400 13px/1 var(--display);letter-spacing:.03em;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tool.on{background:var(--gold)}
+.tool:active{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
+.tool.hot{background:var(--red);color:#fff}
+.tools .pop{top:auto;bottom:calc(100% + 10px)}
+.trk{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:2px solid var(--ink);border-radius:12px;background:var(--paper);padding:7px 10px 5px;
+  font:400 14px/1.1 var(--display);letter-spacing:.02em;cursor:pointer}
+.trk.on{background:var(--gold);box-shadow:2px 2px 0 var(--ink)}
+.trk i{font-style:normal;width:16px;text-align:center}
+.vol{width:100%;accent-color:var(--red)}
+.pads{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.pad{height:52px;border:2.5px solid var(--ink);border-radius:14px;background:var(--cream);box-shadow:2px 2px 0 var(--ink);font:400 13px/1 var(--display);letter-spacing:.03em;cursor:pointer;
+  touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.pad:nth-child(4n+1){background:#ffe39a}.pad:nth-child(4n+2){background:#c9f0ff}.pad:nth-child(4n+3){background:#ffd0dc}.pad:nth-child(4n+4){background:#d6f5c4}
+.pad:active,.pad.hit{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
+.note{font-size:12px;opacity:.7;margin:2px 0 0}
+body.streaming .tools{display:none!important}
+
 /* stream mode: only the picture, full screen */
 body.streaming{background:#000}
 body.streaming .device{margin:0;width:100%;max-width:none;border:0;border-radius:0;box-shadow:none;padding:0;background:#000}
@@ -172,6 +193,21 @@ body.streaming #exitStream{display:block}
     <svg class="glare" viewBox="0 0 30 30" aria-hidden="true" fill="none" stroke="#fff" stroke-linecap="round"><path d="M4 19 Q4 4 19 4" stroke-width="4"/><path d="M4 26.5 L4 26.6" stroke-width="4"/></svg>
     <div class="badge" id="recBadge">● REC</div>
     <div class="toast" id="toast"></div>
+  </div>
+
+  <div class="tools">
+    <button class="tool" id="musicBtn" type="button" aria-expanded="false">♪ Music</button>
+    <button class="tool" id="sfxBtn" type="button" aria-expanded="false">Sound FX</button>
+    <button class="tool" id="vidBtn" type="button">Nibble a Video</button>
+    <div class="pop" id="musicPop" hidden>
+      <h4>Background music</h4><div class="prow" id="trkRow" style="display:grid;gap:6px"></div>
+      <h4>Volume</h4><input class="vol" id="musicVol" type="range" min="0" max="100" value="45" aria-label="Music volume">
+      <div class="prow"><button class="chipb seg" id="hpBtn" type="button">Headphones</button></div>
+      <p class="note" id="musicNote">Music goes into your saved clips. With the camera on it only plays out loud if you turn on Headphones, so the mic doesn't hear it.</p>
+    </div>
+    <div class="pop" id="sfxPop" hidden>
+      <h4>Sound FX: tap to play, they go into your clip</h4><div class="pads" id="pads"></div>
+    </div>
   </div>
 
   <nav class="bar"><div class="dock">
@@ -505,7 +541,7 @@ function readVoice(now) {
   V.rms = Math.sqrt(s / V.buf.length);
   V.floor.push(V.rms); if (V.floor.length > 180) V.floor.shift();
   const fl = [...V.floor].sort((a, b) => a - b)[Math.floor(V.floor.length * 0.1)] || 0;
-  V.voiced = V.rms > Math.max(fl * 3, 0.003);
+  V.voiced = V.rms > Math.max(fl * 3, 0.003) && !(performance.now() < (V.hushUntil || 0));
   V.peak = Math.max(V.peak * 0.999, V.rms);
   // trusted only after it has clearly heard speech; a silent or blocked mic never gets to shut the mouth
   if (V.voiced && V.rms > Math.max(fl * 8, 0.006)) V.trusted = true;
@@ -545,6 +581,7 @@ function wakeAudio() {
     if (V.ac.state !== 'running') V.ac.resume().catch(() => {});
   } catch (e) {}
 }
+$('camSwitch').addEventListener('change', () => setTimeout(musicRoute, 50));
 $('camSwitch').onchange = e => {
   // Safari only lets sound analysis start during a tap, so create it right here, before any waiting
   if (e.target.checked) wakeAudio();
@@ -1082,7 +1119,7 @@ $('recBtn').onclick = async () => {
   if (!stage.captureStream || !window.MediaRecorder) { setStatus('recStatus', 'This browser can\'t record. Try Safari or Chrome.', 'err'); return; }
   try {
     const out = stage.captureStream(30);
-    (await getMic()).forEach(tr => { if (tr.readyState === 'live') out.addTrack(tr); });
+    (await recordAudioTracks()).forEach(tr => out.addTrack(tr));
     const mimeType = ['video/mp4;codecs=avc1.42E01F,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t)) || '';   // H.264 MP4 first: plays and saves to Photos everywhere
     S.chunks = [];
     S.recorder = new MediaRecorder(out, mimeType ? { mimeType, videoBitsPerSecond:3_000_000 } : undefined);
@@ -1123,9 +1160,91 @@ $('recBtn').onclick = async () => {
     };
     S.recorder.start(1000);
     $('recBtn').classList.add('on'); $('recLbl').textContent = 'Stop'; $('recBadge').style.display = 'block';
-    setStatus('recStatus', S.audioTracks.length ? '' : IN_WALLET ? 'Recording without sound (wallet browsers block the mic — open in Safari for sound).' : 'Recording (no mic access, so no sound)…');
+    setStatus('recStatus', S.audioTracks.length || AU.trk ? '' : IN_WALLET ? 'Recording without sound (wallet browsers block the mic — open in Safari for sound).' : 'Recording (no mic access, so no sound)…');
   } catch (e) { S.recorder = null; setStatus('recStatus', 'Recording isn\'t supported in this browser. Try Safari or Chrome.', 'err'); }
 };
+
+// ---------------------------------------------------------------------------
+// Background music and the sound board. Everything is mixed into one bus (MIX) that the recorder uses,
+// together with the mic, so music and sound effects land in the saved clip.
+// ---------------------------------------------------------------------------
+const TRACKS = [
+  ['m_song', 'Fun Starts Here', 24.87, 98.41], ['m_bd_woods', 'Forest Romp', 11.47, 100.84], ['m_bd_mountain', 'Mountain Music', 21.48, 99.47],
+  ['m_bd_canyon', 'Banjo Showdown', 66.25, 145.06], ['m_bd_desert', 'Spaghetti Western', 31.42, 120.05], ['m_bd_harvest', 'Harvest', 60.81, 108.81],
+];
+const PADS = [['s_boing','Boing'],['s_bonk','Bonk'],['s_shoeHonk','Honk'],['s_pieSplat','Splat'],['s_poof','Poof'],['s_whoosh','Whoosh'],
+  ['s_clang','Clang'],['s_gumPop','Pop'],['s_boom','Boom'],['s_thunder','Thunder'],['s_cheer','Cheer'],['s_ko','KO']];
+const AU = { buf:{}, mix:null, music:null, musicG:null, out:null, trk:null, hp:false, micSrc:null, micTrack:null }; window.__au = AU;
+function audioCtx() { wakeAudio(); return V.ac; }
+function mixBus() {
+  const ac = audioCtx(); if (!ac || !ac.createMediaStreamDestination) return null;
+  if (!AU.mix) {
+    AU.mix = ac.createMediaStreamDestination();
+    AU.out = ac.createGain(); AU.out.gain.value = 1; AU.out.connect(ac.destination);   // what you hear
+  }
+  return AU.mix;
+}
+async function sound(name) {
+  if (AU.buf[name]) return AU.buf[name];
+  const ac = audioCtx(); const r = await fetch(`audio/${name}.mp3?v=${ART_V}`); const ab = await r.arrayBuffer();
+  return AU.buf[name] = await new Promise((res, rej) => ac.decodeAudioData(ab, res, rej));
+}
+const musicLoud = () => !$('camSwitch').checked || AU.hp;   // camera on: only out loud with headphones, or the mic would hear it and move the mouth
+function musicRoute() { if (!AU.musicSpk) return; AU.musicSpk.gain.value = musicLoud() ? 1 : 0; }
+async function playMusic(id) {
+  stopMusic(); AU.trk = id; drawTracks(); if (!id) return;
+  const t = TRACKS.find(x => x[0] === id), ac = audioCtx(), mix = mixBus(); if (!ac || !mix) return;
+  let b; try { b = await sound(id); } catch (e) { setStatus('x', 'That track wouldn\'t load. Try again.', 'err'); AU.trk = null; drawTracks(); return; }
+  if (AU.trk !== id) return;
+  const src = ac.createBufferSource(); src.buffer = b; src.loop = true; src.loopStart = t[2]; src.loopEnd = Math.min(t[3], b.duration);
+  const g = ac.createGain(); g.gain.value = $('musicVol').value / 100 * 0.6;
+  const spk = ac.createGain(); AU.musicSpk = spk; musicRoute();
+  src.connect(g); g.connect(mix); g.connect(spk); spk.connect(AU.out);
+  src.start(); AU.music = src; AU.musicG = g;
+}
+function stopMusic() { try { AU.music && AU.music.stop(); } catch (e) {} AU.music = null; AU.musicG = null; AU.musicSpk = null; }
+function drawTracks() {
+  const row = $('trkRow'); row.innerHTML = '';
+  for (const [id, name] of [[null, 'No music'], ...TRACKS]) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'trk' + (AU.trk === id ? ' on' : '');
+    b.innerHTML = `<i>${AU.trk === id ? (id ? '♪' : '✕') : ''}</i><span></span>`; b.lastChild.textContent = name;
+    b.onclick = () => playMusic(id); row.appendChild(b);
+  }
+  $('musicBtn').classList.toggle('on', !!AU.trk);
+  $('musicBtn').textContent = '♪ Music';
+}
+$('musicVol').oninput = e => { if (AU.musicG) AU.musicG.gain.value = e.target.value / 100 * 0.6; };
+$('hpBtn').onclick = () => { AU.hp = !AU.hp; $('hpBtn').classList.toggle('on', AU.hp); musicRoute(); };
+async function playPad(id, el) {
+  const ac = audioCtx(), mix = mixBus(); if (!ac || !mix) return;
+  let b; try { b = await sound(id); } catch (e) { return; }
+  const src = ac.createBufferSource(); src.buffer = b; const g = ac.createGain(); g.gain.value = 0.9;
+  src.connect(g); g.connect(mix); g.connect(AU.out); src.start();
+  V.hushUntil = performance.now() + b.duration * 1000 + 200;   // the mic hears it: don't let it move the mouth
+  if (el) { el.classList.add('hit'); setTimeout(() => el.classList.remove('hit'), 120); }
+}
+for (const [id, name] of PADS) {
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'pad'; b.textContent = name;
+  b.addEventListener('pointerdown', e => { e.preventDefault(); playPad(id, b); });
+  b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playPad(id, b); } });
+  $('pads').appendChild(b);
+}
+function togglePop(btn, pop) {
+  const open = pop.hidden; ['musicPop', 'sfxPop'].forEach(p => { $(p).hidden = true; }); $('musicBtn').setAttribute('aria-expanded', 'false'); $('sfxBtn').setAttribute('aria-expanded', 'false');
+  $('sfxBtn').classList.remove('on');
+  if (open) { pop.hidden = false; btn.setAttribute('aria-expanded', 'true'); if (pop.id === 'sfxPop') btn.classList.add('on'); wakeAudio(); PADS.forEach(([id]) => sound(id).catch(() => {})); }
+}
+$('musicBtn').onclick = () => { drawTracks(); togglePop($('musicBtn'), $('musicPop')); };
+$('sfxBtn').onclick = () => togglePop($('sfxBtn'), $('sfxPop'));
+document.addEventListener('pointerdown', e => { if (!e.target.closest('.tools')) { $('musicPop').hidden = true; $('sfxPop').hidden = true; $('sfxBtn').classList.remove('on'); } });
+// the recorder's sound: mic + music + sound board
+async function recordAudioTracks() {
+  const mic = (await getMic()).filter(tr => tr.readyState === 'live');
+  const mix = mixBus();
+  if (!mix) return mic;
+  if (mic.length && AU.micTrack !== mic[0]) { try { AU.micSrc && AU.micSrc.disconnect(); } catch (e) {} AU.micSrc = V.ac.createMediaStreamSource(new MediaStream(mic)); AU.micSrc.connect(mix); AU.micTrack = mic[0]; }
+  return mix.stream.getAudioTracks();
+}
 
 function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return S['_' + k]; } }
 function sessionStorageSet(k) { try { sessionStorage.setItem(k, '1'); } catch (e) { S['_' + k] = 1; } }
