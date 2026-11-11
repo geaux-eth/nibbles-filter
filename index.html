@@ -173,6 +173,8 @@ header .credit b{font-weight:400}
 .pk-t.on .pk-img{box-shadow:0 0 0 3px var(--paper),0 0 0 6px var(--red)}
 .pk-t:active .pk-img{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
 .pk-n{font:400 13px/1.1 var(--display);letter-spacing:.02em;text-align:center;max-width:100%;overflow-wrap:anywhere}
+.pk-plus{display:flex;align-items:center;justify-content:center;background:var(--cream);font:400 54px/1 var(--display);color:var(--ink);border-style:dashed}
+.pk-rm{position:absolute;top:-8px;right:-8px;width:26px;height:26px;border:2px solid var(--ink);border-radius:50%;background:#fff;font:700 13px/22px var(--body);text-align:center;cursor:pointer}
 .pk-c{position:absolute;right:6px;bottom:6px;min-width:24px;height:24px;padding:3px 6px 0;border:2px solid var(--ink);border-radius:999px;background:var(--gold);font:400 13px/1 var(--display);text-align:center}
 
 /* Nibble a Video window */
@@ -199,6 +201,20 @@ header .credit b{font-weight:400}
 .vm-row{display:flex;gap:8px;margin:2px 0 8px}
 .vm-opts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
 .vm-opts label{display:grid;gap:4px;font:400 11px/1 var(--display);letter-spacing:.04em;text-transform:uppercase}
+.an-prev{display:flex;justify-content:center;margin:8px 0 0}.an-prev canvas{width:120px;height:120px;border:2.5px solid var(--ink);border-radius:16px}
+.vm-opts input{width:100%;min-width:0;height:38px;padding:0 8px;border:2.5px solid var(--ink);border-radius:10px;background:var(--paper);font:600 15px/1 var(--body)}
+.an-lbl{display:grid;gap:4px;margin:8px 0;font:400 11px/1.2 var(--display);letter-spacing:.03em;text-transform:uppercase}
+.an-lbl textarea{width:100%;padding:8px;border:2.5px solid var(--ink);border-radius:10px;font:600 14px/1.3 var(--body);text-transform:none;resize:vertical}
+.an-p{margin:8px 0;border:2px solid var(--ink);border-radius:12px;overflow:hidden}
+.an-ph{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;background:var(--cream);border-bottom:2px solid var(--ink);font:400 14px/1 var(--display)}
+.an-p pre{margin:0;padding:8px;max-height:96px;overflow:auto;white-space:pre-wrap;font:500 11.5px/1.35 ui-monospace,Menlo,monospace}
+.an-up{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0;padding:12px 14px;border:2.5px dashed var(--ink);border-radius:14px;cursor:pointer;font:400 15px/1.1 var(--display)}
+.an-up b{font-weight:400;font-size:13px;padding:6px 10px 4px;border:2px solid var(--ink);border-radius:999px;background:var(--paper);white-space:nowrap}
+.an-up.on{border-style:solid;background:#e3f7d6}
+.an-chk{display:flex;gap:8px;align-items:flex-start;margin:6px 0;font-size:13px}
+.an-sheet canvas{width:100%;height:auto;border:2.5px solid var(--ink);border-radius:12px;display:block}
+.an-prob{margin:8px 0;padding-left:18px}.an-prob li{margin:4px 0}
+@keyframes anPulse{50%{opacity:.4}}
 .vm-opts select{width:100%;min-width:0;height:38px;padding:0 6px;border:2.5px solid var(--ink);border-radius:10px;background:var(--paper);font:600 14px/1 var(--body)}
 
 </style>
@@ -332,7 +348,12 @@ function entrance() {
   if (sr[3] - headTop > (sr[3] - sr[1]) * 0.08) return null;
   return { img, sc, tx, ty, sr, size };
 }
+const MY_BG = {};   // backgrounds this person added: name -> picture (data URL), kept on this device
+try { Object.assign(MY_BG, JSON.parse(localStorage.getItem('nf-bgs') || '{}')); } catch (e) {}
+for (const k in MY_BG) BONKD_BGS[k] = 'mine';
 const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS)];
+const bgList = () => ['Nibble color', ...Object.keys(BONKD_BGS)];
+const bgSrc = name => MY_BG[name] || `bg/${ENTRANCE[name] ? ENTRANCE[name].name : BONKD_BGS[name]}.webp?v=${ART_V}`;
 const ASPECTS = { 'Square':[1080,1080], 'Vertical':[1080,1920], 'Wide':[1920,1080] };
 
 const UA = navigator.userAgent;
@@ -364,7 +385,9 @@ function setStatus(el, msg, kind='', ms=3200) {
   if (ms) toastT = setTimeout(() => { t.style.display = 'none'; }, ms);
   return t;
 }
-const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+const loadImg = src => new Promise((res, rej) => { const i = new Image(); if (/^https?:/.test(src)) i.crossOrigin = 'anonymous'; i.onload = () => res(i); i.onerror = rej; i.src = src; });
+// where a Nibble's pictures live: built in (faces/ID/), added by the community (Supabase), or being previewed (on this device)
+function artURL(id, n) { const c = NIBBLES[id]; if (c && c.files) return c.files[n]; if (c && c.remote) return `${c.remote}${n}.${c.ext}`; return `faces/${id}/${n}.webp?v=${ART_V}`; }
 const lerp = (a, b, t) => a + (b - a) * t;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -374,7 +397,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 for (const name of BACKGROUNDS) { const o = document.createElement('option'); o.value = o.textContent = name; $('bgSel').appendChild(o); }
 const bgCache = {};
 function bonkdBg(name) {
-  if (!bgCache[name]) { const i = new Image(); i.src = `bg/${BONKD_BGS[name]}.webp?v=${ART_V}`; bgCache[name] = i; }
+  if (!bgCache[name]) { const i = new Image(); i.src = MY_BG[name] || `bg/${BONKD_BGS[name]}.webp?v=${ART_V}`; bgCache[name] = i; }
   const i = bgCache[name]; return i.complete && i.naturalWidth ? i : null;
 }
 $('bgSel').onchange = e => { S.bg = e.target.value; if (BONKD_BGS[S.bg]) bonkdBg(S.bg); showSceneThumb(); };
@@ -417,14 +440,13 @@ const FACE_AT = { 4075:[534,551,1.35], 1486:[600,560,1.35], 4248:[499,469,1.35],
 function showNibbleThumb(id) {
   const f = $('nibFace'), [cx, cy, zoom] = FACE_AT[id];               // show the face, centred
   const pos = c => (Math.min(1, Math.max(0, (c / 1000 * zoom - 0.5) / (zoom - 1))) * 100).toFixed(1) + '%';
-  f.style.backgroundImage = `url(faces/${id}/base.webp?v=${ART_V})`; f.style.backgroundSize = (zoom * 100) + '%';
+  f.style.backgroundImage = `url(${artURL(id, 'base')})`; f.style.backgroundSize = (zoom * 100) + '%';
   f.style.backgroundPosition = `${pos(cx)} ${pos(cy)}`; f.style.backgroundColor = NIBBLES[id].bg;
   showSceneThumb();
 }
 function showSceneThumb() {
   const f = $('bgFace');
-  const tb = ENTRANCE[S.bg] ? ENTRANCE[S.bg].name : BONKD_BGS[S.bg];
-  f.style.backgroundImage = tb ? `url(bg/${tb}.webp?v=${ART_V})` : 'none';
+  f.style.backgroundImage = BONKD_BGS[S.bg] ? `url(${bgSrc(S.bg)})` : 'none';
   f.style.backgroundColor = S.bg === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
 }
 $('nibbleSel').onchange = e => { loadNibble(+e.target.value); showNibbleThumb(+e.target.value); };
@@ -435,7 +457,10 @@ function pkOpen(title, tiles, back) {
   const g = $('pkGrid'); g.innerHTML = '';
   for (const t of tiles) {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'pk-t' + (t.on ? ' on' : '');
-    const im = document.createElement('span'); im.className = 'pk-img'; t.paint(im);
+    const im = document.createElement('span'); im.className = 'pk-img' + (t.plus ? ' pk-plus' : ''); t.paint(im);
+    if (t.plus) im.textContent = '+';
+    if (t.remove) { const x = document.createElement('span'); x.className = 'pk-rm'; x.textContent = '✕'; x.setAttribute('role', 'button'); x.setAttribute('aria-label', 'Remove ' + t.name);
+      x.onclick = ev => { ev.stopPropagation(); t.remove(); }; im.appendChild(x); }
     if (t.count) { const c = document.createElement('span'); c.className = 'pk-c'; c.textContent = t.count; im.appendChild(c); }
     const n = document.createElement('span'); n.className = 'pk-n'; n.textContent = t.name;
     b.append(im, n); b.onclick = t.pick; g.appendChild(b);
@@ -449,22 +474,43 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('pk').h
 // Nibbles: pick a kind (Wolf, Bear, Cock…), then a token
 function pickNibble(cur, onPick) {
   const list = NIB_LIST(), kinds = [...new Set(list.map(n => n.kind))], curKind = (list.find(n => n.id === cur) || {}).kind;
-  const kindsView = () => pkOpen('Choose a Nibble', kinds.map(k => { const ns = list.filter(n => n.kind === k);
-    return { name:k, count:ns.length, on:k === curKind, paint:el => nibThumb(el, ns[0].id), pick:() => tokens(k) }; }));
+  const kindsView = () => pkOpen('Choose a Nibble', [...kinds.map(k => { const ns = list.filter(n => n.kind === k);
+    return { name:k, count:ns.length, on:k === curKind, paint:el => nibThumb(el, ns[0].id), pick:() => tokens(k) }; }),
+    ...(onPick.noAdd ? [] : [{ name:'Add Nibble', plus:true, paint:() => {}, pick:() => { pkClose(); addNibble(); } }])]);
   const tokens = k => pkOpen(k === 'Wolf' ? 'Wolves' : k + 's', list.filter(n => n.kind === k).map(n => ({ name:'#' + n.num, on:n.id === cur, paint:el => nibThumb(el, n.id),
-    pick:() => { pkClose(); onPick(n.id); } })), kindsView);
+    pick:() => { pkClose(); onPick(n.id); },
+    remove:ADMIN() && NIBBLES[n.id].remote ? () => adminRemove(n.id) : null })), kindsView);
   kindsView();
 }
 $('nibFace').onclick = () => pickNibble(S.id, id => { if (S.recorder) return; $('nibbleSel').value = id; loadNibble(id); showNibbleThumb(id); });
 function bgThumb(el, name) {
-  const tb = ENTRANCE[name] ? ENTRANCE[name].name : BONKD_BGS[name];
-  el.style.backgroundImage = tb ? `url(bg/${tb}.webp?v=${ART_V})` : 'none'; el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center';
+  el.style.backgroundImage = BONKD_BGS[name] ? `url(${bgSrc(name)})` : 'none'; el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center';
   el.style.backgroundColor = name === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
 }
-function pickBackground(cur, onPick, list = BACKGROUNDS) {
-  pkOpen('Choose a background', list.map(name => ({ name, on:name === cur, paint:el => bgThumb(el, name), pick:() => { pkClose(); onPick(name); } })));
+function pickBackground(cur, onPick) {
+  pkOpen('Choose a background', [...bgList().map(name => ({ name, on:name === cur, paint:el => bgThumb(el, name), pick:() => { pkClose(); onPick(name); },
+      remove:MY_BG[name] ? () => { delete MY_BG[name]; delete BONKD_BGS[name]; saveMyBgs(); if (S.bg === name) onPick('Nibble color'); pickBackground(S.bg, onPick); } : null })),
+    { name:'Add background', plus:true, paint:() => {}, pick:() => addBackground(onPick) }]);
 }
-$('bgFace').onclick = () => pickBackground(S.bg, name => { $('bgSel').value = name; S.bg = name; if (BONKD_BGS[S.bg]) bonkdBg(S.bg); showSceneThumb(); });
+function saveMyBgs() { try { localStorage.setItem('nf-bgs', JSON.stringify(MY_BG)); return true; } catch (e) { return false; } }
+// a picture from this device becomes a background: resized, kept here only
+function addBackground(onPick) {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0]; if (!f) return;
+    try {
+      const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(f); });
+      const k = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight)), c = document.createElement('canvas');
+      c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+      let n = 1; while (MY_BG['My background ' + n]) n++; const name = 'My background ' + n;
+      MY_BG[name] = c.toDataURL('image/jpeg', 0.82); BONKD_BGS[name] = 'mine';
+      if (!saveMyBgs()) setStatus('x', 'Added for now. This browser is out of room to keep it after you leave.', '', 5000);
+      pkClose(); onPick(name);
+    } catch (e) { setStatus('x', 'That picture wouldn\'t open. Try another one.', 'err'); }
+  };
+  inp.click();
+}
+$('bgFace').onclick = () => pickBackground(S.bg, name => { if (!$('bgSel').querySelector(`option[value="${CSS.escape(name)}"]`)) { const o = document.createElement('option'); o.value = o.textContent = name; $('bgSel').appendChild(o); } $('bgSel').value = name; S.bg = name; if (BONKD_BGS[S.bg]) bonkdBg(S.bg); showSceneThumb(); });
 
 // ---------------------------------------------------------------------------
 // Loading a Nibble (everything is bundled with the site)
@@ -475,7 +521,17 @@ function fetchNibble(id) {
   const cfg = NIBBLES[id];
   return ART[id] = (async () => {
     const names = ['base', 'e0','e1','e2','e3','e4', 'm0','m1','m2','m3','m4','m5','m6','m7','m8','m9'];
-    const imgs = await Promise.all(names.map(n => loadImg(`faces/${id}/${n}.webp?v=${ART_V}`)));
+    let imgs = await Promise.all(names.map(n => loadImg(artURL(id, n))));
+    if (cfg.layout) {   // added Nibbles store only the changed boxes: put each mouth back on the base, each eye layer on a clear sheet
+      const { mb, eb } = cfg.layout, mk = () => { const c = document.createElement('canvas'); c.width = c.height = 1000; return c; };
+      imgs = imgs.map((im, k) => {
+        if (k === 0) return im;
+        const n = names[k], c = mk(), g = c.getContext('2d');
+        if (n[0] === 'm') { g.drawImage(imgs[0], 0, 0, 1000, 1000); if (mb[2] > mb[0]) { g.clearRect(mb[0], mb[1], im.naturalWidth, im.naturalHeight); g.drawImage(im, mb[0], mb[1]); } }
+        else if (n !== 'e0' && eb[2] > eb[0] && im.naturalWidth > 1) g.drawImage(im, eb[0], eb[1]);
+        return c;
+      });
+    }
     const art = { base:imgs[0], eyes:imgs.slice(1, 6), mouths:imgs.slice(6) };
     if (cfg.overlay) art.over = await Promise.all(Array.from({ length:10 }, (_, i) => loadImg(`faces/${id}/b${i}.webp?v=${ART_V}`)));
     // does the art's body run off its left / right edge? then it keeps going in wide frames
@@ -1541,7 +1597,7 @@ function vmTimeline() {
 const NIB_NAMES = () => Array.from($('nibbleSel').options).map(o => [+o.value, o.textContent]);
 function nibThumb(el, id) {
   const [cx, cy, zoom] = FACE_AT[id], pos = c => (Math.min(1, Math.max(0, (c / 1000 * zoom - 0.5) / (zoom - 1))) * 100).toFixed(1) + '%';
-  el.style.backgroundImage = `url(faces/${id}/base.webp?v=${ART_V})`; el.style.backgroundSize = (zoom * 100) + '%';
+  el.style.backgroundImage = `url(${artURL(id, 'base')})`; el.style.backgroundSize = (zoom * 100) + '%';
   el.style.backgroundPosition = `${pos(cx)} ${pos(cy)}`; el.style.backgroundColor = NIBBLES[id].bg;
 }
 function vmRandom() {
@@ -1571,7 +1627,7 @@ function vmCastStep() {
     const face = p.thumb || document.createElement('canvas'); face.className = 'vm-face';
     const nib = document.createElement('button'); nib.type = 'button'; nib.className = 'vm-nib'; nib.setAttribute('aria-label', 'Nibble for person ' + (i + 1));
     const circ = document.createElement('span'); circ.className = 'circ'; nibThumb(circ, VM.cast[i]);
-    nib.onclick = () => pickNibble(VM.cast[i], id => { VM.cast[i] = id; nibThumb(circ, id); });
+    nib.onclick = () => pickNibble(VM.cast[i], Object.assign(id => { VM.cast[i] = id; nibThumb(circ, id); }, { noAdd:true }));
     nib.append(circ);
     const tag = document.createElement('span'); tag.className = 'lbl'; tag.textContent = i === VM.main ? 'Main' : 'Person ' + (i + 1);
     d.append(face, document.createTextNode('→'), nib, tag); box.appendChild(d);
@@ -1656,6 +1712,216 @@ function vmFrame(now) {
   ctx.save(); if (VM.mirror[p]) { ctx.translate(stage.width, 0); ctx.scale(-1, 1); }
   drawNibble(now); ctx.restore();
   const pr = $('vmProg'); if (pr) pr.style.width = (100 * t / VM.dur).toFixed(1) + '%';
+}
+
+// ---------------------------------------------------------------------------
+// Community Nibbles: anyone can add any Nibble by bringing its picture and three Gemini sheets. The builder
+// (builder.js) makes the face layers on their device and grades them; good ones are published to Supabase
+// and show up in the picker for everyone. The admin (GEAUX) can remove or replace any of them.
+// ---------------------------------------------------------------------------
+const SB = 'https://jmiesqhrpcmrthrquqpq.supabase.co';
+const SBK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptaWVzcWhycGNtcnRocnF1cXBxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5NzIxMTcsImV4cCI6MjEwNzU0ODExN30.fr2o1fmS-FwXE3Y1niz15J0K_U4AEdiCUcdgjdLEt6k';
+const sbFetch = (path, opts = {}) => fetch(SB + path, { ...opts, headers:{ apikey:SBK, Authorization:'Bearer ' + SBK, ...(opts.headers || {}) } });
+const sbRpc = async (fn, args) => { const r = await sbFetch('/rest/v1/rpc/' + fn, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(args) }); return r.json(); };
+const KINDS = ['Bear', 'Beaver', 'Cock', 'Gecko', 'Ghost', 'Gnome', 'Raccoon', 'Wolf'];
+const ADMIN = () => { try { return localStorage.getItem('nf-admin') || ''; } catch (e) { return ''; } };
+if (/[?&]admin\b/.test(location.search)) {
+  const k = prompt('Admin key for Nibble FILTER (leave empty to sign out):', ADMIN());
+  try { if (k) localStorage.setItem('nf-admin', k.trim()); else localStorage.removeItem('nf-admin'); } catch (e) {}
+}
+function addOption(id, kind) {
+  const sel = $('nibbleSel'); if (sel.querySelector(`option[value="${id}"]`)) return;
+  const o = document.createElement('option'); o.value = id; o.textContent = `${kind} #${id}`;
+  const same = Array.from(sel.options).filter(x => x.textContent.startsWith(kind + ' #'));
+  if (same.length) same[same.length - 1].after(o); else sel.appendChild(o);
+}
+function registerCommunity(row) {
+  NIBBLES[row.token] = { bg:row.bg, fullFace:true, remote:`${SB}/storage/v1/object/public/nibbles/${row.folder}/`, ext:row.ext, layout:row.face };
+  FACE_AT[row.token] = row.face.at; delete ART[row.token]; addOption(row.token, row.kind);
+}
+(async () => {
+  try {
+    const r = await sbFetch('/rest/v1/nf_nibbles?select=token,kind,bg,face,folder,ext&order=token');
+    for (const row of await r.json()) if (!NIBBLES[row.token] || NIBBLES[row.token].remote) registerCommunity(row);
+  } catch (e) {}
+})();
+async function adminRemove(id) {
+  if (!confirm(`Remove #${id} from the filter for everyone? It can be added again afterwards.`)) return;
+  const res = await sbRpc('nf_remove', { p_token:id, p_key:ADMIN() }).catch(() => ({}));
+  if (!res.ok) { setStatus('x', res.reason === 'not_admin' ? 'That admin key isn\'t right.' : 'Couldn\'t remove it. Try again.', 'err'); return; }
+  const o = $('nibbleSel').querySelector(`option[value="${id}"]`); if (o) o.remove(); delete NIBBLES[id]; delete ART[id];
+  if (S.id === id) { $('nibbleSel').value = 4075; loadNibble(4075); showNibbleThumb(4075); }
+  pkClose(); setStatus('x', `#${id} was removed.`);
+}
+
+const AN = {};   // the Nibble being added
+const PROMPTS = {
+  s1:(n, t) => `Using the attached Nibble (${n}) as the exact model, draw a 3×2 grid of six panels on a flat pure green (#00FF00) background, 3:2 landscape. Every panel copies the original exactly: same pose, size, angle, crop (cut off at the bottom like the original), line weight and colours — ${t}. Keep a clear band of green between panels; nothing touches or crosses into another panel. No text, labels, shadows or background details.
+Only the mouth changes. The upper part of the face (snout, beak or upper lip, nose, any fangs or teeth that hang from it) stays exactly where it is in every panel; the lower jaw and lips do the talking. Eyes, brows, hair, hat, accessories, fur and clothes are identical in every panel.
+Top row, left to right:
+1. Rest — exactly the original mouth.
+2. M / B / P — lips pressed tightly shut, lower jaw pushed up against the upper.
+3. Slightly open — lower jaw dropped a little, a thin dark mouth with the tongue just visible.
+Bottom row, left to right:
+4. AH — jaw dropped wide open, dark red mouth with the tongue resting inside.
+5. EE — mouth open a little with the corners stretched back into a wide grin, flat white teeth showing.
+6. O — mouth open in a rounded shape with the corners pulled in, tongue low.`,
+  s2:(n, t) => `Using the attached Nibble (${n}) as the exact model, draw one row of four panels on a flat pure green (#00FF00) background, 3:1 wide. Every panel copies the original exactly: same pose, size, angle, crop, line weight and colours — ${t}. Clear green gaps between panels; nothing touches another panel. No text, labels or shadows.
+Only the mouth changes. The upper part of the face stays exactly where it is in every panel; the lower jaw and lips move, and the tongue stays inside the mouth. Everything else is identical in every panel.
+Left to right:
+1. F / V — mouth almost closed, the upper lip resting on top of the lower lip, which is tucked slightly back under it.
+2. L — mouth half open, the tongue tip raised and touching the roof of the mouth behind the upper teeth.
+3. Frown — mouth closed with the corners turned down in a sulk.
+4. OO — mouth nearly closed, lips pushed forward into a small round pucker, no teeth or fangs showing.`,
+  eyes:(n, t) => `Using the attached Nibble (${n}) as the exact model, draw one row of five panels on a flat pure green (#00FF00) background, 5:1 wide. Every panel copies the original exactly: same pose, size, angle, crop, line weight and colours — ${t} — with the mouth exactly as in the original. Clear green gaps between panels. No text, labels or shadows.
+Only the eyes and brows change. Glasses, eye patches, bruises, scars and anything else around the eyes stay exactly the same size, shape and colour in all five panels.
+Left to right:
+1. Open — the eyes exactly as in the original.
+2. Angry — brows pulled down hard into a sharp V over the eyes, upper lids lowered at the inner corners, glaring.
+3. Surprised — brows raised high, eyes opened wider and rounder, wide awake.
+4. Half-closed — a flat eyelid in the face's own colour, with a bold ink edge, covers the top half of each eye; the bottom half still shows the eye's colour and shine.
+5. Closed — the eye colours are gone; each eye is a single curved ink line where it was, set in the face's own colour.`,
+};
+const esc = t => t.replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+function addNibble() {
+  if (S.recorder || VM.rendering) return;
+  $('vm').classList.remove('rendering');
+  vmShow('Add a Nibble', `
+    <p>Any Nibble can join the filter. You bring its picture and three pictures you make in Gemini; the filter builds the talking face, checks it, and adds it for everyone.</p>
+    <div class="vm-opts" style="grid-template-columns:1fr 1fr">
+      <label>Kind<select id="anKind">${KINDS.map(k => `<option${AN.kind === k ? ' selected' : ''}>${k}</option>`).join('')}</select></label>
+      <label>Token number<input id="anTok" type="number" inputmode="numeric" min="1" max="8888" placeholder="e.g. 1234" value="${AN.token || ''}"></label>
+    </div>
+    <label class="vm-go an-file" style="background:var(--paper);color:var(--ink)">${AN.cut ? 'Change the picture' : 'Add its picture'}<input id="anPic" type="file" accept="image/*" hidden></label>
+    <div id="anPrev" class="an-prev"></div>
+    <p class="note">The square picture of the Nibble, at full size (like its PFP).</p>
+    <button class="vm-go" id="anNext" type="button">Next</button>`);
+  if (AN.cut) $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg));
+  $('anPic').onchange = async e => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    const B = await import('./builder.js?v=' + ART_V);
+    try { const im = await B.loadImage(f); AN.cut = B.cutOriginal(im); $('anPrev').innerHTML = ''; $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg)); }
+    catch (err) { setStatus('x', 'That picture wouldn\'t open. Try another one.', 'err'); }
+  };
+  $('anNext').onclick = () => {
+    const tok = +$('anTok').value, kind = $('anKind').value;
+    if (!(tok >= 1 && tok <= 8888)) { setStatus('x', 'Enter the token number (1 to 8888).', 'err'); return; }
+    if (NIBBLES[tok] && !ADMIN()) { setStatus('x', `${kind} #${tok} is already in the filter.`, 'err', 5000); return; }
+    if (!AN.cut) { setStatus('x', 'Add the Nibble\'s picture first.', 'err'); return; }
+    if (AN.cut.share > 0.97 || AN.cut.share < 0.08) { setStatus('x', 'That picture needs a plain background around the Nibble, like its PFP.', 'err', 5000); return; }
+    AN.token = tok; AN.kind = kind; addPrompts();
+  };
+}
+function thumbOf(canvas, bg) { const c = document.createElement('canvas'); c.width = c.height = 240; const g = c.getContext('2d'); g.fillStyle = bg; g.fillRect(0, 0, 240, 240); g.drawImage(canvas, 0, 0, 240, 240); return c; }
+function addPrompts() {
+  const name = `${AN.kind} #${AN.token}`;
+  vmShow('Make 3 pictures in Gemini', `
+    <p>Open <b>Gemini</b> (gemini.google.com). For each prompt below: attach ${esc(name)}'s picture, paste the prompt, and save the picture it makes.</p>
+    <label class="an-lbl">What's on your Nibble? (helps Gemini copy it exactly)<textarea id="anTraits" rows="2" placeholder="e.g. dark slate fur, gold halo, bandage on the head, purple bruised eye, cream snout, two white fangs, gray hooded robe">${esc(AN.traits || '')}</textarea></label>
+    ${['s1', 's2', 'eyes'].map((k, i) => `<div class="an-p"><div class="an-ph"><b>${['1. Mouths', '2. More mouths', '3. Eyes'][i]}</b><button class="chipb seg" type="button" data-copy="${k}">Copy</button></div><pre id="anP_${k}"></pre></div>`).join('')}
+    <button class="vm-go" id="anNext" type="button">I've got all 3 pictures</button>
+    <button class="chipb seg" id="anBack" type="button">Back</button>`);
+  const fill = () => { AN.traits = $('anTraits').value.trim(); const t = AN.traits || 'every trait exactly as in the original';
+    for (const k of ['s1', 's2', 'eyes']) $('anP_' + k).textContent = PROMPTS[k](name, t); };
+  fill(); $('anTraits').oninput = fill;
+  vmBody().querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
+    const txt = $('anP_' + b.dataset.copy).textContent;
+    try { await navigator.clipboard.writeText(txt); b.textContent = 'Copied!'; } catch (e) { const r = document.createRange(); r.selectNodeContents($('anP_' + b.dataset.copy)); getSelection().removeAllRanges(); getSelection().addRange(r); b.textContent = 'Selected'; }
+    setTimeout(() => b.textContent = 'Copy', 1500);
+  });
+  $('anBack').onclick = addNibble; $('anNext').onclick = addSheets;
+}
+function addSheets() {
+  const slot = (k, label) => `<label class="an-up${AN[k] ? ' on' : ''}" id="anU_${k}"><span>${label}</span><b>${AN[k] ? '✓ Added' : 'Add picture'}</b><input type="file" accept="image/*" hidden data-k="${k}"></label>`;
+  vmShow('Add the 3 pictures', `
+    ${slot('f1', '1. Mouths (6 faces)')}${slot('f2', '2. More mouths (4 faces)')}${slot('f3', '3. Eyes (5 faces)')}
+    <label class="an-chk"><input type="checkbox" id="anNoEyes"${AN.noEyes ? ' checked' : ''}> My Nibble's eyes don't blink (fire, X eyes…): skip picture 3</label>
+    <button class="vm-go" id="anBuild" type="button">Build my Nibble</button>
+    <button class="chipb seg" id="anBack" type="button">Back</button>`);
+  vmBody().querySelectorAll('input[type=file]').forEach(inp => inp.onchange = () => { const f = inp.files && inp.files[0]; if (!f) return; AN[inp.dataset.k] = f; addSheets(); });
+  $('anNoEyes').onchange = e => AN.noEyes = e.target.checked;
+  $('anBack').onclick = addPrompts;
+  $('anBuild').onclick = addBuild;
+}
+async function addBuild() {
+  if (!AN.f1 || !AN.f2 || (!AN.f3 && !AN.noEyes)) { setStatus('x', 'Add all the pictures first.', 'err'); return; }
+  vmShow('Building…', `<div class="vm-bar"><i id="vmProg" style="width:100%;animation:anPulse 1.2s ease-in-out infinite"></i></div><p class="note" id="anMsg">Getting started…</p>`);
+  try {
+    const B = await import('./builder.js?v=' + ART_V);
+    const s1 = B.splitSheet(await B.loadImage(AN.f1), 3, 2), s2 = B.splitSheet(await B.loadImage(AN.f2), 4, 1);
+    let eyes = null;
+    if (!AN.noEyes && AN.f3) { const ei = await B.loadImage(AN.f3), n = B.countPanels(ei); eyes = B.splitSheet(ei, n >= 4 ? 5 : 3, 1); }
+    const res = await B.build(AN.cut.canvas, { s1, s2, eyes }, t => { const m = $('anMsg'); if (m) m.textContent = t; });
+    AN.res = res; AN.exp = await B.exportFiles(res, AN.cut.canvas);
+    addResults();
+  } catch (e) { vmShow('Something went wrong', `<p>The pictures couldn't be built (${esc(String(e && e.message || e))}). Check they're the right pictures and try again.</p><button class="vm-go" id="anBack" type="button">Back</button>`); $('anBack').onclick = addSheets; }
+}
+function addResults() {
+  const r = AN.res, name = `${AN.kind} #${AN.token}`;
+  const sheet = document.createElement('canvas'), cell = 150; sheet.width = cell * 5; sheet.height = cell * (r.eyes ? 3 : 2); sheet.width = cell * 5; const g = sheet.getContext('2d');
+  const mb = r.mouthBox || [300, 300, 700, 700], cx = (mb[0] + mb[2]) / 2, cy = (mb[1] + mb[3]) / 2 - 40, half = Math.max(170, (mb[2] - mb[0]) * 0.75, (mb[3] - mb[1]) * 0.9), sx = Math.max(0, Math.min(1000 - 2 * half, cx - half)), sy = Math.max(0, Math.min(1000 - 2 * half, cy - half));
+  const put = (layers, k) => { const x = (k % 5) * cell, y = Math.floor(k / 5) * cell; g.fillStyle = AN.cut.bg; g.fillRect(x, y, cell, cell);
+    for (const l of layers) if (l) g.drawImage(l, sx, sy, 2 * half, 2 * half, x, y, cell, cell); };
+  r.frames.forEach((f, k) => put([f], k));
+  const ek = r.eyes ? [1, 2, 3, 4].filter(k => r.eyes[k]) : []; ek.forEach((k, i) => put([r.frames[0], r.eyes[k]], 10 + i));
+  if (r.eyes) { g.fillStyle = '#fff'; g.fillRect((10 + ek.length) % 5 * cell, 2 * cell, (5 - ek.length) * cell, cell); }
+  vmShow(r.ok ? `${name} is ready` : 'A few things to fix', `
+    <div class="an-sheet" id="anSheet"></div>
+    ${r.ok ? `<p class="note">Top two rows: the 10 mouths. ${r.eyes ? 'Bottom row: the eyes.' : ''} Look them over; if one looks wrong, go Back and change that picture.</p>` :
+      `<ul class="an-prob">${r.problems.map(p => `<li>${esc(p)}</li>`).join('')}</ul>`}
+    ${r.ok ? '<button class="vm-go" id="anTry" type="button" style="background:var(--paper);color:var(--ink)">Try it on camera</button><button class="vm-go" id="anPub" type="button">Add it to the filter</button>'
+      : '<button class="vm-go" id="anRedo" type="button">Change the pictures</button>'}
+    <button class="chipb seg" id="anBack" type="button">Back</button>`);
+  $('anSheet').appendChild(sheet);
+  $('anBack').onclick = addSheets;
+  if (!r.ok) { $('anRedo').onclick = addSheets; return; }
+  $('anTry').onclick = addTry; $('anPub').onclick = addPublish;
+}
+function previewFiles() {
+  if (AN.urls) return AN.urls; AN.urls = {};
+  for (const k in AN.exp.files) AN.urls[k] = URL.createObjectURL(AN.exp.files[k]);
+  return AN.urls;
+}
+function addTry() {
+  const id = AN.token;
+  AN.prev = { had:NIBBLES[id], id:S.id };
+  NIBBLES[id] = { bg:AN.cut.bg, fullFace:true, files:previewFiles(), layout:AN.exp.layout }; FACE_AT[id] = AN.exp.layout.at; delete ART[id];
+  loadNibble(id); showNibbleThumb(id);
+  $('vm').classList.add('rendering');
+  vmShow(`Trying ${AN.kind} #${id}`, `<p class="note">Turn the camera on and talk. Happy with it?</p>
+    <div class="vm-row"><button class="vm-go" id="anPub" type="button" style="margin:0">Add it to the filter</button></div>
+    <button class="chipb seg" id="anBack" type="button">Back to the results</button>`);
+  $('anPub').onclick = addPublish;
+  $('anBack').onclick = () => { addUnpreview(); $('vm').classList.remove('rendering'); addResults(); };
+}
+function addUnpreview() {
+  if (!AN.prev) return; const { had, id } = AN.prev; AN.prev = null;
+  if (had) NIBBLES[AN.token] = had; else delete NIBBLES[AN.token]; delete ART[AN.token];
+  if (S.id === AN.token) { $('nibbleSel').value = id; loadNibble(id); showNibbleThumb(id); }
+}
+async function addPublish() {
+  $('vm').classList.remove('rendering');
+  vmShow('Adding it…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="anMsg">Uploading the pictures…</p>`);
+  const id = AN.token, { files, ext, layout } = AN.exp, folder = `u/${id}-${Math.random().toString(36).slice(2, 10)}`, keys = Object.keys(files);
+  try {
+    let n = 0;
+    for (const k of keys) {
+      const r = await sbFetch(`/storage/v1/object/nibbles/${folder}/${k}.${ext}`, { method:'POST', headers:{ 'Content-Type':'image/' + ext, 'x-upsert':'false' }, body:files[k] });
+      if (!r.ok) throw new Error('upload ' + r.status);
+      $('vmProg').style.width = (100 * ++n / keys.length) + '%';
+    }
+    $('anMsg').textContent = 'Adding it to the filter…';
+    const res = await sbRpc('nf_publish', { p_token:id, p_kind:AN.kind, p_bg:AN.cut.bg, p_face:layout, p_folder:folder, p_ext:ext, p_score:AN.res.score, p_key:ADMIN() || null });
+    if (!res.ok) throw new Error(res.reason === 'taken' ? `${AN.kind} #${id} was just added by someone else.` : res.reason === 'built_in' ? `#${id} is already built into the filter.` : 'not saved (' + res.reason + ')');
+    addUnpreview();
+    registerCommunity({ token:id, kind:AN.kind, bg:AN.cut.bg, face:layout, folder, ext });
+    $('nibbleSel').value = id; loadNibble(id); showNibbleThumb(id);
+    vmShow(`${AN.kind} #${id} is in the filter!`, `<p>Everyone can pick ${esc(AN.kind)} #${id} now: tap Nibble, then ${esc(AN.kind)}.</p><button class="vm-go" id="anDone" type="button">Done</button>`);
+    $('anDone').onclick = () => { vmHide(); for (const k in AN) delete AN[k]; };
+  } catch (e) {
+    vmShow('Couldn\'t add it', `<p>${esc(String(e.message || e))}. Check your connection and try again.</p><button class="vm-go" id="anRetry" type="button">Try again</button>`);
+    $('anRetry').onclick = addPublish;
+  }
 }
 
 function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return S['_' + k]; } }
