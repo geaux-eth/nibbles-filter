@@ -577,14 +577,15 @@ loadNibble(4075).then(() => { for (const id of Object.keys(NIBBLES)) fetchNibble
 // ---------------------------------------------------------------------------
 // MediaPipe's face tracker (loaded once); numFaces 1 for the camera, more for an uploaded video
 let VISION = null;
-async function makeLandmarker(numFaces) {
+async function makeLandmarker(numFaces, conf = 0.5) {
   if (!VISION) VISION = (async () => {
     const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`);
     const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`);
     return { vision, files };
   })();
   const { vision, files } = await VISION;
-  const opts = { baseOptions:{ modelAssetPath:MP_MODEL, delegate: IN_WALLET ? 'CPU' : 'GPU' }, runningMode:'VIDEO', numFaces, outputFaceBlendshapes:true };
+  const opts = { baseOptions:{ modelAssetPath:MP_MODEL, delegate: IN_WALLET ? 'CPU' : 'GPU' }, runningMode:'VIDEO', numFaces, outputFaceBlendshapes:true,
+    minFaceDetectionConfidence:conf, minFacePresenceConfidence:conf, minTrackingConfidence:conf };
   try { return await vision.FaceLandmarker.createFromOptions(files, opts); }
   catch (e) { opts.baseOptions.delegate = 'CPU'; return await vision.FaceLandmarker.createFromOptions(files, opts); }
 }
@@ -1458,10 +1459,16 @@ async function vmAnalyse(file) {
     if (!isFinite(v.duration) || v.duration > 61) throw 'long';
     VM.dur = v.duration; VM.vw = v.videoWidth; VM.vh = v.videoHeight;
     const envP = vmEnvelope(file); vmCut.prev = null; VM.cuts = 0;
-    VM.lm = VM.lm || await makeLandmarker(4);
+    VM.lm = VM.lm || await makeLandmarker(4, 0.3);
+    VM.lm2 = VM.lm2 || await makeLandmarker(2, 0.25);   // second look, on a padded picture, for faces cut off at the edge
     $('vmMsg').textContent = 'Watching the video for faces…';
     // step through the clip a twelfth of a second at a time (seeking, not playing), so slow phones read every step too
-    const tracks = []; let ts = performance.now(); const step = 1 / 12;
+    const tracks = []; let ts = performance.now(), ts2 = ts; const step = VM.dur <= 20 ? 1 / 12 : VM.dur <= 40 ? 1 / 10 : 1 / 8;
+    // the padded picture: the frame in the middle of a bigger plain canvas, so a face running off the edge isn't against it
+    const pad = document.createElement('canvas'), pw = Math.round(VM.vw * 1.7), ph = Math.round(VM.vh * 1.3), ox = (pw - VM.vw) / 2, oy = (ph - VM.vh) / 2;
+    pad.width = pw; pad.height = ph; const pg = pad.getContext('2d');
+    const unpad = r => { r.faceLandmarks = (r.faceLandmarks || []).map(L => L.map(p => ({ x:(p.x * pw - ox) / VM.vw, y:(p.y * ph - oy) / VM.vh, z:p.z }))); return r; };
+    let padHelps = 0;
     const seek = t => new Promise(res => {
       let done = false; const fin = () => { if (!done) { done = true; res(); } };
       v.onseeked = () => { if (v.requestVideoFrameCallback) { v.requestVideoFrameCallback(fin); setTimeout(fin, 250); } else requestAnimationFrame(fin); };
@@ -1470,7 +1477,15 @@ async function vmAnalyse(file) {
     for (let t = 0; t < VM.dur && !VM.cancel; t += step) {
       await seek(Math.min(t, VM.dur - 0.01));
       ts = Math.max(ts + 1, performance.now());
-      try { const r = VM.lm.detectForVideo(v, ts); VM.calls = (VM.calls || 0) + 1; VM.hits = (VM.hits || 0) + (r.faceLandmarks || []).length; vmFaces(r, t, v, tracks); } catch (e) { VM.err = String(e); }
+      try {
+        let r = padHelps > 2 ? { faceLandmarks:[] } : VM.lm.detectForVideo(v, ts);
+        if (!(r.faceLandmarks || []).length) {
+          pg.fillStyle = '#808080'; pg.fillRect(0, 0, pw, ph); pg.drawImage(v, ox, oy, VM.vw, VM.vh);
+          ts2 = Math.max(ts2 + 1, performance.now()); const r2 = VM.lm2.detectForVideo(pad, ts2);
+          if ((r2.faceLandmarks || []).length) { r = unpad(r2); padHelps++; } else padHelps = Math.max(0, padHelps - 1);
+        }
+        VM.calls = (VM.calls || 0) + 1; VM.hits = (VM.hits || 0) + (r.faceLandmarks || []).length; vmFaces(r, t, v, tracks);
+      } catch (e) { VM.err = String(e); }
       $('vmProg').style.width = (100 * t / VM.dur).toFixed(1) + '%';
     }
     if (VM.cancel) return;
@@ -1513,7 +1528,8 @@ function vmFaces(r, t, v, tracks) {
     const f = best.f; readFace(fc.L, fc.bs, f, best.H, t * 1000);
     best.smp.push({ t, open:f.open, wide:f.wide, round:f.round, smile:f.smile, press:f.press, frown:f.frown, fv:f.fv, jaw:f.jaw, lowIn:f.lowIn, upIn:f.upIn,
       blink:f.blink, bu:f.blinkUntil || 0, brow:f.brow, browUp:f.browUp, roll:f.roll, yaw:f.yaw, pitch:f.pitch,
-      mo:dist(fc.L[13], fc.L[14]) / (dist(fc.L[10], fc.L[152]) || 1e-6), cx:fc.cx });
+      mo:dist(fc.L[13], fc.L[14]) / (dist(fc.L[10], fc.L[152]) || 1e-6), cx:fc.cx,
+      edge:fc.L.some(p => p.x < 0.01 || p.x > 0.99 || p.y < 0.01 || p.y > 0.99) });
     if (Math.abs(f.yaw) < 0.35) {
       const sh = vmShapeOf(fc.L); sh.forEach((x, i) => best.shape[i] += x); best.nshape++;
       if (best.ncol < 40) { const c = vmColourOf(v, fc.box); if (c) { c.forEach((x, i) => best.col[i] += x); best.ncol++; } }
@@ -1607,7 +1623,16 @@ function vmRandom() {
 }
 function vmCastStep() {
   const P = VM.people;
-  if (!P.length) { vmShow('Nibble a Video', '<p>No faces turned up in that video. Try one where people face the camera.</p>'); return; }
+  if (!P.length) {
+    vmShow('No faces found', `<p>The face tracker couldn't find a face in this video (faces cut off by the edge of the picture, turned away, or behind big sunglasses are hard for it).</p>
+      <p>You can still make it: the Nibble talks along with the sound, it just won't copy head turns or blinks from the video.</p>
+      <button class="vm-go" id="vmVoice" type="button">Make it from the voice</button>`);
+    $('vmVoice').onclick = () => {
+      VM.people = [{ smp:[], thumb:null, t0:0, t1:VM.dur, n:0 }]; VM.main = 0; VM.first = 0;
+      VM.timeline = Array.from({ length:Math.ceil(VM.dur / 0.05) }, () => 0); vmCastStep();
+    };
+    return;
+  }
   P.forEach((p, i) => { if (!VM.cast[i] || !NIBBLES[VM.cast[i]]) VM.cast[i] = NIB_NAMES()[i % NIB_NAMES().length][0]; });
   if (!VM.bgSet) { vmRandom(); VM.bgSet = true; }
   VM.shape = S.shape || 'Square';
@@ -1707,7 +1732,13 @@ function vmFrame(now) {
     S.id = id; S.art = a.art; S.trait = a.trait; S.mouth = VM.ps[p].mouth; S.eye = VM.ps[p].eye; MH.length = 0; openLvl = 0;
   }
   const x = vmSample(p, t), f = VM.ps[p].face; S.face = f; S.tracking = true;
-  if (x) { Object.assign(f, x); f.seen = true; if (x.bu > t * 1000) S.blinkUntil = now + (x.bu - t * 1000); } else f.seen = false;
+  if (x) { Object.assign(f, x); f.seen = true; if (x.bu > t * 1000) S.blinkUntil = now + (x.bu - t * 1000);
+    // a face running off the edge of the picture: its mouth shape can't be read, so the voice picks the shape
+    if (x.edge) Object.assign(f, { round:0, wide:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0 }); }
+  else {   // not seen right now: a resting face, the voice still moves the mouth, an easy blink now and then
+    Object.assign(f, { open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0, blink:0, brow:0, browUp:0 }); f.seen = true;
+    if (now > (VM.nb || 0)) { S.blinkUntil = now + 170; VM.nb = now + 2800 + Math.random() * 2600; }
+  }
   drawBackground();
   ctx.save(); if (VM.mirror[p]) { ctx.translate(stage.width, 0); ctx.scale(-1, 1); }
   drawNibble(now); ctx.restore();
