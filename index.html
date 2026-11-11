@@ -64,7 +64,7 @@ header .credit b{font-weight:400}
 #camToggle,#txtToggle{background:var(--paper);color:var(--ink);transition:background .15s}
 #camToggle.on,#txtToggle.on{background:var(--green)}
 /* Safari paints a rounded box's fill square for a moment while it animates; keep every fill inside its outline */
-.toggle,.aa,#txtIn,.pop,.chipb,.sw,.badge,.toast,#exitStream,.bezel,.device,.circ{background-clip:padding-box;isolation:isolate}
+.toggle,.aa,#txtIn,.pop,.chipb,.sw,.badge,.toast,.bezel,.device,.circ{background-clip:padding-box;isolation:isolate}
 .toggle,.aa,.chipb{overflow:hidden}
 
 /* the screen: ink bezel, the picture fitted inside it, a cartoon glint on the glass */
@@ -157,7 +157,6 @@ header .credit b{font-weight:400}
 .pad:nth-child(4n+1){background:#ffe39a}.pad:nth-child(4n+2){background:#c9f0ff}.pad:nth-child(4n+3){background:#ffd0dc}.pad:nth-child(4n+4){background:#d6f5c4}
 .pad:active,.pad.hit{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
 .note{font-size:12px;opacity:.7;margin:2px 0 0}
-body.streaming .tools{display:none!important}
 /* Nibble and background pickers: a grid of pictures, Nibbles grouped by kind first */
 .pk{position:fixed;inset:0;z-index:40;display:flex;align-items:flex-end;justify-content:center;padding:12px;background:rgba(22,22,22,.45)}
 .pk[hidden]{display:none}
@@ -202,15 +201,6 @@ body.streaming .tools{display:none!important}
 .vm-opts label{display:grid;gap:4px;font:400 11px/1 var(--display);letter-spacing:.04em;text-transform:uppercase}
 .vm-opts select{width:100%;min-width:0;height:38px;padding:0 6px;border:2.5px solid var(--ink);border-radius:10px;background:var(--paper);font:600 14px/1 var(--body)}
 
-/* stream mode: only the picture, full screen */
-body.streaming{background:#000}
-body.streaming .device{margin:0;width:100%;max-width:none;border:0;border-radius:0;box-shadow:none;padding:0;background:#000}
-body.streaming header,body.streaming .textbar,body.streaming .bar,body.streaming .glare,body.streaming .badge,body.streaming .toast{display:none!important}
-body.streaming .bezel{padding:0;border-radius:0;background:#000}
-body.streaming #stage{border-radius:0}
-#exitStream{position:fixed;top:max(14px,env(safe-area-inset-top));right:14px;display:none;z-index:20;background:#fff;border:2.5px solid var(--line);border-radius:999px;padding:10px 16px 7px;font:400 16px/1 var(--display);letter-spacing:.04em;box-shadow:3px 3px 0 var(--line);transition:opacity .4s}
-body.streaming #exitStream{display:block}
-#exitStream.dim{opacity:.35}
 </style>
 </head>
 <body>
@@ -268,7 +258,6 @@ body.streaming #exitStream{display:block}
         </svg></button><span class="lbl">Video</span></div>
   </div></nav>
 </div>
-<button id="exitStream">✕ Exit stream</button>
 <select id="nibbleSel" aria-label="Nibble" hidden>
         <option value="4075">Ghost #4075</option>
         <option value="1486">Ghost #1486</option>
@@ -343,7 +332,7 @@ function entrance() {
   if (sr[3] - headTop > (sr[3] - sr[1]) * 0.08) return null;
   return { img, sc, tx, ty, sr, size };
 }
-const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS), 'Green screen'];
+const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS)];
 const ASPECTS = { 'Square':[1080,1080], 'Vertical':[1080,1920], 'Wide':[1920,1080] };
 
 const UA = navigator.userAgent;
@@ -436,7 +425,7 @@ function showSceneThumb() {
   const f = $('bgFace');
   const tb = ENTRANCE[S.bg] ? ENTRANCE[S.bg].name : BONKD_BGS[S.bg];
   f.style.backgroundImage = tb ? `url(bg/${tb}.webp?v=${ART_V})` : 'none';
-  f.style.backgroundColor = S.bg === 'Green screen' ? '#00ff00' : S.bg === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
+  f.style.backgroundColor = S.bg === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
 }
 $('nibbleSel').onchange = e => { loadNibble(+e.target.value); showNibbleThumb(+e.target.value); };
 // ---- pickers ----
@@ -470,7 +459,7 @@ $('nibFace').onclick = () => pickNibble(S.id, id => { if (S.recorder) return; $(
 function bgThumb(el, name) {
   const tb = ENTRANCE[name] ? ENTRANCE[name].name : BONKD_BGS[name];
   el.style.backgroundImage = tb ? `url(bg/${tb}.webp?v=${ART_V})` : 'none'; el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center';
-  el.style.backgroundColor = name === 'Green screen' ? '#00ff00' : name === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
+  el.style.backgroundColor = name === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
 }
 function pickBackground(cur, onPick, list = BACKGROUNDS) {
   pkOpen('Choose a background', list.map(name => ({ name, on:name === cur, paint:el => bgThumb(el, name), pick:() => { pkClose(); onPick(name); } })));
@@ -899,7 +888,7 @@ function drawBackground() {
     if (sr && si) ctx.drawImage(si, sr[0], sr[1], sr[2] - sr[0], sr[3] - sr[1]);
     return;
   }
-  ctx.fillStyle = S.bg === 'Green screen' ? '#00ff00' : (S.id ? NIBBLES[S.id].bg : '#fff');
+  ctx.fillStyle = S.id ? NIBBLES[S.id].bg : '#fff';
   ctx.fillRect(0, 0, stage.width, stage.height);
 }
 function drawLayer(list, slot, now, fade, x, y, size) {
@@ -1571,7 +1560,7 @@ function vmCastStep() {
     <div class="vm-cast" id="vmCast"></div>
     <div class="vm-row"><button class="chipb seg" id="vmRand" type="button">🎲 Random</button></div>
     <div class="vm-opts">
-      <label>Background<select id="vmBg">${opt([['Nibble color', 'Nibble color'], ...Object.keys(BONKD_BGS).map(k => [k, k]), ['Green screen', 'Green screen']], VM.bg)}</select></label>
+      <label>Background<select id="vmBg">${opt([['Nibble color', 'Nibble color'], ...Object.keys(BONKD_BGS).map(k => [k, k])], VM.bg)}</select></label>
       <label>Music<select id="vmMusic">${opt([['', 'No music'], ...TRACKS.map(t => [t[0], t[1]])], VM.music)}</select></label>
       <label>Shape<select id="vmShape">${opt(Object.keys(ASPECTS).map(k => [k, RATIO_TXT[k]]), VM.shape)}</select></label>
     </div>
@@ -1671,19 +1660,6 @@ function vmFrame(now) {
 
 function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return S['_' + k]; } }
 function sessionStorageSet(k) { try { sessionStorage.setItem(k, '1'); } catch (e) { S['_' + k] = 1; } }
-// ---------------------------------------------------------------------------
-// Stream mode: only the Nibble, full screen, for OBS window capture
-// ---------------------------------------------------------------------------
-if ($('streamBtn')) $('streamBtn').onclick = async () => {
-  if (!sessionStorageGet('streamTip')) { setStatus('x', 'Stream mode: your Nibble fills the screen so OBS can capture this window. Use Green screen + a Chroma Key filter to drop it over a game. Tap again to start.', '', 6000); sessionStorageSet('streamTip'); return; }
-  document.body.classList.add('streaming'); wakeExit(); try { await document.documentElement.requestFullscreen?.(); } catch (e) {} };
-function exitStream() { document.body.classList.remove('streaming'); if (document.fullscreenElement) document.exitFullscreen(); }
-$('exitStream').onclick = exitStream;
-let dimT = 0;
-function wakeExit() { const b = $('exitStream'); b.classList.remove('dim'); clearTimeout(dimT); dimT = setTimeout(() => b.classList.add('dim'), 4000); }
-['pointerdown','pointermove','touchstart'].forEach(ev => document.addEventListener(ev, () => { if (document.body.classList.contains('streaming')) wakeExit(); }, { passive:true }));
-document.addEventListener('keydown', e => { if (e.key === 'Escape') exitStream(); });
-document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) document.body.classList.remove('streaming'); });
 </script>
 </body>
 </html>
