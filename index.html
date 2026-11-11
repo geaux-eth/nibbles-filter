@@ -110,7 +110,7 @@ header .credit b{font-weight:400}
 
 /* control dock: the bottom panel of the gadget, under a ruled line */
 .bar{flex:none;margin:0 calc(-1 * var(--pad));padding:10px 8px 0;border-top:2.5px solid var(--ink)}
-.dock{display:grid;grid-template-columns:1fr 1.32fr 1.12fr 1fr 1fr;align-items:end;max-width:460px;margin:0 auto}
+.dock{display:grid;grid-template-columns:1fr 1.3fr 1.1fr 1fr;align-items:end;max-width:400px;margin:0 auto}
 .ctl{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}
 .circ{display:block;flex:none;width:50px;height:50px;margin:5px 0 0;border-radius:50%;border:2.5px solid var(--line);background:#fff center/cover no-repeat;
   position:relative;padding:0;-webkit-appearance:none;appearance:none;cursor:pointer;overflow:hidden;box-shadow:2px 2px 0 var(--line);transition:transform .06s}
@@ -158,6 +158,24 @@ header .credit b{font-weight:400}
 .pad:active,.pad.hit{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
 .note{font-size:12px;opacity:.7;margin:2px 0 0}
 body.streaming .tools{display:none!important}
+/* Nibble and background pickers: a grid of pictures, Nibbles grouped by kind first */
+.pk{position:fixed;inset:0;z-index:40;display:flex;align-items:flex-end;justify-content:center;padding:12px;background:rgba(22,22,22,.45)}
+.pk[hidden]{display:none}
+@media (min-width:700px){ .pk{align-items:center} }
+.pk-card{width:100%;max-width:520px;max-height:min(78dvh,680px);display:flex;flex-direction:column;background:var(--paper);border:3px solid var(--ink);border-radius:22px;box-shadow:5px 6px 0 var(--ink);
+  margin-bottom:env(safe-area-inset-bottom)}
+.pk-head{flex:none;display:grid;grid-template-columns:40px 1fr 40px;align-items:center;gap:8px;padding:10px 10px 8px;border-bottom:2.5px solid var(--ink)}
+.pk-head h3{margin:0;text-align:center;font:400 21px/1 var(--display);letter-spacing:.03em}
+.pk-b{width:38px;height:38px;border:2.5px solid var(--ink);border-radius:50%;background:var(--paper);font:700 20px/1 var(--body);cursor:pointer;padding:0}
+.pk-b[hidden]{visibility:hidden;display:block}
+.pk-grid{overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px 10px;padding:14px 14px 18px}
+.pk-t{display:flex;flex-direction:column;align-items:center;gap:6px;border:0;background:none;padding:0;cursor:pointer;min-width:0}
+.pk-img{position:relative;width:100%;aspect-ratio:1;border:2.5px solid var(--ink);border-radius:16px;background:#eee center/cover no-repeat;box-shadow:2px 2px 0 var(--ink)}
+.pk-t.on .pk-img{box-shadow:0 0 0 3px var(--paper),0 0 0 6px var(--red)}
+.pk-t:active .pk-img{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
+.pk-n{font:400 13px/1.1 var(--display);letter-spacing:.02em;text-align:center;max-width:100%;overflow-wrap:anywhere}
+.pk-c{position:absolute;right:6px;bottom:6px;min-width:24px;height:24px;padding:3px 6px 0;border:2px solid var(--ink);border-radius:999px;background:var(--gold);font:400 13px/1 var(--display);text-align:center}
+
 /* Nibble a Video window */
 .vm{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(22,22,22,.45)}
 .vm[hidden]{display:none}
@@ -177,7 +195,7 @@ body.streaming .tools{display:none!important}
 .vm-face{width:62px;height:62px;border-radius:50%;border:2.5px solid var(--ink);background:#ddd;object-fit:cover}
 .vm-nib{position:relative;display:block;width:62px;height:62px}
 .vm-nib .circ{width:62px;height:62px;margin:0}
-.vm-nib select{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;font-size:16px}
+.vm-nib{border:0;background:none;padding:0;cursor:pointer}
 .vm-person .lbl{font-size:13px;text-align:left}
 .vm-row{display:flex;gap:8px;margin:2px 0 8px}
 .vm-opts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
@@ -236,8 +254,17 @@ body.streaming #exitStream{display:block}
   </div>
 
   <nav class="bar"><div class="dock">
-    <label class="ctl"><span class="circ" id="nibFace"></span><span class="lbl">Nibble</span>
-      <select id="nibbleSel" aria-label="Nibble">
+    <div class="ctl"><button class="circ" id="nibFace" type="button" aria-label="Choose your Nibble"></button><span class="lbl">Nibble</span></div>
+    <div class="ctl"><button class="circ" id="bgFace" type="button" aria-label="Choose a background"></button><span class="lbl">Background</span></div>
+    <div class="ctl rec-c"><button class="circ" id="recBtn" aria-label="Record">
+        <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="rec-dot" cx="50" cy="50" r="34"/><rect class="rec-sq" x="31" y="31" width="38" height="38" rx="8"/></svg>
+      </button><span class="lbl" id="recLbl">Record</span></div>
+    <label class="ctl"><span class="circ"><span class="shape-i" id="shapeIcon" style="width:22px;height:22px"></span></span><span class="lbl">Ratio</span>
+      <select id="shapeSel" aria-label="Shape"></select></label>
+  </div></nav>
+</div>
+<button id="exitStream">✕ Exit stream</button>
+<select id="nibbleSel" aria-label="Nibble" hidden>
         <option value="4075">Ghost #4075</option>
         <option value="1486">Ghost #1486</option>
         <option value="4248">Bear #4248</option>
@@ -248,23 +275,12 @@ body.streaming #exitStream{display:block}
         <option value="3385">Gnome #3385</option>
         <option value="8212">Cock #8212</option>
         <option value="3154">Cock #3154</option>
-      </select></label>
-    <label class="ctl"><span class="circ" id="bgFace"></span><span class="lbl">Background</span>
-      <select id="bgSel" aria-label="Background"></select></label>
-    <div class="ctl rec-c"><button class="circ" id="recBtn" aria-label="Record">
-        <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="rec-dot" cx="50" cy="50" r="34"/><rect class="rec-sq" x="31" y="31" width="38" height="38" rx="8"/></svg>
-      </button><span class="lbl" id="recLbl">Record</span></div>
-    <label class="ctl"><span class="circ"><span class="shape-i" id="shapeIcon" style="width:22px;height:22px"></span></span><span class="lbl">Ratio</span>
-      <select id="shapeSel" aria-label="Shape"></select></label>
-    <div class="ctl"><button class="circ" id="streamBtn" aria-label="Stream mode">
-        <svg viewBox="0 0 100 100" aria-hidden="true" fill="none" stroke="#161616" stroke-width="7" stroke-linecap="round">
-          <circle cx="50" cy="50" r="8" fill="#df3a4e" stroke="none"/>
-          <path d="M35 35 a21 21 0 0 0 0 30"/><path d="M65 35 a21 21 0 0 1 0 30"/>
-          <path d="M24 24 a37 37 0 0 0 0 52"/><path d="M76 24 a37 37 0 0 1 0 52"/>
-        </svg></button><span class="lbl">Stream</span></div>
-  </div></nav>
-</div>
-<button id="exitStream">✕ Exit stream</button>
+      </select>
+<select id="bgSel" aria-label="Background" hidden></select>
+<div class="pk" id="pk" hidden><div class="pk-card" role="dialog" aria-modal="true" aria-labelledby="pkTitle">
+  <div class="pk-head"><button class="pk-b" id="pkBack" type="button" aria-label="Back">‹</button><h3 id="pkTitle"></h3><button class="pk-b" id="pkX" type="button" aria-label="Close">✕</button></div>
+  <div class="pk-grid" id="pkGrid"></div>
+</div></div>
 <div class="vm" id="vm" hidden><div class="vm-card" role="dialog" aria-modal="true" aria-labelledby="vmTitle">
   <button class="vm-x" id="vmClose" type="button" aria-label="Close">✕</button>
   <h3 id="vmTitle">Nibble a Video</h3><div id="vmBody"></div>
@@ -276,7 +292,7 @@ body.streaming #exitStream{display:block}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261110-1640';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261111-1620';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -418,6 +434,43 @@ function showSceneThumb() {
   f.style.backgroundColor = S.bg === 'Green screen' ? '#00ff00' : S.bg === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
 }
 $('nibbleSel').onchange = e => { loadNibble(+e.target.value); showNibbleThumb(+e.target.value); };
+// ---- pickers ----
+const NIB_LIST = () => Array.from($('nibbleSel').options).map(o => { const [kind, num] = o.textContent.split(' #'); return { id:+o.value, kind, num }; });
+function pkOpen(title, tiles, back) {
+  $('pk').hidden = false; $('pkTitle').textContent = title; $('pkBack').hidden = !back; $('pkBack').onclick = back || null;
+  const g = $('pkGrid'); g.innerHTML = '';
+  for (const t of tiles) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'pk-t' + (t.on ? ' on' : '');
+    const im = document.createElement('span'); im.className = 'pk-img'; t.paint(im);
+    if (t.count) { const c = document.createElement('span'); c.className = 'pk-c'; c.textContent = t.count; im.appendChild(c); }
+    const n = document.createElement('span'); n.className = 'pk-n'; n.textContent = t.name;
+    b.append(im, n); b.onclick = t.pick; g.appendChild(b);
+  }
+  g.scrollTop = 0;
+}
+function pkClose() { $('pk').hidden = true; }
+$('pkX').onclick = pkClose;
+$('pk').addEventListener('pointerdown', e => { if (e.target === $('pk')) pkClose(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('pk').hidden) pkClose(); });
+// Nibbles: pick a kind (Wolf, Bear, Cock…), then a token
+function pickNibble(cur, onPick) {
+  const list = NIB_LIST(), kinds = [...new Set(list.map(n => n.kind))], curKind = (list.find(n => n.id === cur) || {}).kind;
+  const kindsView = () => pkOpen('Choose a Nibble', kinds.map(k => { const ns = list.filter(n => n.kind === k);
+    return { name:k, count:ns.length, on:k === curKind, paint:el => nibThumb(el, ns[0].id), pick:() => tokens(k) }; }));
+  const tokens = k => pkOpen(k === 'Wolf' ? 'Wolves' : k + 's', list.filter(n => n.kind === k).map(n => ({ name:'#' + n.num, on:n.id === cur, paint:el => nibThumb(el, n.id),
+    pick:() => { pkClose(); onPick(n.id); } })), kindsView);
+  kindsView();
+}
+$('nibFace').onclick = () => pickNibble(S.id, id => { if (S.recorder) return; $('nibbleSel').value = id; loadNibble(id); showNibbleThumb(id); });
+function bgThumb(el, name) {
+  const tb = ENTRANCE[name] ? ENTRANCE[name].name : BONKD_BGS[name];
+  el.style.backgroundImage = tb ? `url(bg/${tb}.webp?v=${ART_V})` : 'none'; el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center';
+  el.style.backgroundColor = name === 'Green screen' ? '#00ff00' : name === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
+}
+function pickBackground(cur, onPick, list = BACKGROUNDS) {
+  pkOpen('Choose a background', list.map(name => ({ name, on:name === cur, paint:el => bgThumb(el, name), pick:() => { pkClose(); onPick(name); } })));
+}
+$('bgFace').onclick = () => pickBackground(S.bg, name => { $('bgSel').value = name; S.bg = name; if (BONKD_BGS[S.bg]) bonkdBg(S.bg); showSceneThumb(); });
 
 // ---------------------------------------------------------------------------
 // Loading a Nibble (everything is bundled with the site)
@@ -1522,11 +1575,10 @@ function vmCastStep() {
   P.forEach((p, i) => {
     const d = document.createElement('div'); d.className = 'vm-person';
     const face = p.thumb || document.createElement('canvas'); face.className = 'vm-face';
-    const nib = document.createElement('label'); nib.className = 'vm-nib';
+    const nib = document.createElement('button'); nib.type = 'button'; nib.className = 'vm-nib'; nib.setAttribute('aria-label', 'Nibble for person ' + (i + 1));
     const circ = document.createElement('span'); circ.className = 'circ'; nibThumb(circ, VM.cast[i]);
-    const sel = document.createElement('select'); sel.innerHTML = opt(NIB_NAMES(), VM.cast[i]); sel.setAttribute('aria-label', 'Nibble for person ' + (i + 1));
-    sel.onchange = () => { VM.cast[i] = +sel.value; nibThumb(circ, VM.cast[i]); };
-    nib.append(circ, sel);
+    nib.onclick = () => pickNibble(VM.cast[i], id => { VM.cast[i] = id; nibThumb(circ, id); });
+    nib.append(circ);
     const tag = document.createElement('span'); tag.className = 'lbl'; tag.textContent = i === VM.main ? 'Main' : 'Person ' + (i + 1);
     d.append(face, document.createTextNode('→'), nib, tag); box.appendChild(d);
   });
@@ -1617,7 +1669,7 @@ function sessionStorageSet(k) { try { sessionStorage.setItem(k, '1'); } catch (e
 // ---------------------------------------------------------------------------
 // Stream mode: only the Nibble, full screen, for OBS window capture
 // ---------------------------------------------------------------------------
-$('streamBtn').onclick = async () => {
+if ($('streamBtn')) $('streamBtn').onclick = async () => {
   if (!sessionStorageGet('streamTip')) { setStatus('x', 'Stream mode: your Nibble fills the screen so OBS can capture this window. Use Green screen + a Chroma Key filter to drop it over a game. Tap again to start.', '', 6000); sessionStorageSet('streamTip'); return; }
   document.body.classList.add('streaming'); wakeExit(); try { await document.documentElement.requestFullscreen?.(); } catch (e) {} };
 function exitStream() { document.body.classList.remove('streaming'); if (document.fullscreenElement) document.exitFullscreen(); }
