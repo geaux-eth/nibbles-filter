@@ -110,7 +110,7 @@ header .credit b{font-weight:400}
 
 /* control dock: the bottom panel of the gadget, under a ruled line */
 .bar{flex:none;margin:0 calc(-1 * var(--pad));padding:10px 8px 0;border-top:2.5px solid var(--ink)}
-.dock{display:grid;grid-template-columns:1fr 1.3fr 1.1fr 1fr;align-items:end;max-width:400px;margin:0 auto}
+.dock{display:grid;grid-template-columns:1fr 1.3fr 1.2fr 1.15fr 1.15fr;align-items:end;max-width:460px;margin:0 auto}
 .ctl{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}
 .circ{display:block;flex:none;width:50px;height:50px;margin:5px 0 0;border-radius:50%;border:2.5px solid var(--line);background:#fff center/cover no-repeat;
   position:relative;padding:0;-webkit-appearance:none;appearance:none;cursor:pointer;overflow:hidden;box-shadow:2px 2px 0 var(--line);transition:transform .06s}
@@ -118,7 +118,7 @@ header .credit b{font-weight:400}
 .circ svg{position:absolute;inset:0;width:100%;height:100%;display:block}
 .lbl{display:block;max-width:100%;font:400 10px/1.15 var(--display);letter-spacing:.01em;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ctl select{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;font-size:16px;-webkit-appearance:none;appearance:none}
-.ctl.rec-c .circ{width:60px;height:60px;margin:0;border-width:3px;background:#fff;box-shadow:3px 3px 0 var(--line)}
+.ctl.rec-c .circ{width:66px;height:66px;margin:0;border-width:3px;background:#fff;box-shadow:3px 3px 0 var(--line)}
 .rec-dot{fill:var(--red)}
 .rec-sq{fill:var(--red);display:none}
 #recBtn.on .rec-dot{display:none}
@@ -139,7 +139,7 @@ header .credit b{font-weight:400}
 }
 
 /* tools row: music, sound board, Nibble a Video */
-.tools{position:relative;flex:none;display:grid;grid-template-columns:1fr 1fr 1.45fr;gap:8px;max-width:520px;width:100%;margin:0 auto}
+.tools{position:relative;flex:none;display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:400px;width:100%;margin:0 auto}
 .tool{min-width:0;height:36px;padding:3px 6px 0;border:2.5px solid var(--ink);border-radius:999px;background:var(--paper);box-shadow:2px 2px 0 var(--ink);
   font:400 13px/1 var(--display);letter-spacing:.03em;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tool.on{background:var(--gold)}
@@ -241,7 +241,6 @@ body.streaming #exitStream{display:block}
   <div class="tools">
     <button class="tool" id="musicBtn" type="button" aria-expanded="false">♪ Music</button>
     <button class="tool" id="sfxBtn" type="button" aria-expanded="false">Sound FX</button>
-    <button class="tool" id="vidBtn" type="button">Nibble a Video</button>
     <div class="pop" id="musicPop" hidden>
       <h4>Background music</h4><div class="prow" id="trkRow" style="display:grid;gap:6px"></div>
       <h4>Volume</h4><input class="vol" id="musicVol" type="range" min="0" max="100" value="45" aria-label="Music volume">
@@ -261,6 +260,12 @@ body.streaming #exitStream{display:block}
       </button><span class="lbl" id="recLbl">Record</span></div>
     <label class="ctl"><span class="circ"><span class="shape-i" id="shapeIcon" style="width:22px;height:22px"></span></span><span class="lbl">Ratio</span>
       <select id="shapeSel" aria-label="Shape"></select></label>
+    <div class="ctl"><button class="circ" id="vidBtn" type="button" aria-label="Nibble a Video">
+        <svg viewBox="0 0 100 100" aria-hidden="true" fill="none" stroke="#161616" stroke-width="6" stroke-linejoin="round">
+          <rect x="22" y="42" width="56" height="36" rx="5" fill="#ffd23f"/>
+          <path d="M22 42 L74 28 L78 40 Z" fill="#fff"/><path d="M36 38 L42 31 M52 34 L58 27" stroke-width="5"/>
+          <path d="M44 52 L58 60 L44 68 Z" fill="#df3a4e" stroke-width="4"/>
+        </svg></button><span class="lbl">Video</span></div>
   </div></nav>
 </div>
 <button id="exitStream">✕ Exit stream</button>
@@ -292,7 +297,7 @@ body.streaming #exitStream{display:block}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261111-1620';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261111-1710';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
