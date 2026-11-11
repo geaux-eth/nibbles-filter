@@ -1,0 +1,5 @@
+-- Nibble FILTER community Nibbles (applied to Supabase project jmiesqhrpcmrthrquqpq, migration nibble_filter_community, 2026-11-11)
+-- Public bucket "nibbles" (webp/png, 3 MB max per file); anyone may add new files under u/, never change or delete them.
+-- nf_nibbles: one row per token; nf_publish checks all 16 pictures are uploaded, refuses built-in tokens and tokens already live;
+-- nf_remove (admin key) hides one so it can be added again; nf_storage reports how full the bucket is.
+-- The admin key is kept by GEAUX only; its sha256 is in nf_admin. Use the filter with ?admin once to enter it on a device.
