@@ -198,6 +198,7 @@ header .credit b{font-weight:400}
 .vm-nib .circ{width:62px;height:62px;margin:0}
 .vm-nib{border:0;background:none;padding:0;cursor:pointer}
 .vm-person .lbl{font-size:13px;text-align:left}
+.vm-tag{display:grid;gap:5px;justify-items:start;min-width:0}.vm-tag .chipb{font-size:11px;padding:6px 8px 4px}
 .vm-row{display:flex;gap:8px;margin:2px 0 8px}
 .vm-opts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
 .vm-opts label{display:grid;gap:4px;font:400 11px/1 var(--display);letter-spacing:.04em;text-transform:uppercase}
@@ -1454,11 +1455,14 @@ async function vmAnalyse(file) {
   try {
     if (VM.url) URL.revokeObjectURL(VM.url);
     VM.url = URL.createObjectURL(file);
-    const v = document.createElement('video'); v.src = VM.url; v.muted = true; v.playsInline = true; v.preload = 'auto';
+    // the video sits in the page (tiny, out of sight): iPhone Safari only paints the frames of a video that's on the page and has played
+    const v = document.createElement('video'); v.src = VM.url; v.muted = true; v.playsInline = true; v.preload = 'auto'; v.setAttribute('playsinline', '');
+    v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none;z-index:-1';
+    document.body.appendChild(v); VM.av = v;
     await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej('load'); });
     if (!isFinite(v.duration) || v.duration > 61) throw 'long';
     VM.dur = v.duration; VM.vw = v.videoWidth; VM.vh = v.videoHeight;
-    const envP = vmEnvelope(file); vmCut.prev = null; VM.cuts = 0;
+    const envP = vmEnvelope(file); vmCut.prev = null; vmCut.hist = null; VM.cuts = 0; VM.cutT = [];
     VM.lm = VM.lm || await makeLandmarker(4, 0.3);
     VM.lm2 = VM.lm2 || await makeLandmarker(2, 0.25);   // second look, on a padded picture, for faces cut off at the edge
     $('vmMsg').textContent = 'Watching the video for faces…';
@@ -1474,8 +1478,7 @@ async function vmAnalyse(file) {
       v.onseeked = () => { if (v.requestVideoFrameCallback) { v.requestVideoFrameCallback(fin); setTimeout(fin, 250); } else requestAnimationFrame(fin); };
       setTimeout(fin, 1500); v.currentTime = t;
     });
-    for (let t = 0; t < VM.dur && !VM.cancel; t += step) {
-      await seek(Math.min(t, VM.dur - 0.01));
+    const look = t => {
       ts = Math.max(ts + 1, performance.now());
       try {
         let r = padHelps > 2 ? { faceLandmarks:[] } : VM.lm.detectForVideo(v, ts);
@@ -1487,8 +1490,32 @@ async function vmAnalyse(file) {
         VM.calls = (VM.calls || 0) + 1; VM.hits = (VM.hits || 0) + (r.faceLandmarks || []).length; vmFaces(r, t, v, tracks);
       } catch (e) { VM.err = String(e); }
       $('vmProg').style.width = (100 * t / VM.dur).toFixed(1) + '%';
+    };
+    // Fast way: play the clip (no sound) and read a frame every twelfth of a second as it goes, slowing the
+    // playback down if this device reads faces slower than that. Falls back to stepping frame by frame.
+    let played = false;
+    if (v.requestVideoFrameCallback) {
+      played = await new Promise(async done => {
+        await seek(0); look(0);   // the first read warms the tracker up (it's slow), before the clip starts moving
+        let last = 0, firstAt = 0, rate = 0.5, fin = false; try { v.playbackRate = rate; } catch (e) {} const end = ok => { if (!fin) { fin = true; v.pause(); done(ok); } };
+        v.onended = () => end(true);
+        const onFrame = (_, meta) => {
+          if (fin) return; if (VM.cancel) return end(true);
+          const t = meta && meta.mediaTime != null ? meta.mediaTime : v.currentTime;
+          if (t - last >= step * 0.95) {
+            const t0 = performance.now(); look(t); last = t; firstAt = firstAt || t0;
+            const ms = performance.now() - t0, want = Math.max(0.1, Math.min(1, (step * 1000) / Math.max(1, ms * 1.25)));
+            if (Math.abs(want - rate) > 0.05) { rate = want; try { v.playbackRate = rate; } catch (e) {} }
+          }
+          v.requestVideoFrameCallback(onFrame);
+        };
+        v.requestVideoFrameCallback(onFrame);
+        try { await v.play(); } catch (e) { return end(false); }
+        const c0 = VM.calls; setTimeout(() => { if (VM.calls === c0) end(false); }, 4000);   // no frames came: step through instead
+      });
     }
-    if (VM.cancel) return;
+    if (!played && !VM.cancel) for (let t = 0; t < VM.dur && !VM.cancel; t += step) { await seek(Math.min(t, VM.dur - 0.01)); look(t); }
+    v.remove(); if (VM.cancel) return;
     VM.env = await envP; VM.tracks = tracks.length;
     vmPeople(tracks);
     vmTimeline();
@@ -1502,19 +1529,23 @@ function vmCut(v) {
   const c = vmCut.c || (vmCut.c = document.createElement('canvas')); c.width = c.height = 16;
   const g = c.getContext('2d', { willReadFrequently:true });
   try { g.drawImage(v, 0, 0, 16, 16); } catch (e) { return false; }
-  const d = g.getImageData(0, 0, 16, 16).data, cur = new Float32Array(256);
-  for (let i = 0; i < 256; i++) cur[i] = (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]) / 3;
-  const prev = vmCut.prev; vmCut.prev = cur; if (!prev) return false;
+  const d = g.getImageData(0, 0, 16, 16).data, cur = new Float32Array(256), hist = new Float32Array(64);
+  for (let i = 0; i < 256; i++) { cur[i] = (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]) / 3; hist[(d[i * 4] >> 6) * 16 + (d[i * 4 + 1] >> 6) * 4 + (d[i * 4 + 2] >> 6)]++; }
+  const prev = vmCut.prev, ph = vmCut.hist; vmCut.prev = cur; vmCut.hist = hist; if (!prev) return false;
   let diff = 0; for (let i = 0; i < 256; i++) diff += Math.abs(cur[i] - prev[i]); diff /= 256;
-  return diff > 28;
+  let hd = 0; for (let i = 0; i < 64; i++) hd += Math.abs(hist[i] - ph[i]); hd /= 512;
+  // a cut changes the whole picture AND its colours; a hand or a mic swinging through the same shot doesn't change the colours much
+  return diff > 28 && hd > 0.3;
 }
 function vmFaces(r, t, v, tracks) {
-  if (vmCut(v)) { VM.cuts = (VM.cuts || 0) + 1; for (const tr of tracks) tr.lt = -9; }
-  const faces = (r.faceLandmarks || []).map((L, i) => {
+  if (vmCut(v)) { VM.cuts = (VM.cuts || 0) + 1; VM.cutT.push(t); for (const tr of tracks) tr.lt = -9; }
+  let faces = (r.faceLandmarks || []).map((L, i) => {
     let x0 = 1, y0 = 1, x1 = 0, y1 = 0; for (const p of L) { if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; }
     const bs = {}; (r.faceBlendshapes?.[i]?.categories || []).forEach(c => bs[c.categoryName] = c.score);
     return { L, bs, cx:(x0 + x1) / 2, cy:(y0 + y1) / 2, s:y1 - y0, box:[x0 * VM.vw, y0 * VM.vh, (x1 - x0) * VM.vw, (y1 - y0) * VM.vh] };
-  }).filter(f => f.s > 0.06);
+  });
+  if (VM.dbg) VM.dbg.push([+t.toFixed(2), faces.map(f => [+f.s.toFixed(3), +f.cx.toFixed(2), +f.cy.toFixed(2)])]);
+  faces = faces.filter(f => f.s > 0.06);
   const used = new Set();
   for (const fc of faces) {
     let best = null, bc = 0.7;
@@ -1559,7 +1590,12 @@ function vmPeople(tracks) {
     merged = false; let best = null, bd = 0.11;   // test footage: same person 0.04, different people 0.20+
     for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
       if (overlap(T[i], T[j]) > 0.25) continue;   // on screen together: two people
-      const d = diff(T[i], T[j]); if (d < bd) { bd = d; best = [i, j]; }
+      let d = diff(T[i], T[j]);
+      // the same shot, no camera cut in between, the face picked up again about where it was lost: the same person
+      const [a, b] = T[i].t1 <= T[j].t0 ? [T[i], T[j]] : [T[j], T[i]];
+      const la = a.smp[a.smp.length - 1], fb = b.smp[0];
+      if (b.t0 >= a.t1 - 0.25 && !(VM.cutT || []).some(c => c > a.t1 - 0.05 && c < b.t0 + 0.05) && Math.abs(la.cx - fb.cx) < 0.3) d = Math.min(d, 0.05);
+      if (d < bd) { bd = d; best = [i, j]; }
     }
     if (best) {
       const [i, j] = best, a = T[i], b = T[j], w = a.n / (a.n + b.n);
@@ -1638,6 +1674,7 @@ function vmCastStep() {
   VM.shape = S.shape || 'Square';
   const opt = (list, cur) => list.map(([v, t]) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${t}</option>`).join('');
   vmShow(P.length === 1 ? 'Found 1 person' : `Found ${P.length} people`, `
+    <p class="note" style="margin-top:0">Same person showing up twice? Tap <b>Same person as ↑</b>.</p>
     <div class="vm-cast" id="vmCast"></div>
     <div class="vm-row"><button class="chipb seg" id="vmRand" type="button">🎲 Random</button></div>
     <div class="vm-opts">
@@ -1654,7 +1691,13 @@ function vmCastStep() {
     const circ = document.createElement('span'); circ.className = 'circ'; nibThumb(circ, VM.cast[i]);
     nib.onclick = () => pickNibble(VM.cast[i], Object.assign(id => { VM.cast[i] = id; nibThumb(circ, id); }, { noAdd:true }));
     nib.append(circ);
-    const tag = document.createElement('span'); tag.className = 'lbl'; tag.textContent = i === VM.main ? 'Main' : 'Person ' + (i + 1);
+    const tag = document.createElement('div'); tag.className = 'vm-tag';
+    const lb = document.createElement('span'); lb.className = 'lbl'; lb.textContent = i === VM.main ? 'Main' : 'Person ' + (i + 1); tag.appendChild(lb);
+    if (i > 0) {   // the tracker can split one person in two (a jump cut, a hand over the face): one tap joins them
+      const same = document.createElement('button'); same.type = 'button'; same.className = 'chipb seg' + (+VM.cast[i] === +VM.cast[i - 1] ? ' on' : '');
+      same.textContent = 'Same person as ↑';
+      same.onclick = () => { VM.cast[i] = VM.cast[i - 1]; vmCastStep(); }; tag.appendChild(same);
+    }
     d.append(face, document.createTextNode('→'), nib, tag); box.appendChild(d);
   });
   $('vmRand').onclick = () => { vmRandom(); vmCastStep(); };
@@ -1677,7 +1720,7 @@ async function vmRender() {
     stopMusic(); drawTracks();
     const arts = {}; for (const id of new Set(Object.values(VM.cast))) arts[id] = await fetchNibble(+id);
     VM.arts = arts;
-    VM.mirror = {}; P.forEach((p, i) => VM.mirror[i] = i !== VM.first);
+    VM.mirror = {}; P.forEach((p, i) => VM.mirror[i] = +VM.cast[i] !== +VM.cast[VM.first]);   // the same Nibble as the first speaker is the same person: never flipped
     VM.keep = { id:S.id, art:S.art, trait:S.trait, bg:S.bg, shape:S.shape || 'Square', face:S.face, mouth:S.mouth, eye:S.eye,
       v:{ an:V.an, buf:V.buf, spec:V.spec, hz:V.hz, floor:V.floor, peak:V.peak, loud:V.loud, trusted:V.trusted, on:V.on, lastVoice:V.lastVoice } };
     VM.ps = P.map(() => ({ mouth:{ cur:0, prev:0, t:0 }, eye:{ cur:0, prev:0, t:0 }, face:{ roll:0, yaw:0, pitch:0, seen:false, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 } }));
