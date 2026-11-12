@@ -199,7 +199,16 @@ header .credit b{font-weight:400}
 .vm-nib{border:0;background:none;padding:0;cursor:pointer}
 .vm-person .lbl{font-size:13px;text-align:left}
 .vm-tag{display:grid;gap:5px;justify-items:start;min-width:0}.vm-tag .chipb{font-size:11px;padding:6px 8px 4px}
-.vm-row{display:flex;gap:8px;margin:2px 0 8px}
+.vm-row{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 8px}
+.vm-h{margin:8px 0 6px;font:400 12px/1.2 var(--display);letter-spacing:.05em;text-transform:uppercase}.vm-h span{text-transform:none;font:600 12px/1.2 var(--body);letter-spacing:0;opacity:.65}
+.vm-lines{display:grid;gap:6px;margin:0 0 10px;max-height:240px;overflow:auto;padding:2px}
+.vm-line{display:grid;grid-template-columns:36px 74px 46px 1fr;align-items:center;gap:8px}
+.vm-play{width:34px;height:34px;border:2.5px solid var(--ink);border-radius:50%;background:var(--paper);font:700 13px/1 var(--body);cursor:pointer;padding:0}
+.vm-play.on{background:var(--gold)}
+.vm-tm{font:600 13px/1 var(--body);opacity:.8}
+.vm-lnib{width:44px;height:44px;margin:0}
+.vm-out{display:block;width:100%;max-height:52dvh;border:2.5px solid var(--ink);border-radius:14px;background:#000;margin:4px 0 2px}
+#vmSaveNote .save{display:inline-block;background:var(--red);color:#fff;text-decoration:none;border:2.5px solid var(--ink);border-radius:999px;padding:6px 14px 4px;font:400 15px/1 var(--display)}
 .vm-opts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
 .vm-opts label{display:grid;gap:4px;font:400 11px/1 var(--display);letter-spacing:.04em;text-transform:uppercase}
 .an-prev{display:flex;justify-content:center;margin:8px 0 0}.an-prev canvas{width:120px;height:120px;border:2.5px solid var(--ink);border-radius:16px}
@@ -1422,7 +1431,7 @@ $('vidBtn').onclick = () => {
     <p class="note">Works best when faces look toward the camera.</p>`);
   $('vmFile').onchange = e => { const f = e.target.files && e.target.files[0]; if (f) vmAnalyse(f); };
 };
-$('vmClose').onclick = () => { if (VM.rendering) vmStop(true); VM.cancel = true; vmHide(); };
+$('vmClose').onclick = () => { try { VM.pv && VM.pv.pause(); } catch (e) {} if (VM.rendering) vmStop(true); VM.cancel = true; vmHide(); };
 
 // the sound, as a loudness curve (50 per second), straight from the file
 async function vmEnvelope(file) {
@@ -1432,6 +1441,18 @@ async function vmEnvelope(file) {
     const sr = b.sampleRate, hop = Math.round(sr / 50), n = Math.floor(b.length / hop), out = new Float32Array(n);
     const chs = Array.from({ length:b.numberOfChannels }, (_, i) => b.getChannelData(i));
     for (let k = 0; k < n; k++) { let e = 0; for (let i = k * hop; i < (k + 1) * hop; i++) { let x = 0; for (const c of chs) x += c[i]; x /= chs.length; e += x * x; } out[k] = Math.sqrt(e / hop); }
+    // the voice's pitch every 50th of a second (0 = no clear pitch), to tell voices apart when no face shows who's talking
+    const d = Math.max(1, Math.round(sr / 8000)), fs = sr / d, mono = new Float32Array(Math.floor(b.length / d));
+    for (let i = 0; i < mono.length; i++) { let x = 0; for (const c of chs) x += c[i * d]; mono[i] = x / chs.length; }
+    const pitch = new Float32Array(n), win = Math.round(fs * 0.04), lo = Math.round(fs / 450), hi = Math.round(fs / 75), step = fs / 50;
+    for (let k = 0; k < n; k++) {
+      const s0 = Math.round(k * step); if (s0 + win + hi >= mono.length || out[k] < 0.01) continue;
+      let e0 = 0; for (let i = 0; i < win; i++) e0 += mono[s0 + i] * mono[s0 + i]; if (!e0) continue;
+      let best = 0, bl = 0;
+      for (let l = lo; l <= hi; l++) { let c = 0, e1 = 0; for (let i = 0; i < win; i++) { c += mono[s0 + i] * mono[s0 + i + l]; e1 += mono[s0 + i + l] * mono[s0 + i + l]; } const r = c / Math.sqrt(e0 * e1 + 1e-12); if (r > best) { best = r; bl = l; } }
+      if (best > 0.6) pitch[k] = fs / bl;
+    }
+    out.pitch = pitch;
     return out;
   } catch (e) { return null; }
 }
@@ -1619,30 +1640,99 @@ function vmTimeline() {
     for (const x of p.smp) { if (x.t < t - 0.25) continue; if (x.t > t + 0.25) break; if (prev) { a += Math.abs(x.mo - prev.mo); c++; } prev = x; }
     return c ? a / c / p.moScale * 6 : -1;
   };
+  // each face's own "talking" level: how much its lips move at its busiest (faces that never talk stay near 0)
+  for (const p of P) { const v = []; for (let t = 0; t < VM.dur; t += 0.2) { const a = activity(p, t); if (a >= 0) v.push(a); } v.sort((x, y) => x - y); p.busy = Math.max(0.6, v[Math.floor(v.length * 0.9)] || 0); }
   const raw = [];
   for (let k = 0; k < n; k++) {
     const t = k * dt, speech = !env || loud(t) > floor * 2.5;
-    let who = -1, ba = 0.15;
-    if (speech) P.forEach((p, i) => { const a = activity(p, t); if (a > ba) { ba = a; who = i; } });
-    raw.push({ speech, who });
+    let who = -1, ba = 0.45, seen = false, top = 0;
+    // talking = lips moving at least about half as much as that face does when it talks
+    if (speech) P.forEach((p, i) => { const a = activity(p, t); if (a < 0) return; seen = true; const rel = a / p.busy; top = Math.max(top, rel); if (rel > ba && a > 0.15) { ba = rel; who = i; } });
+    raw.push({ speech, who, still:speech && who < 0 && seen && top < 0.3 });   // talking, a face is on screen, but its mouth is still
+    if (VM.dbgT) VM.dbgT.push([+t.toFixed(2), speech ? 1 : 0, P.map(p => +(activity(p, t) / p.busy).toFixed(2)), 0]);
   }
+  // a voice nobody on screen is speaking with (a reporter behind the camera, a narrator): while there's talking and the
+  // faces on screen keep their mouths still for most of the moment around it, it's an off-camera voice with its own Nibble
+  const W = Math.round(0.8 / dt); let offN = 0;
+  raw.forEach((r, k) => {
+    if (!r.speech || r.who >= 0) return;
+    let sp = 0, st = 0; for (let j = Math.max(0, k - W / 2); j < Math.min(raw.length, k + W / 2); j++) if (raw[j].speech) { sp++; if (raw[j].still) st++; }
+    if (sp && st / sp > 0.75) { r.off = true; offN++; }
+  });
+  const OFF = offN * dt >= 1.5 ? P.length : -1;
+  if (OFF >= 0) P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 });
   // fill: talking but no moving mouth seen -> the last speaker; silence longer than 1 s -> the main character
+  raw.forEach(r => { if (r.off && OFF >= 0 && r.who < 0) r.who = OFF; });
+  const pt = k => env && env.pitch ? env.pitch[Math.min(env.pitch.length - 1, Math.floor(k * dt * 50))] || 0 : 0;
+  const voice = P.map((_, i) => { const v = raw.map((r, k) => r.who === i ? pt(k) : 0).filter(x => x > 0).sort((a, b) => a - b); return v.length >= 6 ? v[v.length >> 1] : 0; });
+  if (voice.filter(Boolean).length >= 2) raw.forEach((r, k) => {
+    if (!r.speech || r.who >= 0) return;
+    // the median pitch of the moment around it, matched to the nearest known voice (if it's clearly closer to one)
+    const v = []; for (let j = Math.max(0, k - 6); j < Math.min(raw.length, k + 7); j++) if (raw[j].speech && pt(j) > 0) v.push(pt(j));
+    if (v.length < 4) return; v.sort((a, b) => a - b); const m = v[v.length >> 1];
+    const ds = voice.map(f => f ? Math.abs(Math.log(m / f)) : 9), best = ds.indexOf(Math.min(...ds)), second = Math.min(...ds.filter((_, i) => i !== best));
+    if (ds[best] < 0.25 && second - ds[best] > 0.08) r.who = best;
+  });
   const talk = P.map(() => 0); raw.forEach(r => { if (r.who >= 0) talk[r.who]++; });
   VM.main = talk.indexOf(Math.max(...talk));
-  const tl = []; let last = -1, quiet = 0;
-  for (const r of raw) {
-    if (r.speech) quiet = 0; else quiet += dt;
-    let w = r.who >= 0 ? r.who : last;
-    if (!r.speech && quiet > 1.0) w = VM.main;
-    if (w < 0) w = VM.main;
-    tl.push(w); if (r.who >= 0) last = r.who;
+  if (OFF >= 0 && VM.main === OFF) { const vis = talk.slice(0, OFF); VM.main = vis.indexOf(Math.max(...vis)); }   // the main character is someone on screen
+  // the talking, split into lines: stretches of sound (short pauses inside a line don't split it), split again where
+  // the speaker clearly changes. Each line gets a speaker; anyone can change it in the picker.
+  const lines = []; let k = 0;
+  while (k < raw.length) {
+    if (!raw[k].speech) { k++; continue; }
+    let e = k, gap = 0; for (let j = k; j < raw.length; j++) { if (raw[j].speech) { e = j; gap = 0; } else if (++gap * dt > 0.3) break; }
+    // inside the line: runs of one speaker, short runs folded into their neighbour
+    const segs = []; for (let j = k; j <= e; j++) { const w = raw[j].who; if (segs.length && (segs[segs.length - 1].w === w || w < 0)) segs[segs.length - 1].e = j; else segs.push({ w, s:j, e:j }); }
+    for (let i = segs.length - 1; i > 0; i--) if ((segs[i].e - segs[i].s + 1) * dt < 0.6 || segs[i].w === segs[i - 1].w) { segs[i - 1].e = segs[i].e; segs.splice(i, 1); }
+    if (segs.length > 1 && (segs[0].e - segs[0].s + 1) * dt < 0.6) { segs[1].s = segs[0].s; segs.shift(); }
+    for (const g of segs) lines.push({ t0:g.s * dt, t1:(g.e + 1) * dt, who:g.w });
+    k = e + 1;
   }
-  // a shot shorter than 0.6 s isn't worth a cut: it stays with what came before
-  const runs = []; for (const w of tl) { if (runs.length && runs[runs.length - 1].w === w) runs[runs.length - 1].n++; else runs.push({ w, n:1 }); }
-  for (let i = 1; i < runs.length; i++) if (runs[i].n * dt < 0.6) { runs[i].w = runs[i - 1].w; }
-  VM.timeline = []; for (const r of runs) for (let k = 0; k < r.n; k++) VM.timeline.push(r.w);
-  const first = raw.find(r => r.who >= 0);
-  VM.first = first ? first.who : VM.main;
+  lines.forEach((l, i) => { if (l.who < 0) l.who = i ? lines[i - 1].who : -1; });
+  const firstKnown = lines.find(l => l.who >= 0); lines.forEach(l => { if (l.who < 0) l.who = firstKnown ? firstKnown.who : VM.main; });
+  VM.lines = lines; vmLinesToTimeline();
+}
+// the cut list from the lines: each line shows its speaker; a pause under a second stays on whoever just spoke,
+// a longer one goes back to the main character
+// the last step: watch it, save it (share sheet on phones, download on computers), or make another
+function vmDone(blob, type, name) {
+  const url = URL.createObjectURL(blob); let file = null; try { file = new File([blob], name, { type }); } catch (e) {}
+  vmShow('Your video is ready!', `<video class="vm-out" src="${url}" controls playsinline loop></video>
+    <button class="vm-go" id="vmSave" type="button">${IS_IOS ? 'Save to Photos' : 'Save video'}</button>
+    <div class="vm-row" style="justify-content:center"><button class="chipb seg" id="vmAgain" type="button">Change the Nibbles</button><button class="chipb seg" id="vmNew" type="button">Another video</button></div>
+    <p class="note" id="vmSaveNote"></p>`);
+  const download = () => { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); $('vmSaveNote').textContent = 'Saved to your downloads.'; };
+  $('vmSave').onclick = async () => {
+    if (IS_MOBILE && file && navigator.canShare && navigator.canShare({ files:[file] })) {
+      try { await navigator.share({ files:[file] }); return; }
+      catch (e) { if (e && e.name === 'AbortError') return; }
+      if (IS_IOS) { $('vmSaveNote').innerHTML = `<a class="save" href="${url}" target="_blank" rel="noopener">Open video</a> then tap the share button and choose Save Video.`; return; }
+    }
+    download();
+  };
+  $('vmAgain').onclick = () => vmCastStep();
+  $('vmNew').onclick = () => $('vidBtn').click();
+}
+// hear one line of the clip (from its own sound), to tell who's saying it
+function vmHear(t0, t1, btn) {
+  const a = VM.pv || (VM.pv = Object.assign(document.createElement('video'), { playsInline:true, preload:'auto' }));
+  if (a.src !== VM.url) a.src = VM.url;
+  document.querySelectorAll('.vm-play.on').forEach(b => { b.classList.remove('on'); b.textContent = '▶'; });
+  if (VM.hearing === btn) { a.pause(); VM.hearing = null; return; }
+  VM.hearing = btn; btn.classList.add('on'); btn.textContent = '■';
+  a.currentTime = t0; a.play().catch(() => {});
+  const stop = () => { if (a.currentTime >= t1 || a.paused) { a.pause(); a.removeEventListener('timeupdate', stop); if (VM.hearing === btn) { VM.hearing = null; btn.classList.remove('on'); btn.textContent = '▶'; } } };
+  a.addEventListener('timeupdate', stop);
+}
+function vmLinesToTimeline() {
+  const dt = 0.05, n = Math.ceil(VM.dur / dt), tl = new Array(n).fill(VM.main), L = VM.lines || [];
+  let li = 0, last = -1, lastEnd = -9;
+  for (let k = 0; k < n; k++) {
+    const t = k * dt; while (li < L.length && L[li].t1 <= t) { last = L[li].who; lastEnd = L[li].t1; li++; }
+    const l = L[li]; tl[k] = l && t >= l.t0 ? l.who : t - lastEnd < 1 && last >= 0 ? last : VM.main;
+  }
+  VM.timeline = tl; VM.first = L.length ? L[0].who : VM.main;
 }
 const NIB_NAMES = () => Array.from($('nibbleSel').options).map(o => [+o.value, o.textContent]);
 function nibThumb(el, id) {
@@ -1671,10 +1761,12 @@ function vmCastStep() {
   if (!VM.bgSet) { vmRandom(); VM.bgSet = true; }
   VM.shape = S.shape || 'Square';
   const opt = (list, cur) => list.map(([v, t]) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${t}</option>`).join('');
-  vmShow(P.length === 1 ? 'Found 1 person' : `Found ${P.length} people`, `
+  const nOn = P.filter(p => !p.off).length, off = P.some(p => p.off);
+  vmShow((nOn === 1 ? 'Found 1 person' : `Found ${nOn} people`) + (off ? ' + a voice' : ''), `
     <p class="note" style="margin-top:0">Same person showing up twice? Tap <b>Same person as ↑</b>.</p>
     <div class="vm-cast" id="vmCast"></div>
-    <div class="vm-row"><button class="chipb seg" id="vmRand" type="button">🎲 Random</button></div>
+    <div class="vm-row"><button class="chipb seg" id="vmRand" type="button">🎲 Random</button>${P.some(p => p.off) ? '' : '<button class="chipb seg" id="vmAddVoice" type="button">🎙️ Add a voice off camera</button>'}</div>
+    ${(VM.lines || []).length ? '<h4 class="vm-h">Who says each line <span>(tap a Nibble to change it, ▶ to hear the line)</span></h4><div class="vm-lines" id="vmLines"></div>' : ''}
     <div class="vm-opts">
       <label>Background<select id="vmBg">${opt([['Nibble color', 'Nibble color'], ...Object.keys(BONKD_BGS).map(k => [k, k])], VM.bg)}</select></label>
       <label>Music<select id="vmMusic">${opt([['', 'No music'], ...TRACKS.map(t => [t[0], t[1]])], VM.music)}</select></label>
@@ -1684,14 +1776,17 @@ function vmCastStep() {
   const box = $('vmCast');
   P.forEach((p, i) => {
     const d = document.createElement('div'); d.className = 'vm-person';
-    const face = p.thumb || document.createElement('canvas'); face.className = 'vm-face';
+    let face = p.thumb;
+    if (!face) { face = document.createElement('canvas'); face.width = face.height = 120; const fg = face.getContext('2d');
+      fg.fillStyle = '#fff3c4'; fg.fillRect(0, 0, 120, 120); fg.font = '58px system-ui, sans-serif'; fg.textAlign = 'center'; fg.textBaseline = 'middle'; fg.fillText(p.off ? '🎙️' : '🙂', 60, 64); }
+    face.className = 'vm-face';
     const nib = document.createElement('button'); nib.type = 'button'; nib.className = 'vm-nib'; nib.setAttribute('aria-label', 'Nibble for person ' + (i + 1));
     const circ = document.createElement('span'); circ.className = 'circ'; nibThumb(circ, VM.cast[i]);
     nib.onclick = () => pickNibble(VM.cast[i], Object.assign(id => { VM.cast[i] = id; nibThumb(circ, id); }, { noAdd:true }));
     nib.append(circ);
     const tag = document.createElement('div'); tag.className = 'vm-tag';
-    const lb = document.createElement('span'); lb.className = 'lbl'; lb.textContent = i === VM.main ? 'Main' : 'Person ' + (i + 1); tag.appendChild(lb);
-    if (i > 0) {   // the tracker can split one person in two (a jump cut, a hand over the face): one tap joins them
+    const lb = document.createElement('span'); lb.className = 'lbl'; lb.textContent = p.off ? 'Voice off camera' : i === VM.main ? 'Main' : 'Person ' + (i + 1); tag.appendChild(lb);
+    if (i > 0 && !p.off) {   // the tracker can split one person in two (a jump cut, a hand over the face): one tap joins them
       const same = document.createElement('button'); same.type = 'button'; same.className = 'chipb seg' + (+VM.cast[i] === +VM.cast[i - 1] ? ' on' : '');
       same.textContent = 'Same person as ↑';
       same.onclick = () => { VM.cast[i] = VM.cast[i - 1]; vmCastStep(); }; tag.appendChild(same);
@@ -1699,6 +1794,22 @@ function vmCastStep() {
     d.append(face, document.createTextNode('→'), nib, tag); box.appendChild(d);
   });
   $('vmRand').onclick = () => { vmRandom(); vmCastStep(); };
+  if ($('vmAddVoice')) $('vmAddVoice').onclick = () => {
+    P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 }); const i = P.length - 1;
+    const used = new Set(Object.values(VM.cast).map(Number)), free = NIB_NAMES().map(x => x[0]).find(id => !used.has(id));
+    VM.cast[i] = free || NIB_NAMES()[0][0]; vmCastStep();
+  };
+  const LB = $('vmLines');
+  if (LB) (VM.lines || []).forEach((l, li) => {
+    const row = document.createElement('div'); row.className = 'vm-line';
+    const play = document.createElement('button'); play.type = 'button'; play.className = 'vm-play'; play.textContent = '▶'; play.setAttribute('aria-label', 'Hear this line');
+    play.onclick = () => vmHear(l.t0, l.t1, play);
+    const tm = document.createElement('span'); tm.className = 'vm-tm'; const f = x => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, '0')}`; tm.textContent = `${f(l.t0)}–${f(l.t1)}`;
+    const nb = document.createElement('button'); nb.type = 'button'; nb.className = 'circ vm-lnib'; nibThumb(nb, VM.cast[l.who]);
+    const nm = document.createElement('span'); nm.className = 'lbl'; const pn = i => P[i].off ? 'Voice off camera' : i === VM.main ? 'Main' : 'Person ' + (i + 1); nm.textContent = pn(l.who);
+    nb.onclick = () => { l.who = (l.who + 1) % P.length; nibThumb(nb, VM.cast[l.who]); nm.textContent = pn(l.who); vmLinesToTimeline(); };
+    row.append(play, tm, nb, nm); LB.appendChild(row);
+  });
   $('vmBg').onchange = e => VM.bg = e.target.value;
   $('vmMusic').onchange = e => VM.music = e.target.value;
   $('vmShape').onchange = e => VM.shape = e.target.value;
@@ -1711,6 +1822,7 @@ function vmSample(p, t) {
   const x = a[lo]; return x && Math.abs(x.t - t) < 0.2 ? x : null;
 }
 async function vmRender() {
+  try { VM.pv && VM.pv.pause(); } catch (e) {}
   const P = VM.people;
   vmShow('Getting ready…', `<div class="vm-bar"><i id="vmProg"></i></div>`);
   try {
@@ -1743,7 +1855,7 @@ async function vmRender() {
       const type = ((rec.mimeType || mimeType || 'video/webm').split(';')[0].trim()) || 'video/webm';
       const blob = new Blob(chunks, { type }); vmRestore();
       if (VM.cancel || !blob.size) return;
-      vmHide(); offerClip(blob, type, `nibbled-video-${Date.now()}.${type === 'video/mp4' ? 'mp4' : 'webm'}`);
+      vmDone(blob, type, `nibbled-video-${Date.now()}.${type === 'video/mp4' ? 'mp4' : 'webm'}`);
     };
     VM.cancel = false; VM.cur = -1;
     $('vm').classList.add('rendering');
