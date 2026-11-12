@@ -303,7 +303,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261111-1710';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261112-1405';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -342,11 +342,9 @@ function entrance() {
   const img = entCache[E.name]; if (!(img.complete && img.naturalWidth)) return null;
   const W = stage.width, H = stage.height, m = Math.min(W, H), iw = img.naturalWidth, ih = img.naturalHeight;
   const sc = Math.max(W / iw, H / ih), tx = (W - iw * sc) / 2, ty = Math.max(H - ih * sc, -E.sign[1] * ih * sc);   // sign right at the top
-  if (ty > 0.5) return null;
   const sr = [tx + E.sign[0] * iw * sc, ty + E.sign[1] * ih * sc, tx + E.sign[2] * iw * sc, ty + E.sign[3] * ih * sc];
-  // the Nibble stays full size; the entrance is only used where its comb would at most touch the sign's bottom edge
-  const size = Math.min(W, H), headTop = H - size + A.bounds[1] / 1000 * size;
-  if (sr[3] - headTop > (sr[3] - sr[1]) * 0.08) return null;
+  // the club's exterior on every screen shape (user): in square and wide frames the Nibble stands in front of the sign
+  const size = Math.min(W, H);
   return { img, sc, tx, ty, sr, size };
 }
 const MY_BG = {};   // backgrounds this person added: name -> picture (data URL), kept on this device
