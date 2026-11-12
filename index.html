@@ -312,7 +312,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261112-1505';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261112-1530';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -542,7 +542,13 @@ function fetchNibble(id) {
       });
     }
     const art = { base:imgs[0], eyes:imgs.slice(1, 6), mouths:imgs.slice(6) };
-    if (cfg.jiggle) art.jig = await Promise.all(cfg.jiggle.map((_, i) => loadImg(`faces/${id}/n${i}.webp?v=${ART_V}`)));
+    if (cfg.jiggle) art.jig = await Promise.all(cfg.jiggle.map((_, i) => loadImg(artURL(id, 'n' + i))));
+    const lt = cfg.layout || {};
+    if (lt.halo) art.halo = await loadImg(artURL(id, 'h0'));
+    if (lt.fire) {   // fire eyes: Cock #8212's flicker frames, fitted to this Nibble's flames and kept inside them
+      art.fire = { clip:await loadImg(artURL(id, 'fc')), frames:await Promise.all(Array.from({ length:6 }, (_, i) => loadImg(`traits/8212/f${i}.webp?v=${ART_V}`))),
+        eyes:await loadImg(`faces/8212/e0.webp?v=${ART_V}`), xf:lt.fire.xf };
+    }
     if (cfg.overlay) art.over = await Promise.all(Array.from({ length:10 }, (_, i) => loadImg(`faces/${id}/b${i}.webp?v=${ART_V}`)));
     // does the art's body run off its left / right edge? then it keeps going in wide frames
     const pc = document.createElement('canvas'); pc.width = 1000; pc.height = 1000; const pg = pc.getContext('2d', { willReadFrequently:true });
@@ -559,6 +565,7 @@ function fetchNibble(id) {
     const bc = document.createElement('canvas'); bc.width = bc.height = 250; const bg = bc.getContext('2d', { willReadFrequently:true });
     const add = (img, bx=0, by=0, bw=1000, bh=1000) => bg.drawImage(img, bx / 4, by / 4, bw / 4, bh / 4);
     [imgs[0], ...art.mouths, ...(art.over || [])].forEach(i => add(i));
+    if (art.halo) { const [hx, hy, hw, hh] = lt.halo.box; for (const dx of [-70, 0, 70]) add(art.halo, hx + dx, hy - 40, hw, hh); }
     if (trait) { const [bx, by, bw, bh] = trait.box || [0, 0, 1000, 1000]; const w = trait.wobble ? 70 : 0;
       trait.frames.forEach(fr => { for (const dx of [-w, 0, w]) add(fr, bx + dx, by - (w ? 40 : 0), bw, bh); }); }
     const d = bg.getImageData(0, 0, 250, 250).data; let x0 = 250, y0 = 250, x1 = 0, y1 = 0;
@@ -997,6 +1004,24 @@ function drawJiggle(t, x, y, size, f) {
   });
   if (f) { JG.pr = f.roll; JG.pyw = f.yaw; JG.pp = f.pitch; } else JG.pr = null;
 }
+// a community Nibble's floating halo: the same spring wobble as the built-in halos
+function drawHalo(t, x, y, size, f) {
+  const A = S.art, lt = NIBBLES[S.id] && NIBBLES[S.id].layout; if (!A || !A.halo || !lt || !lt.halo) return;
+  stepWobble(t, f); const [bx, by, bw, bh] = lt.halo.box, [cx, cy] = lt.halo.centre, k = size / 1000;
+  ctx.save(); ctx.translate(x, y); ctx.scale(k, k); ctx.translate(cx + W8.x, cy + W8.y); ctx.rotate(W8.a); ctx.translate(-cx, -cy);
+  ctx.drawImage(A.halo, bx, by, bw, bh); ctx.restore();
+}
+// a community Nibble's fire eyes: flicker frames placed on its flames, shown only inside the flames' outline
+let fireC = null;
+function drawFire(t, x, y, size) {
+  const F = S.art && S.art.fire; if (!F) return;
+  if (!fireC) { fireC = document.createElement('canvas'); fireC.width = fireC.height = 1000; }
+  const g = fireC.getContext('2d'), [sx, sy, tx, ty] = F.xf;
+  g.globalCompositeOperation = 'source-over'; g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, 1000, 1000);
+  g.setTransform(sx, 0, 0, sy, tx, ty); g.drawImage(F.frames[Math.floor(t / 125) % 6], 0, 0); g.drawImage(F.eyes, 0, 0);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'destination-in'; g.drawImage(F.clip, 0, 0, 1000, 1000);
+  ctx.drawImage(fireC, x, y, size, size);
+}
 function drawTrait(t, x, y, size, f) {
   const tr = S.trait; if (!tr) return;
   const img = tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length], k = size / 1000;
@@ -1053,6 +1078,8 @@ function drawNibble(t) {
   else drawLayer(A.eyes, S.eye, t, FADE.eye, x, y, size);
   if (A.over) ctx.drawImage(A.over[S.mouth.cur], x, y, size, size);
   if (!under) drawTrait(t, x, y, size, live ? f : null);
+  drawFire(t, x, y, size);
+  drawHalo(t, x, y, size, live ? f : null);
   drawJiggle(t, x, y, size, live ? f : null);
   ctx.restore();
 }
@@ -1946,7 +1973,7 @@ function addOption(id, kind) {
   if (same.length) same[same.length - 1].after(o); else sel.appendChild(o);
 }
 function registerCommunity(row) {
-  NIBBLES[row.token] = { bg:row.bg, fullFace:true, remote:`${SB}/storage/v1/object/public/nibbles/${row.folder}/`, ext:row.ext, layout:row.face };
+  NIBBLES[row.token] = { bg:row.bg, fullFace:true, remote:`${SB}/storage/v1/object/public/nibbles/${row.folder}/`, ext:row.ext, layout:row.face, jiggle:row.face.jig };
   FACE_AT[row.token] = row.face.at; delete ART[row.token]; addOption(row.token, row.kind);
 }
 (async () => {
@@ -1964,7 +1991,7 @@ async function adminRemove(id) {
   pkClose(); setStatus('x', `#${id} was removed.`);
 }
 
-const AN = {};   // the Nibble being added
+const AN = {}; window.__an = AN;   // the Nibble being added
 const PROMPTS = {
   s1:(n, t) => `Using the attached Nibble (${n}) as the exact model, draw a 3×2 grid of six panels on a flat pure green (#00FF00) background, 3:2 landscape. Every panel copies the original exactly: same pose, size, angle, crop (cut off at the bottom like the original), line weight and colours — ${t}. Keep a clear band of green between panels; nothing touches or crosses into another panel. No text, labels, shadows or background details.
 Only the mouth changes. The upper part of the face (snout, beak or upper lip, nose, any fangs or teeth that hang from it) stays exactly where it is in every panel; the lower jaw and lips do the talking. Eyes, brows, hair, hat, accessories, fur and clothes are identical in every panel.
@@ -2010,7 +2037,7 @@ function addNibble() {
   $('anPic').onchange = async e => {
     const f = e.target.files && e.target.files[0]; if (!f) return;
     const B = await import('./builder.js?v=' + ART_V);
-    try { const im = await B.loadImage(f); AN.cut = B.cutOriginal(im); $('anPrev').innerHTML = ''; $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg)); }
+    try { const im = await B.loadImage(f); AN.cut = B.cutOriginal(im); AN.cutOrig = null; $('anPrev').innerHTML = ''; $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg)); }
     catch (err) { setStatus('x', 'That picture wouldn\'t open. Try another one.', 'err'); }
   };
   $('anNext').onclick = () => {
@@ -2061,8 +2088,12 @@ async function addBuild() {
     const s1 = B.splitSheet(await B.loadImage(AN.f1), 3, 2), s2 = B.splitSheet(await B.loadImage(AN.f2), 4, 1);
     let eyes = null;
     if (!AN.noEyes && AN.f3) { const ei = await B.loadImage(AN.f3), n = B.countPanels(ei); eyes = B.splitSheet(ei, n >= 4 ? 5 : 3, 1); }
-    const res = await B.build(AN.cut.canvas, { s1, s2, eyes }, t => { const m = $('anMsg'); if (m) m.textContent = t; });
-    AN.res = res; AN.exp = await B.exportFiles(res, AN.cut.canvas);
+    const res = await B.build(AN.cutOrig || AN.cut.canvas, { s1, s2, eyes }, t => { const m = $('anMsg'); if (m) m.textContent = t; });
+    if ($('anMsg')) $('anMsg').textContent = 'Looking for a halo, fire eyes and other moving parts…';
+    if (!AN.cutOrig) AN.cutOrig = AN.cut.canvas;   // keep the untouched picture, so building again starts clean
+    const base = document.createElement('canvas'); base.width = base.height = 1000; base.getContext('2d').drawImage(AN.cutOrig, 0, 0); AN.cut.canvas = base;
+    res.frames[0] = base; res.traits = B.findTraits(base, res, AN.kind, AN.cut.bg);
+    AN.res = res; AN.exp = await B.exportFiles(res, base);
     addResults();
   } catch (e) { vmShow('Something went wrong', `<p>The pictures couldn't be built (${esc(String(e && e.message || e))}). Check they're the right pictures and try again.</p><button class="vm-go" id="anBack" type="button">Back</button>`); $('anBack').onclick = addSheets; }
 }
@@ -2095,7 +2126,7 @@ function previewFiles() {
 function addTry() {
   const id = AN.token;
   AN.prev = { had:NIBBLES[id], id:S.id };
-  NIBBLES[id] = { bg:AN.cut.bg, fullFace:true, files:previewFiles(), layout:AN.exp.layout }; FACE_AT[id] = AN.exp.layout.at; delete ART[id];
+  NIBBLES[id] = { bg:AN.cut.bg, fullFace:true, files:previewFiles(), layout:AN.exp.layout, jiggle:AN.exp.layout.jig }; FACE_AT[id] = AN.exp.layout.at; delete ART[id];
   loadNibble(id); showNibbleThumb(id);
   $('vm').classList.add('rendering');
   vmShow(`Trying ${AN.kind} #${id}`, `<p class="note">Turn the camera on and talk. Happy with it?</p>

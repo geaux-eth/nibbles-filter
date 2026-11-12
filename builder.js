@@ -327,5 +327,133 @@ export async function exportFiles(res, origCanvas) {
   const mb = res.mouthBox || [0, 0, 0, 0], eb = res.eyeBox || [0, 0, 0, 0], files = { base:await blob(origCanvas) };
   for (let k = 0; k < 10; k++) files['m' + k] = await blob(crop(res.frames[k], mb));
   for (let k = 0; k < 5; k++) files['e' + k] = await blob(res.eyes && res.eyes[k] ? crop(res.eyes[k], eb) : cv(1, 1));
-  return { files, ext, layout:{ at:res.face, mb:mb.map(Math.round), eb:eb.map(Math.round) } };
+  const layout = { at:res.face, mb:mb.map(Math.round), eb:eb.map(Math.round) }, tr = res.traits || {};
+  if (tr.halo) { files.h0 = await blob(tr.halo.img); layout.halo = { box:tr.halo.box.map(Math.round), centre:tr.halo.centre.map(Math.round) }; }
+  if (tr.fire) { files.fc = await blob(tr.fire.clip); layout.fire = { xf:tr.fire.xf.map(v => +v.toFixed(4)) }; }
+  if (tr.jig) { for (let k = 0; k < tr.jig.length; k++) files['n' + k] = await blob(tr.jigImgs[k]); layout.jig = tr.jig; }
+  return { files, ext, layout };
+}
+
+// ---------- traits that move on their own: a floating halo (springy wobble), fire eyes (flicker), a Cock's bare-chest
+// nipples (springy bounce). Found in the picture, lifted onto their own layers, and the art underneath filled in.
+// Works on the full-size canvases in place (the picture and every mouth frame) and returns what it found.
+export function findTraits(orig, res, kind, bgHex) {
+  const d = pixels(orig), A = i => d[i * 4 + 3], R = i => d[i * 4], G = i => d[i * 4 + 1], B = i => d[i * 4 + 2];
+  const out = {}, NN = N * N, lab = new Int32Array(NN), comps = [], q = new Int32Array(NN);
+  // pieces of the picture that don't touch each other
+  for (let s = 0; s < NN; s++) {
+    if (A(s) < 128 || lab[s]) continue;
+    const id = comps.length + 1; let qh = 0, qt = 0; q[qt++] = s; lab[s] = id; let n = 0, x0 = N, y0 = N, x1 = 0, y1 = 0, gold = 0;
+    while (qh < qt) { const i = q[qh++], x = i % N, y = (i / N) | 0; n++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (R(i) > 200 && G(i) > 150 && B(i) < 120) gold++;
+      for (const j of [x > 0 ? i - 1 : -1, x < N - 1 ? i + 1 : -1, y > 0 ? i - N : -1, y < N - 1 ? i + N : -1]) if (j >= 0 && !lab[j] && A(j) >= 128) { lab[j] = id; q[qt++] = j; } }
+    comps.push({ id, n, box:[x0, y0, x1, y1], gold });
+  }
+  const body = comps.reduce((a, b) => b.n > a.n ? b : a, { n:0 });
+  // halo: a separate, mostly gold piece floating above the head
+  const halos = comps.filter(c => c !== body && c.n > 1500 && c.box[3] < body.box[1] + (body.box[3] - body.box[1]) * 0.45 && c.gold / c.n > 0.35);
+  if (halos.length) {
+    const ids = new Set(halos.map(c => c.id)), x0 = Math.min(...halos.map(c => c.box[0])) - 3, y0 = Math.min(...halos.map(c => c.box[1])) - 3,
+      x1 = Math.max(...halos.map(c => c.box[2])) + 4, y1 = Math.max(...halos.map(c => c.box[3])) + 4;
+    const bg = [1, 3, 5].map(k => parseInt(bgHex.slice(k, k + 2), 16));
+    const img = cv(x1 - x0, y1 - y0), id = g2(img).createImageData(img.width, img.height);
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const i = y * N + x, o = ((y - y0) * img.width + (x - x0)) * 4;
+      // the halo's pixels, but not the sky showing through its ring
+      const sky = Math.abs(R(i) - bg[0]) + Math.abs(G(i) - bg[1]) + Math.abs(B(i) - bg[2]) < 60;
+      if ((ids.has(lab[i]) || (A(i) > 20 && lab[i] !== body.id)) && !sky) { for (let c = 0; c < 4; c++) id.data[o + c] = d[i * 4 + c]; }
+    }
+    g2(img).putImageData(id, 0, 0);
+    out.halo = { img, box:[x0, y0, x1 - x0, y1 - y0], centre:[(x0 + x1) / 2, (y0 + y1) / 2] };
+    for (const c of [orig, ...res.frames.slice(1)]) g2(c).clearRect(x0, y0, x1 - x0, y1 - y0);
+  }
+  // fire eyes: two flame shapes (yellow with an orange rim and a pale centre, no dark pupil) in the upper face
+  const isFlame = i => A(i) > 200 && ((R(i) > 200 && G(i) > 140 && B(i) < 130) || (R(i) > 230 && G(i) > 210 && B(i) > 90 && B(i) < 200));
+  const top = body.box[1], hgt = body.box[3] - body.box[1], fl = new Uint8Array(NN);
+  for (let y = top; y < top + hgt * 0.62; y++) for (let x = 0; x < N; x++) { const i = y * N + x; if (lab[i] === body.id && isFlame(i)) fl[i] = 1; }
+  const fcomps = []; const seen = new Uint8Array(NN);
+  for (let s = 0; s < NN; s++) {
+    if (!fl[s] || seen[s]) continue; let qh = 0, qt = 0; q[qt++] = s; seen[s] = 1; let n = 0, x0 = N, y0 = N, x1 = 0, y1 = 0, pale = 0; const px = [];
+    while (qh < qt) { const i = q[qh++], x = i % N, y = (i / N) | 0; n++; px.push(i); if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (R(i) > 230 && G(i) > 215 && B(i) > 90) pale++;
+      for (const j of [i - 1, i + 1, i - N, i + N]) if (j >= 0 && j < NN && fl[j] && !seen[j]) { seen[j] = 1; q[qt++] = j; } }
+    if (n < 2500) continue;
+    let dark = 0; for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = y * N + x; if (A(i) > 200 && R(i) + G(i) + B(i) < 150) dark++; }
+    fcomps.push({ n, box:[x0, y0, x1, y1], pale:pale / n, dark:dark / ((x1 - x0 + 1) * (y1 - y0 + 1)), tall:(y1 - y0) / Math.max(1, x1 - x0), px });
+  }
+  const flames = fcomps.filter(c => c.pale > 0.08 && c.dark < 0.12 && c.tall > 0.95).sort((a, b) => b.n - a.n).slice(0, 2);
+  if (flames.length === 2 && Math.abs(flames[0].box[1] - flames[1].box[1]) < 160) {
+    const x0 = Math.min(flames[0].box[0], flames[1].box[0]), y0 = Math.min(flames[0].box[1], flames[1].box[1]), x1 = Math.max(flames[0].box[2], flames[1].box[2]), y1 = Math.max(flames[0].box[3], flames[1].box[3]);
+    // the reference flames (Cock #8212's flicker frames) cover 351,313 to 746,611 of their picture
+    const sx = (x1 - x0) / 395, sy = (y1 - y0) / 298;
+    // the fur around the flames (what shows where a flicker pulls in)
+    const m = new Uint8Array(NN); for (const f of flames) for (const i of f.px) m[i] = 1;
+    const near = (i, r) => { const x = i % N, y = (i / N) | 0; for (let dy = -r; dy <= r; dy += 2) for (let dx = -r; dx <= r; dx += 2) { const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < N && yy < N && m[yy * N + xx]) return true; } return false; };
+    const ring = []; for (let y = y0 - 16; y <= y1 + 16; y += 2) for (let x = x0 - 16; x <= x1 + 16; x += 2) { if (x < 0 || y < 0 || x >= N || y >= N) continue; const i = y * N + x;
+      if (!m[i] && A(i) > 200 && R(i) + G(i) + B(i) > 120 && !isFlame(i) && near(i, 12)) ring.push([R(i), G(i), B(i)]); }
+    const med = c => { const v = ring.map(p => p[c]).sort((a, b) => a - b); return v[v.length >> 1] || 0; }, fur = [med(0), med(1), med(2)];
+    const furLike = i => Math.abs(R(i) - fur[0]) + Math.abs(G(i) - fur[1]) + Math.abs(B(i) - fur[2]) < 70;
+    // the flicker shows over the flames and the fur right around them, never over what's in front (a beak, ink lines)
+    const clip = cv(N, N), cid = g2(clip).createImageData(N, N), r = 7;
+    for (let y = y0 - r; y <= y1 + r; y++) for (let x = x0 - r; x <= x1 + r; x++) { if (x < 0 || y < 0 || x >= N || y >= N) continue; const i = y * N + x;
+      if (m[i] || (A(i) > 200 && (isFlame(i) || furLike(i)) && near(i, r))) cid.data[i * 4 + 3] = 255; }
+    g2(clip).putImageData(cid, 0, 0);
+    // under the flicker: the flames painted over with that fur (in the picture and every mouth frame), so a flame that
+    // pulls in shows fur, not the still drawing behind it
+    for (const c of [orig, ...res.frames.slice(1)]) {
+      const cg = g2(c), w = x1 - x0 + 1, h = y1 - y0 + 1, cd = cg.getImageData(x0, y0, w, h), p = cd.data;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y + y0) * N + x + x0, k = (y * w + x) * 4;
+        const fc = p[k + 3] > 200 && ((p[k] > 200 && p[k + 1] > 140 && p[k + 2] < 200) || (p[k] > 180 && p[k] - p[k + 2] > 90 && p[k + 1] > 70));   // still flame (yellow, orange rim) in this frame
+        if ((m[i] || near(i, 9)) && fc) { p[k] = fur[0]; p[k + 1] = fur[1]; p[k + 2] = fur[2]; } }
+      cg.putImageData(cd, x0, y0);
+    }
+    res.eyes = null;   // fire eyes don't blink
+    out.fire = { xf:[sx, sy, x0 - 351 * sx, y0 - 313 * sy], clip };
+  }
+  // a Cock's nipples: two pink round shapes on the lower chest, each with its ink outline
+  if (/cock/i.test(kind)) {
+    const pk = new Uint8Array(NN);
+    for (let y = top + hgt * 0.55; y < N; y++) for (let x = 0; x < N; x++) { const i = (y | 0) * N + x; if (A(i) > 200 && R(i) > 200 && G(i) > 110 && G(i) < 200 && B(i) > 140 && B(i) < 230 && R(i) - G(i) > 40) pk[i] = 1; }
+    const blobs = []; const sn = new Uint8Array(NN);
+    for (let s = 0; s < NN; s++) {
+      if (!pk[s] || sn[s]) continue; let qh = 0, qt = 0; q[qt++] = s; sn[s] = 1; let n = 0, x0 = N, y0 = N, x1 = 0, y1 = 0;
+      while (qh < qt) { const i = q[qh++], x = i % N, y = (i / N) | 0; n++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        for (const j of [i - 1, i + 1, i - N, i + N]) if (j >= 0 && j < NN && pk[j] && !sn[j]) { sn[j] = 1; q[qt++] = j; } }
+      const asp = (x1 - x0 + 1) / (y1 - y0 + 1);
+      if (n > 700 && n < 9000 && asp > 0.6 && asp < 1.8) blobs.push({ n, box:[x0, y0, x1, y1], cy:(y0 + y1) / 2, cx:(x0 + x1) / 2 });
+    }
+    blobs.sort((a, b) => b.n - a.n);
+    const pair = blobs.length >= 2 && Math.abs(blobs[0].cy - blobs[1].cy) < 80 && Math.abs(blobs[0].cx - blobs[1].cx) > 120 && blobs[1].n > blobs[0].n * 0.5 ? blobs.slice(0, 2).sort((a, b) => a.cx - b.cx) : null;
+    if (pair) {
+      out.jig = []; out.jigImgs = [];
+      for (const b of pair) {
+        // the nipple with its outline: pink plus the dark ink touching it, a few pixels around
+        const pad = 14, x0 = Math.max(0, b.box[0] - pad), y0 = Math.max(0, b.box[1] - pad), x1 = Math.min(N - 1, b.box[2] + pad), y1 = Math.min(N - 1, b.box[3] + pad), w = x1 - x0 + 1, h = y1 - y0 + 1;
+        const m = new Uint8Array(w * h);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y + y0) * N + x + x0; if (pk[i]) m[y * w + x] = 1; }
+        // grow through dark ink next to the pink, then fill the shape and add 2 px
+        for (let it = 0; it < 10; it++) { const nm = m.slice(); for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const k = y * w + x; if (m[k]) continue; const i = (y + y0) * N + x + x0;
+          if ((m[k - 1] || m[k + 1] || m[k - w] || m[k + w]) && (R(i) + G(i) + B(i) < 240 || pk[i])) nm[k] = 1; } m.set(nm); }
+        const grow = r => { for (let it = 0; it < r; it++) { const nm = m.slice(); for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const k = y * w + x; if (!m[k] && (m[k - 1] || m[k + 1] || m[k - w] || m[k + w])) nm[k] = 1; } m.set(nm); } };
+        grow(2);
+        const img = cv(w, h), id = g2(img).createImageData(w, h);
+        for (let k = 0; k < w * h; k++) if (m[k]) { const i = ((k / w | 0) + y0) * N + (k % w) + x0; for (let c = 0; c < 4; c++) id.data[k * 4 + c] = d[i * 4 + c]; }
+        g2(img).putImageData(id, 0, 0);
+        out.jig.push([x0, y0, w, h]); out.jigImgs.push(img);
+        // fill underneath (in the picture and every mouth frame) from the chest around it
+        grow(3);
+        for (const c of [orig, ...res.frames.slice(1)]) {
+          const cg = g2(c), cd = cg.getImageData(x0, y0, w, h), p = cd.data, ring = [];
+          for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const k = y * w + x; if (m[k]) continue;
+            const near = (y > 0 && m[k - w]) || (y < h - 1 && m[k + w]) || (x > 0 && m[k - 1]) || (x < w - 1 && m[k + 1]);
+            if (p[k * 4 + 3] > 200 && Math.max(p[k * 4], p[k * 4 + 1], p[k * 4 + 2]) > 55 && (near || (x % 3 === 0 && y % 3 === 0))) ring.push([x, y, p[k * 4], p[k * 4 + 1], p[k * 4 + 2]]); }
+          for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const k = y * w + x; if (!m[k]) continue;
+            let sr = 0, sg = 0, sb = 0, sw = 0; for (const [rx, ry, r0, g0, b0] of ring) { const dd = (rx - x) ** 2 + (ry - y) ** 2, wt = 1 / ((dd + 1) * (dd + 1)); sr += r0 * wt; sg += g0 * wt; sb += b0 * wt; sw += wt; }
+            if (sw) { p[k * 4] = sr / sw; p[k * 4 + 1] = sg / sw; p[k * 4 + 2] = sb / sw; p[k * 4 + 3] = 255; } }
+          cg.putImageData(cd, x0, y0);
+        }
+      }
+    }
+  }
+  return out;
 }
