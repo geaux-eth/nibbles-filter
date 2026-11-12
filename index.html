@@ -207,6 +207,33 @@ header .credit b{font-weight:400}
 .vm-play.on{background:var(--gold)}
 .vm-tm{font:600 13px/1 var(--body);opacity:.8}
 .vm-lnib{width:44px;height:44px;margin:0}
+.ed-vid{display:block;width:100%;max-height:30dvh;background:#000;border:2.5px solid var(--ink);border-radius:12px;object-fit:contain}
+.ed-bar{display:flex;align-items:center;gap:8px;margin:8px 0 6px}
+.ed-pp{width:40px;height:40px;border:2.5px solid var(--ink);border-radius:50%;background:var(--gold);font:700 15px/1 var(--body);cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
+.ed-time{font:700 13px/1 ui-monospace,Menlo,monospace}
+.ed-tl{display:grid;grid-template-columns:62px 1fr;border:2.5px solid var(--ink);border-radius:12px;overflow:hidden;background:#fbf8f0}
+.ed-heads{border-right:2.5px solid var(--ink);background:var(--paper)}
+.ed-hrul{height:20px;border-bottom:1.5px solid #ccc}.ed-hstrip{height:46px;border-bottom:1.5px solid #ccc}
+.ed-head{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:100%;height:56px;border:0;border-bottom:1.5px solid #ddd;background:none;padding:2px;cursor:pointer}
+.ed-head .circ{width:34px;height:34px;margin:0;border-width:2px;box-shadow:none}
+.ed-head .lbl{font-size:8.5px;max-width:58px}
+.ed-head.on{background:var(--c)}
+.ed-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+.ed-inner{position:relative;padding-right:24px}
+.ed-rul{position:relative;height:20px;border-bottom:1.5px solid #ccc;touch-action:none;cursor:pointer}
+.ed-rul i{position:absolute;top:0;height:7px;border-left:1.5px solid #999;font:600 9px/1 var(--body);font-style:normal;padding:8px 0 0 2px;white-space:nowrap}
+.ed-strip{position:relative;height:46px;overflow:hidden;background:#222;border-bottom:1.5px solid #ccc;touch-action:none;cursor:pointer}
+.ed-strip canvas{position:absolute;top:1px;height:44px;opacity:.9}
+.ed-lane{position:relative;height:56px;border-bottom:1.5px solid #ddd}
+.ed-lane.on{background:rgba(255,210,63,.18)}
+.ed-blk{position:absolute;top:8px;height:40px;border:2.5px solid var(--ink);border-radius:9px;touch-action:none;cursor:grab;box-sizing:border-box}
+.ed-blk.sel{border-color:var(--ink);box-shadow:0 0 0 3px var(--gold);z-index:2}
+.ed-blk.now{filter:brightness(1.12);outline:2px dashed var(--ink);outline-offset:1px}
+.ed-h{position:absolute;top:-3px;bottom:-3px;width:18px;background:var(--gold);border:2.5px solid var(--ink);font:900 16px/34px var(--body);font-style:normal;text-align:center;cursor:ew-resize;touch-action:none}
+.ed-hl{left:-11px;border-radius:8px 0 0 8px}.ed-hr{right:-11px;border-radius:0 8px 8px 0}
+.ed-ph{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--red);pointer-events:none;z-index:3}
+.ed-ph::before{content:"";position:absolute;top:0;left:-5px;border:6px solid transparent;border-top:8px solid var(--red)}
+.ed-tools{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}.ed-tools .chipb[disabled]{opacity:.4}
 .vm-out{display:block;width:100%;max-height:52dvh;border:2.5px solid var(--ink);border-radius:14px;background:#000;margin:4px 0 2px}
 #vmSaveNote .save{display:inline-block;background:var(--red);color:#fff;text-decoration:none;border:2.5px solid var(--ink);border-radius:999px;padding:6px 14px 4px;font:400 15px/1 var(--display)}
 .vm-opts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
@@ -1532,7 +1559,7 @@ async function vmAnalyse(file) {
     await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej('load'); });
     if (!isFinite(v.duration) || v.duration > 61) throw 'long';
     VM.dur = v.duration; VM.vw = v.videoWidth; VM.vh = v.videoHeight;
-    const envP = vmEnvelope(file); vmCut.prev = null; vmCut.hist = null; VM.cuts = 0; VM.cutT = [];
+    const envP = vmEnvelope(file); vmCut.prev = null; vmCut.hist = null; VM.cuts = 0; VM.cutT = []; VM.strip = [];
     VM.lm = VM.lm || await makeLandmarker(4, 0.3);
     VM.lm2 = VM.lm2 || await makeLandmarker(2, 0.25);   // second look, on a padded picture, for faces cut off at the edge
     $('vmMsg').textContent = 'Watching the video for faces…';
@@ -1560,6 +1587,10 @@ async function vmAnalyse(file) {
         VM.calls = (VM.calls || 0) + 1; VM.hits = (VM.hits || 0) + (r.faceLandmarks || []).length; vmFaces(r, t, v, tracks);
       } catch (e) { VM.err = String(e); }
       $('vmProg').style.width = (100 * t / VM.dur).toFixed(1) + '%';
+      if (!VM.strip.length || t - VM.strip[VM.strip.length - 1].t >= 0.33) {   // a small picture for the editor's filmstrip
+        const c = document.createElement('canvas'), h = 44, w = Math.max(24, Math.round(h * VM.vw / VM.vh)); c.width = w; c.height = h;
+        try { c.getContext('2d').drawImage(v, 0, 0, w, h); VM.strip.push({ t, c }); } catch (e) {}
+      }
     };
     // Fast way: play the clip (no sound) and read a frame every twelfth of a second as it goes, slowing the
     // playback down if this device reads faces slower than that. Falls back to stepping frame by frame.
@@ -1749,9 +1780,9 @@ function vmTimeline() {
 // the last step: watch it, save it (share sheet on phones, download on computers), or make another
 function vmDone(blob, type, name) {
   const url = URL.createObjectURL(blob); let file = null; try { file = new File([blob], name, { type }); } catch (e) {}
-  vmShow('Your video is ready!', `<video class="vm-out" src="${url}" controls playsinline loop></video>
+  vmShow('Your video is ready!', `<p class="note" style="margin-top:0">Watch it here first. Not right? Tap <b>Keep editing</b>: your lines and Nibbles are kept.</p><video class="vm-out" src="${url}" controls playsinline loop autoplay></video>
     <button class="vm-go" id="vmSave" type="button">${IS_IOS ? 'Save to Photos' : 'Save video'}</button>
-    <div class="vm-row" style="justify-content:center"><button class="chipb seg" id="vmAgain" type="button">Change the Nibbles</button><button class="chipb seg" id="vmNew" type="button">Another video</button></div>
+    <div class="vm-row" style="justify-content:center"><button class="chipb seg" id="vmAgain" type="button">‹ Keep editing</button><button class="chipb seg" id="vmNew" type="button">Another video</button></div>
     <p class="note" id="vmSaveNote"></p>`);
   const download = () => { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); $('vmSaveNote').textContent = 'Saved to your downloads.'; };
   $('vmSave').onclick = async () => {
@@ -1762,7 +1793,7 @@ function vmDone(blob, type, name) {
     }
     download();
   };
-  $('vmAgain').onclick = () => vmCastStep();
+  $('vmAgain').onclick = () => vmEditor();
   $('vmNew').onclick = () => $('vidBtn').click();
 }
 // hear one line of the clip (from its own sound), to tell who's saying it
@@ -1777,11 +1808,12 @@ function vmHear(t0, t1, btn) {
   a.addEventListener('timeupdate', stop);
 }
 function vmLinesToTimeline() {
-  const dt = 0.05, n = Math.ceil(VM.dur / dt), tl = new Array(n).fill(VM.main), L = VM.lines || [];
-  let li = 0, last = -1, lastEnd = -9;
+  const dt = 0.05, n = Math.ceil(VM.dur / dt), tl = new Array(n).fill(VM.main), L = (VM.lines || []).slice().sort((x, y) => x.t0 - y.t0);
+  let last = -1, lastEnd = -9;
   for (let k = 0; k < n; k++) {
-    const t = k * dt; while (li < L.length && L[li].t1 <= t) { last = L[li].who; lastEnd = L[li].t1; li++; }
-    const l = L[li]; tl[k] = l && t >= l.t0 ? l.who : t - lastEnd < 1 && last >= 0 ? last : VM.main;
+    const t = k * dt; let on = null;
+    for (const l of L) { if (l.t0 > t) break; if (t < l.t1) on = l; else if (l.t1 > lastEnd) { lastEnd = l.t1; last = l.who; } }
+    tl[k] = on ? on.who : t - lastEnd < 1 && last >= 0 ? last : VM.main;   // a pause under a second stays on whoever just spoke
   }
   VM.timeline = tl; VM.first = L.length ? L[0].who : VM.main;
 }
@@ -1817,13 +1849,14 @@ function vmCastStep() {
     <p class="note" style="margin-top:0">Same person showing up twice? Tap <b>Same person as ↑</b>.</p>
     <div class="vm-cast" id="vmCast"></div>
     <div class="vm-row"><button class="chipb seg" id="vmRand" type="button">🎲 Random</button>${P.some(p => p.off) ? '' : '<button class="chipb seg" id="vmAddVoice" type="button">🎙️ Add a voice off camera</button>'}</div>
-    ${(VM.lines || []).length ? '<h4 class="vm-h">Who says each line <span>(tap a Nibble to change it, ▶ to hear the line)</span></h4><div class="vm-lines" id="vmLines"></div>' : ''}
+
     <div class="vm-opts">
       <label>Background<select id="vmBg">${opt([['Nibble color', 'Nibble color'], ...Object.keys(BONKD_BGS).map(k => [k, k])], VM.bg)}</select></label>
       <label>Music<select id="vmMusic">${opt([['', 'No music'], ...TRACKS.map(t => [t[0], t[1]])], VM.music)}</select></label>
       <label>Shape<select id="vmShape">${opt(Object.keys(ASPECTS).map(k => [k, RATIO_TXT[k]]), VM.shape)}</select></label>
     </div>
-    <button class="vm-go" id="vmMake" type="button">Make my video</button>`);
+    <button class="vm-go" id="vmEdit" type="button">Next: who talks when</button>
+    <button class="chipb seg" id="vmMake" type="button">Skip and make it now</button>`);
   const box = $('vmCast');
   P.forEach((p, i) => {
     const d = document.createElement('div'); d.className = 'vm-person';
@@ -1865,7 +1898,143 @@ function vmCastStep() {
   $('vmMusic').onchange = e => VM.music = e.target.value;
   $('vmShape').onchange = e => VM.shape = e.target.value;
   $('vmMake').onclick = vmRender;
+  $('vmEdit').onclick = vmEditor;
 }
+// ---------------------------------------------------------------------------
+// The line editor: the clip on top, a filmstrip, and one row per speaker (their Nibble at the left). Each coloured
+// block is a line that speaker says. Tap a block to pick it; drag it to move it (up or down to give it to someone
+// else); drag its yellow ends to trim it, like trimming a clip on iPhone. Split, add and delete at the playhead.
+// When it's made, every block becomes a cut to that speaker's Nibble.
+// ---------------------------------------------------------------------------
+const LANE_COL = ['#8ee26b', '#9fe3fb', '#f48aa8', '#ffd23f', '#c9a7ff', '#ffb36b', '#7fe0d0'];
+const ED = { pps:40, sel:null, lane:0 };
+const fmtT = x => `${Math.floor(x / 60)}:${(x % 60).toFixed(1).padStart(4, '0')}`;
+const pName = i => { const p = VM.people[i]; return p.off ? 'Voice ' + (VM.people.slice(0, i + 1).filter(q => q.off).length) : i === VM.main ? 'Main' : 'Person ' + (i + 1); };
+function vmEditor() {
+  const P = VM.people; VM.lines = VM.lines || [];
+  ED.pps = Math.max(18, Math.min(90, (Math.min(innerWidth, 520) - 110) / Math.max(1, VM.dur) * 1.6));
+  vmShow('Who talks when', `
+    <video class="ed-vid" id="edVid" playsinline preload="auto"></video>
+    <div class="ed-bar"><button class="ed-pp" id="edPP" type="button" aria-label="Play">▶</button><span class="ed-time" id="edTime">0:00.0</span>
+      <span style="flex:1"></span><button class="chipb seg" id="edZo" type="button" aria-label="Zoom out">−</button><button class="chipb seg" id="edZi" type="button" aria-label="Zoom in">+</button></div>
+    <div class="ed-tl"><div class="ed-heads" id="edHeads"></div><div class="ed-scroll" id="edScroll"><div class="ed-inner" id="edInner"></div></div></div>
+    <div class="ed-tools">
+      <button class="chipb seg" id="edSplit" type="button">✂︎ Split</button><button class="chipb seg" id="edAdd" type="button">＋ Line</button>
+      <button class="chipb seg" id="edDel" type="button">🗑 Delete</button><button class="chipb seg" id="edVoice" type="button">🎙️ Add speaker</button></div>
+    <p class="note" id="edHint">Tap a line to pick it. Drag it to move it, up or down to give it to someone else, or drag its yellow ends to trim it.</p>
+    <button class="vm-go" id="edMake" type="button">Make my video</button>
+    <button class="chipb seg" id="edBack" type="button">Back</button>`);
+  const v = $('edVid'); v.src = VM.url; ED.v = v;
+  $('edPP').onclick = () => { if (v.paused) { if (v.currentTime >= VM.dur - 0.05) v.currentTime = 0; v.play().catch(() => {}); } else v.pause(); };
+  v.onplay = () => { $('edPP').textContent = '❚❚'; ED.raf = requestAnimationFrame(edTick); };
+  v.onpause = () => { $('edPP').textContent = '▶'; edTick(); };
+  v.onseeked = () => edTick();
+  $('edZi').onclick = () => { ED.pps = Math.min(160, ED.pps * 1.5); edDraw(); };
+  $('edZo').onclick = () => { ED.pps = Math.max(8, ED.pps / 1.5); edDraw(); };
+  $('edSplit').onclick = edSplit; $('edAdd').onclick = edAdd; $('edDel').onclick = edDel;
+  $('edVoice').onclick = () => {
+    P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 }); const i = P.length - 1;
+    const used = new Set(Object.values(VM.cast).map(Number)), free = NIB_NAMES().map(x => x[0]).find(id => !used.has(id));
+    VM.cast[i] = free || NIB_NAMES()[0][0]; ED.lane = i; edDraw();
+  };
+  $('edMake').onclick = () => { v.pause(); vmLinesToTimeline(); vmRender(); };
+  $('edBack').onclick = () => { v.pause(); vmLinesToTimeline(); vmCastStep(); };
+  edDraw();
+}
+const edNow = () => (ED.v && isFinite(ED.v.currentTime) ? ED.v.currentTime : 0);
+function edTick() {
+  const t = edNow(), ph = $('edPh'); if (!ph) return;
+  ph.style.left = (t * ED.pps) + 'px'; $('edTime').textContent = `${fmtT(t)} / ${fmtT(VM.dur)}`;
+  const sc = $('edScroll'), x = t * ED.pps;
+  if (!ED.v.paused && (x < sc.scrollLeft + 20 || x > sc.scrollLeft + sc.clientWidth - 30)) sc.scrollLeft = x - sc.clientWidth * 0.3;
+  // the line playing now lights up
+  const on = (VM.lines || []).filter(l => t >= l.t0 && t < l.t1).sort((a, b) => b.t0 - a.t0)[0];
+  document.querySelectorAll('.ed-blk').forEach(b => b.classList.toggle('now', on && +b.dataset.i === VM.lines.indexOf(on)));
+  if (!ED.v.paused) ED.raf = requestAnimationFrame(edTick);
+}
+function edDraw() {
+  const P = VM.people, L = VM.lines, pps = ED.pps, W = Math.ceil(VM.dur * pps), heads = $('edHeads'), inner = $('edInner');
+  if (!heads) return;
+  heads.innerHTML = '<div class="ed-hrul"></div><div class="ed-hstrip"></div>'; inner.innerHTML = ''; inner.style.width = W + 'px';
+  // ruler
+  const rul = document.createElement('div'); rul.className = 'ed-rul'; rul.style.width = W + 'px';
+  const step = pps > 60 ? 0.5 : pps > 24 ? 1 : pps > 12 ? 2 : 5;
+  for (let t = 0; t <= VM.dur + 1e-6; t += step) { const k = document.createElement('i'); k.style.left = (t * pps) + 'px'; if (Math.abs(t - Math.round(t)) < 1e-6) k.textContent = `${Math.floor(t / 60)}:${String(Math.round(t) % 60).padStart(2, '0')}`; rul.appendChild(k); }
+  inner.appendChild(rul);
+  // filmstrip
+  const st = document.createElement('div'); st.className = 'ed-strip'; st.style.width = W + 'px';
+  const shots = VM.strip || []; if (shots.length) { const tw = shots[0].c.width * 0.8;
+    for (let x = 0; x < W; x += tw) { const t = x / pps; let b = shots[0]; for (const s of shots) { if (s.t <= t) b = s; else break; }
+      const im = document.createElement('canvas'); im.width = b.c.width; im.height = b.c.height; im.getContext('2d').drawImage(b.c, 0, 0); im.style.left = x + 'px'; im.style.width = tw + 'px'; st.appendChild(im); } }
+  inner.appendChild(st);
+  const seekAt = e => { const r = inner.getBoundingClientRect(), t = Math.max(0, Math.min(VM.dur, (e.clientX - r.left) / pps)); ED.v.currentTime = t; edTick(); };
+  for (const el of [rul, st]) el.addEventListener('pointerdown', e => { e.preventDefault(); seekAt(e); el.setPointerCapture(e.pointerId);
+    const mv = ev => seekAt(ev), up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); };
+    el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); });
+  // a row per speaker
+  P.forEach((p, i) => {
+    const h = document.createElement('button'); h.type = 'button'; h.className = 'ed-head' + (ED.lane === i ? ' on' : ''); h.style.setProperty('--c', LANE_COL[i % LANE_COL.length]);
+    const c = document.createElement('span'); c.className = 'circ'; nibThumb(c, VM.cast[i]); const nm = document.createElement('span'); nm.className = 'lbl'; nm.textContent = pName(i);
+    h.append(c, nm); h.onclick = () => { if (ED.lane === i) pickNibble(VM.cast[i], Object.assign(id => { VM.cast[i] = id; edDraw(); }, { noAdd:true })); else { ED.lane = i; edDraw(); } };
+    heads.appendChild(h);
+    const lane = document.createElement('div'); lane.className = 'ed-lane' + (ED.lane === i ? ' on' : ''); lane.style.width = W + 'px'; lane.dataset.lane = i;
+    lane.addEventListener('pointerdown', e => { if (e.target !== lane) return; ED.lane = i; ED.sel = null; seekAt(e); edDraw(); });
+    inner.appendChild(lane);
+  });
+  // the lines
+  const lanes = inner.querySelectorAll('.ed-lane');
+  L.forEach((l, k) => {
+    const lane = lanes[l.who]; if (!lane) return;
+    const b = document.createElement('div'); b.className = 'ed-blk' + (ED.sel === l ? ' sel' : ''); b.dataset.i = k;
+    b.style.left = (l.t0 * pps) + 'px'; b.style.width = Math.max(6, (l.t1 - l.t0) * pps) + 'px'; b.style.background = LANE_COL[l.who % LANE_COL.length];
+    if (ED.sel === l) { const a = document.createElement('i'); a.className = 'ed-h ed-hl'; a.textContent = '‹'; const z = document.createElement('i'); z.className = 'ed-h ed-hr'; z.textContent = '›'; b.append(a, z); }
+    b.addEventListener('pointerdown', e => edGrab(e, l, b));
+    lane.appendChild(b);
+  });
+  const ph = document.createElement('div'); ph.className = 'ed-ph'; ph.id = 'edPh'; inner.appendChild(ph);
+  $('edDel').disabled = !ED.sel;
+  edTick();
+}
+// dragging a line: its yellow ends trim it, its middle moves it (up or down a row gives it to that speaker)
+function edGrab(e, l, el) {
+  e.preventDefault(); e.stopPropagation();
+  const mode = e.target.classList.contains('ed-hl') ? 'l' : e.target.classList.contains('ed-hr') ? 'r' : 'm';
+  if (ED.sel !== l && mode === 'm') { ED.sel = l; ED.lane = l.who; }
+  const x0 = e.clientX, y0 = e.clientY, a0 = l.t0, b0 = l.t1, w0 = l.who, rowH = el.parentElement.offsetHeight, snap = t => Math.round(t * 20) / 20;
+  let moved = false;
+  const others = () => VM.lines.filter(o => o !== l && o.who === l.who);
+  const mv = ev => {
+    const dt = (ev.clientX - x0) / ED.pps, dy = ev.clientY - y0;
+    if (!moved && Math.hypot(ev.clientX - x0, dy) < 5) return; moved = true;
+    if (mode === 'l') { let t = snap(Math.min(b0 - 0.2, Math.max(0, a0 + dt))); for (const o of others()) if (o.t1 <= b0 && o.t1 > t) t = o.t1; l.t0 = t; }
+    else if (mode === 'r') { let t = snap(Math.max(a0 + 0.2, Math.min(VM.dur, b0 + dt))); for (const o of others()) if (o.t0 >= a0 && o.t0 < t) t = o.t0; l.t1 = t; }
+    else {
+      l.who = Math.max(0, Math.min(VM.people.length - 1, w0 + Math.round(dy / rowH)));
+      const len = b0 - a0; let t = snap(Math.max(0, Math.min(VM.dur - len, a0 + dt)));
+      // never on top of another line of the same speaker
+      for (const o of others()) if (t < o.t1 && t + len > o.t0) t = (a0 + dt) < (o.t0 + o.t1) / 2 - len / 2 ? o.t0 - len : o.t1;
+      l.t0 = Math.max(0, Math.min(VM.dur - len, t)); l.t1 = l.t0 + len;
+    }
+    ED.lane = l.who; edDraw();
+  };
+  const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+    if (!moved) { ED.sel = l; ED.lane = l.who; ED.v.currentTime = l.t0; } vmLinesToTimeline(); edDraw(); };
+  addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+}
+function edSplit() {
+  const t = edNow(), l = (ED.sel && t > ED.sel.t0 + 0.1 && t < ED.sel.t1 - 0.1) ? ED.sel : VM.lines.find(x => x.who === ED.lane && t > x.t0 + 0.1 && t < x.t1 - 0.1);
+  if (!l) { setStatus('x', 'Move the playhead inside a line to split it there.'); return; }
+  const n = { t0:Math.round(t * 20) / 20, t1:l.t1, who:l.who }; l.t1 = n.t0; VM.lines.push(n); ED.sel = n; vmLinesToTimeline(); edDraw();
+}
+function edAdd() {
+  const t = edNow(), who = ED.lane, mine = VM.lines.filter(x => x.who === who).sort((a, b) => a.t0 - b.t0);
+  let a = Math.round(t * 20) / 20, b = Math.min(VM.dur, a + 1.5);
+  for (const o of mine) { if (a >= o.t0 && a < o.t1) a = o.t1; if (o.t0 >= a && o.t0 < b) b = o.t0; }
+  if (b - a < 0.2) { setStatus('x', 'There\'s already a line there. Move the playhead to a gap.'); return; }
+  const n = { t0:a, t1:b, who }; VM.lines.push(n); ED.sel = n; vmLinesToTimeline(); edDraw();
+}
+function edDel() { if (!ED.sel) return; VM.lines.splice(VM.lines.indexOf(ED.sel), 1); ED.sel = null; vmLinesToTimeline(); edDraw(); }
+
 // the face reading for person p at time t (the nearest one the tracker caught, if it's recent)
 function vmSample(p, t) {
   const a = VM.people[p].smp; let lo = 0, hi = a.length - 1;
