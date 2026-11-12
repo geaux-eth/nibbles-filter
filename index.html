@@ -707,7 +707,7 @@ function readVoice(now) {
   let near = 0; for (let i = Math.max(1, pi - 3); i <= Math.min(V.spec.length - 1, pi + 3); i++) near += Math.pow(10, V.spec[i] / 10);
   const pf = pi * V.hz;
   V.whistle = V.voiced && pf > 500 && pf < 4500 && near / (tot + 1e-12) > 0.6;
-  if (V.whistle) V.lastWhistle = now;
+  if (V.whistle) { V.wStart = V.wStart || now; if (now - V.wStart > 250 && !V.noWhistle) V.lastWhistle = now; } else V.wStart = 0;
   // what the voice says about the mouth: the shape (from the formants) and how loud (how wide the jaw goes)
   if (V.voiced) {
     V.loud = Math.max(V.loud * 0.9995, V.rms);                              // typical loud speech level for this person and mic
@@ -1724,7 +1724,9 @@ async function vmRender() {
     VM.keep = { id:S.id, art:S.art, trait:S.trait, bg:S.bg, shape:S.shape || 'Square', face:S.face, mouth:S.mouth, eye:S.eye,
       v:{ an:V.an, buf:V.buf, spec:V.spec, hz:V.hz, floor:V.floor, peak:V.peak, loud:V.loud, trusted:V.trusted, on:V.on, lastVoice:V.lastVoice } };
     VM.ps = P.map(() => ({ mouth:{ cur:0, prev:0, t:0 }, eye:{ cur:0, prev:0, t:0 }, face:{ roll:0, yaw:0, pitch:0, seen:false, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 } }));
-    S.bg = VM.bg; if (BONKD_BGS[S.bg]) bonkdBg(S.bg);
+    S.bg = VM.bg;
+    if (BONKD_BGS[S.bg]) { bonkdBg(S.bg); const pics = [bgCache[S.bg]]; if (ENTRANCE[S.bg]) { entrance(); pics.push(entCache[ENTRANCE[S.bg].name]); }
+      await Promise.all(pics.filter(Boolean).map(i => i.complete && i.naturalWidth ? 0 : new Promise(r => { i.addEventListener('load', r, { once:true }); i.addEventListener('error', r, { once:true }); setTimeout(r, 5000); }))); }
     VM.rendering = true; setShape(VM.shape);
     const v = document.createElement('video'); v.src = VM.url; v.playsInline = true; v.preload = 'auto'; VM.v = v;
     await new Promise((res, rej) => { v.oncanplay = res; v.onerror = rej; v.load(); });
@@ -1734,7 +1736,7 @@ async function vmRender() {
     src.connect(an); src.connect(dest); src.connect(AU.out);
     if (VM.music) { try { const t = TRACKS.find(x => x[0] === VM.music), b = await sound(VM.music); const m = ac.createBufferSource(); m.buffer = b; m.loop = true; m.loopStart = t[2]; m.loopEnd = Math.min(t[3], b.duration);
       const g = ac.createGain(); g.gain.value = 0.22; m.connect(g); g.connect(dest); g.connect(AU.out); VM.mus = m; } catch (e) {} }
-    Object.assign(V, { an, buf:new Float32Array(2048), spec:new Float32Array(1024), hz:ac.sampleRate / 2048, floor:[], peak:0, loud:0.05, trusted:false, on:true, lastVoice:0 });
+    Object.assign(V, { noWhistle:true, an, buf:new Float32Array(2048), spec:new Float32Array(1024), hz:ac.sampleRate / 2048, floor:[], peak:0, loud:0.05, trusted:false, on:true, lastVoice:0 });
     const out = stage.captureStream(30); dest.stream.getAudioTracks().forEach(tr => out.addTrack(tr));
     const mimeType = REC_TYPES.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
     const chunks = []; const rec = new MediaRecorder(out, mimeType ? { mimeType, videoBitsPerSecond:4_000_000 } : undefined); VM.rec = rec;
@@ -1763,7 +1765,7 @@ function vmStop(cancel) {
 function vmRestore() {
   if (!VM.rendering) return; VM.rendering = false; $('vm').classList.remove('rendering');
   const k = VM.keep; if (!k) return;
-  Object.assign(V, k.v); S.id = k.id; S.art = k.art; S.trait = k.trait; S.bg = k.bg; S.face = k.face; S.mouth = k.mouth; S.eye = k.eye; S.tracking = false;
+  Object.assign(V, k.v); V.noWhistle = false; S.id = k.id; S.art = k.art; S.trait = k.trait; S.bg = k.bg; S.face = k.face; S.mouth = k.mouth; S.eye = k.eye; S.tracking = false;
   setShape(k.shape); MH.length = 0; openLvl = 0;
 }
 // one frame of the Nibbled video: who's on screen now, their face, their mouth (from the clip's sound), flipped if they answer
