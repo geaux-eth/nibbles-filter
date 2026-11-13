@@ -175,6 +175,18 @@ header .credit b{font-weight:400}
 .pk-n{font:400 13px/1.1 var(--display);letter-spacing:.02em;text-align:center;max-width:100%;overflow-wrap:anywhere}
 .pk-plus{display:flex;align-items:center;justify-content:center;background:var(--cream);font:400 54px/1 var(--display);color:var(--ink);border-style:dashed}
 .pk-rm{position:absolute;top:-8px;right:-8px;width:26px;height:26px;border:2px solid var(--ink);border-radius:50%;background:#fff;font:700 13px/22px var(--body);text-align:center;cursor:pointer}
+.pk-tools{flex:none;display:flex;flex-wrap:wrap;gap:6px 6px;align-items:center;padding:10px 12px;border-bottom:2.5px solid var(--ink);background:var(--cream)}
+.pk-tools[hidden]{display:none}
+.pk-tools input,.pk-tools select{min-width:0;height:34px;border:2px solid var(--ink);border-radius:10px;background:#fff;font:600 14px/1 var(--body);padding:0 8px;color:var(--ink)}
+.pk-tools input{flex:1 1 150px}.pk-tools input[type=checkbox]{flex:none;width:20px;height:20px;padding:0;accent-color:var(--red)}.pk-tools select{flex:1 1 120px;max-width:calc(50% - 3px)}
+.pk-tools .pk-go{height:34px;border:2px solid var(--ink);border-radius:10px;background:var(--red);color:#fff;font:400 15px/1 var(--display);padding:0 12px;cursor:pointer}
+.pk-tools .pk-cnt{flex:1 0 100%;font:600 12.5px/1.2 var(--body);color:#555}
+.pk-tools .pk-ready{display:flex;align-items:center;gap:5px;font:600 13px/1 var(--body)}
+.pk-ok{position:absolute;left:6px;top:6px;width:22px;height:22px;border:2px solid var(--ink);border-radius:50%;background:#8ee26b;font:700 12px/18px var(--body);text-align:center}
+.pk-card-n{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+.pk-card-n img{width:min(260px,70%);aspect-ratio:1;border:3px solid var(--ink);border-radius:18px;box-shadow:3px 4px 0 var(--ink);background:#eee}
+.pk-card-n dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:0;text-align:left;font:500 14px/1.3 var(--body)}.pk-card-n dt{font-weight:700}.pk-card-n dd{margin:0}
+.pk-card-n p{margin:0;font:500 14px/1.4 var(--body);color:#444;max-width:34ch}
 .pk-c{position:absolute;right:6px;bottom:6px;min-width:24px;height:24px;padding:3px 6px 0;border:2px solid var(--ink);border-radius:999px;background:var(--gold);font:400 13px/1 var(--display);text-align:center}
 
 /* Nibble a Video window */
@@ -327,6 +339,7 @@ header .credit b{font-weight:400}
 <select id="bgSel" aria-label="Background" hidden></select>
 <div class="pk" id="pk" hidden><div class="pk-card" role="dialog" aria-modal="true" aria-labelledby="pkTitle">
   <div class="pk-head"><button class="pk-b" id="pkBack" type="button" aria-label="Back">‹</button><h3 id="pkTitle"></h3><button class="pk-b" id="pkX" type="button" aria-label="Close">✕</button></div>
+  <div class="pk-tools" id="pkTools" hidden></div>
   <div class="pk-grid" id="pkGrid"></div>
 </div></div>
 <div class="vm" id="vm" hidden><div class="vm-card" role="dialog" aria-modal="true" aria-labelledby="vmTitle">
@@ -490,6 +503,7 @@ $('nibbleSel').onchange = e => { loadNibble(+e.target.value); showNibbleThumb(+e
 // ---- pickers ----
 const NIB_LIST = () => Array.from($('nibbleSel').options).map(o => { const [kind, num] = o.textContent.split(' #'); return { id:+o.value, kind, num }; });
 function pkOpen(title, tiles, back) {
+  $('pkTools').hidden = true; $('pkTools').innerHTML = '';
   $('pk').hidden = false; $('pkTitle').textContent = title; $('pkBack').hidden = !back; $('pkBack').onclick = back || null;
   const g = $('pkGrid'); g.innerHTML = '';
   for (const t of tiles) {
@@ -519,7 +533,72 @@ function pickNibble(cur, onPick) {
     remove:ADMIN() && NIBBLES[n.id].remote ? () => adminRemove(n.id) : null })), kindsView);
   kindsView();
 }
-$('nibFace').onclick = () => pickNibble(S.id, id => { if (S.recorder) return; $('nibbleSel').value = id; loadNibble(id); showNibbleThumb(id); });
+// ---------- the whole collection: browse all 8,888 by kind, token number or trait
+const THUMB = id => `thumbs/${id}.webp`;
+async function traitIndex() { if (!TRAITS) await traitsOf(1); return await TRAITS; }
+function pkTile(id, onPick) {
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'pk-t' + (id === S.id ? ' on' : '');
+  const im = document.createElement('span'); im.className = 'pk-img'; im.style.backgroundImage = `url(${THUMB(id)})`;
+  if (NIBBLES[id]) { const ok = document.createElement('span'); ok.className = 'pk-ok'; ok.textContent = '✓'; ok.title = 'Ready'; im.appendChild(ok); }
+  const n = document.createElement('span'); n.className = 'pk-n'; n.textContent = '#' + id;
+  b.append(im, n); b.onclick = () => onPick(id); return b;
+}
+function collection(onPick) {
+  const kinds = KINDS, built = NIB_LIST();
+  const open = id => { if (NIBBLES[id]) { pkClose(); onPick(id); } else tokenCard(id); };
+  const home = async () => {
+    pkOpen('Choose a Nibble', [
+      ...(built.length ? [{ name:'Ready now', count:built.length, paint:el => nibThumb(el, S.id || built[0].id), pick:() => readyView() }] : []),
+      ...kinds.map(k => ({ name:k === 'Wolf' ? 'Wolves' : k + 's', count:1111, paint:el => { el.style.backgroundImage = `url(${THUMB(KIND_FACE[k])})`; }, pick:() => kindView(k, {}) })),
+      { name:'Add Nibble', plus:true, paint:() => {}, pick:() => { pkClose(); addNibble(); } }]);
+    const t = $('pkTools'); t.hidden = false;
+    t.innerHTML = '<input id="pkNum" type="number" inputmode="numeric" min="1" max="8888" placeholder="Token number (1 to 8888)"><button class="pk-go" id="pkGo" type="button">Go</button>';
+    const go = () => { const id = +$('pkNum').value; if (id >= 1 && id <= 8888) open(id); else setStatus('x', 'Enter a token number from 1 to 8888.', 'err'); };
+    $('pkGo').onclick = go; $('pkNum').onkeydown = e => { if (e.key === 'Enter') go(); };
+  };
+  const readyView = () => pkOpen('Ready now', built.map(n => ({ name:`${n.kind} #${n.num}`, on:n.id === S.id, paint:el => nibThumb(el, n.id), pick:() => { pkClose(); onPick(n.id); },
+    remove:ADMIN() && NIBBLES[n.id].remote ? () => adminRemove(n.id) : null })), home);
+  const kindView = async (k, f) => {
+    pkOpen(k === 'Wolf' ? 'Wolves' : k + 's', [], home);
+    const m = await traitIndex(); if (!m) { setStatus('x', 'The collection list didn\'t load. Try again.', 'err'); return; }
+    const ci = m.k.indexOf('Character'), kv = m.v[ci].indexOf(k), show = ['Skin', 'Eyes', 'Mouth', 'Outfit', 'Accessory'].filter(x => m.k.includes(x));
+    const mine = []; m.t.forEach((row, i) => { if (row && row[ci] === kv) mine.push(i + 1); });
+    const t = $('pkTools'); t.hidden = false;
+    const strip = v => String(v).replace(new RegExp('^' + k + '\\s+', 'i'), '');
+    t.innerHTML = show.map(name => { const j = m.k.indexOf(name), cnt = new Map();
+        for (const id of mine) { const v = m.t[id - 1][j]; if (v >= 0) cnt.set(v, (cnt.get(v) || 0) + 1); }
+        const opts = [...cnt].sort((a, b) => strip(m.v[j][a[0]]).localeCompare(strip(m.v[j][b[0]])));
+        return `<select data-t="${name}" aria-label="${name}"><option value="">${name}: any</option>${opts.map(([v, n]) => `<option value="${v}"${f[name] === v ? ' selected' : ''}>${esc(strip(m.v[j][v]))} (${n})</option>`).join('')}</select>`; }).join('') +
+      `<label class="pk-ready"><input type="checkbox" id="pkRdy"${f.ready ? ' checked' : ''}> Ready only</label><span class="pk-cnt" id="pkCnt"></span>`;
+    t.querySelectorAll('select').forEach(sel => sel.onchange = () => { const v = sel.value; if (v === '') delete f[sel.dataset.t]; else f[sel.dataset.t] = +v; fill(); });
+    $('pkRdy').onchange = e => { f.ready = e.target.checked; fill(); };
+    const fill = () => {
+      const g = $('pkGrid'); g.innerHTML = ''; g.scrollTop = 0;
+      const list = mine.filter(id => (!f.ready || NIBBLES[id]) && show.every(name => f[name] == null || m.t[id - 1][m.k.indexOf(name)] === f[name]));
+      $('pkCnt').textContent = `${list.length.toLocaleString()} ${list.length === 1 ? 'Nibble' : 'Nibbles'} · ✓ = ready to use`;
+      let at = 0; const more = () => { const end = Math.min(list.length, at + 60); for (; at < end; at++) g.appendChild(pkTile(list[at], open)); if (at < list.length) g.appendChild(sent); else sent.remove(); };
+      const sent = document.createElement('div'); sent.style.cssText = 'grid-column:1/-1;height:1px';
+      const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) more(); }, { root:g, rootMargin:'400px' }); io.observe(sent);
+      more();
+    };
+    fill();
+  };
+  const tokenCard = async id => {
+    const t = await traitsOf(id), a = t ? t.a : {}, k = a.Character || 'Nibble';
+    pkOpen(`${k} #${id}`, [], home);
+    const g = $('pkGrid'), c = document.createElement('div'); c.className = 'pk-card-n';
+    c.innerHTML = `<img src="${nibblePic(id)}" alt="${esc(k)} #${id}">
+      <dl>${['Skin', 'Eyes', 'Mouth', 'Outfit', 'Accessory', 'Background'].filter(x => a[x]).map(x => `<dt>${x}</dt><dd>${esc(String(a[x]))}</dd>`).join('')}</dl>
+      <p>This Nibble can't talk yet. Every ${esc(k)} is on the way; or make this one talk now with three pictures from Gemini.</p>
+      <button class="vm-go" type="button" id="pkMake">Make it talk now</button>`;
+    g.appendChild(c);
+    $('pkMake').onclick = () => { pkClose(); if (AN.token !== id) { for (const x in AN) delete AN[x]; } AN.token = id; AN.kind = KINDS.includes(k) ? k : AN.kind; addNibble(); const i = $('anTok'); if (i) i.dispatchEvent(new Event('input')); };
+  };
+  home();
+}
+// a face to show on each kind's tile
+const KIND_FACE = { Bear:4248, Beaver:5502, Cock:8212, Gecko:2525, Ghost:4075, Gnome:3385, Raccoon:8102, Wolf:7996 };
+$('nibFace').onclick = () => collection(id => { if (S.recorder) return; $('nibbleSel').value = id; loadNibble(id); showNibbleThumb(id); });
 function bgThumb(el, name) {
   el.style.backgroundImage = BONKD_BGS[name] ? `url(${bgSrc(name)})` : 'none'; el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center';
   el.style.backgroundColor = name === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
