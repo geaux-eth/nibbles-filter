@@ -1,34 +1,34 @@
 {
   "attributes": [
     {
-      "value": "Wolf Bowler Hat",
+      "value": "Dark Magic",
       "trait_type": "Accessory"
     },
     {
-      "value": "Peach",
+      "value": "Sea Foam",
       "trait_type": "Background"
     },
     {
-      "value": "Wolf",
+      "value": "Gnome",
       "trait_type": "Character"
     },
     {
-      "value": "Wolf Angry",
+      "value": "Gnome Candy Stone",
       "trait_type": "Eyes"
     },
     {
-      "value": "Smile",
+      "value": "Frown",
       "trait_type": "Mouth"
     },
     {
-      "value": "Wolf McNibbles Outfit",
+      "value": "Gnome Vest Brown",
       "trait_type": "Outfit"
     },
     {
-      "value": "Blue",
+      "value": "Stone",
       "trait_type": "Skin"
     }
   ],
-  "image": "https://d24r2edyfve7yo.cloudfront.net/nibbles/images/271.png",
-  "name": "Nibble #271"
+  "image": "https://d24r2edyfve7yo.cloudfront.net/nibbles/images/2.png",
+  "name": "Nibble #2"
 }
