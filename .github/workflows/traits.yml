@@ -1,0 +1,27 @@
+name: Trait index
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: 'Token ids, comma separated (blank = all 8888)'
+        required: false
+        default: ''
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node tools/traits.mjs
+        env:
+          IDS: ${{ inputs.ids }}
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add data/traits.json data/traits-sample.json data/traits-tally.json
+          git commit -m "Trait index from on-chain metadata" || echo "no change"
+          git push
