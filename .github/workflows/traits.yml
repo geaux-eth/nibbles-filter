@@ -16,6 +16,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Can a web page read the pictures and metadata? (CORS)
+        run: |
+          for u in https://d24r2edyfve7yo.cloudfront.net/nibbles/images/5502.png https://frankymetadataserver-production.up.railway.app/nibble/metadata/5502; do
+            echo "== $u"; curl -sS -o /dev/null -D - -H "Origin: https://geaux-eth.github.io" "$u" | grep -i -E "^(HTTP|access-control|content-type|content-length)" || true
+          done
       - run: node tools/traits.mjs
         env:
           IDS: ${{ inputs.ids }}
