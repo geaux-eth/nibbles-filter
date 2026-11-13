@@ -300,11 +300,11 @@ function gains(orig, pic, ring) {   // colour match: the panel's colours scaled 
     if (orig[j] + orig[j + 1] + orig[j + 2] < 150) continue; for (let c = 0; c < 3; c++) { s[c] += orig[j + c]; s[c + 3] += pic[j + c]; } }
   return [0, 1, 2].map(c => s[c + 3] > 0 ? Math.min(1.25, Math.max(0.8, s[c] / s[c + 3])) : 1);
 }
-function softMask(m) {   // working-size mask -> full-size soft alpha (Float32)
+function softMask(m, px = 1.5) {   // working-size mask -> full-size soft alpha (Float32)
   const c = cv(W, W), g = g2(c), id = g.createImageData(W, W);
   for (let i = 0; i < MW; i++) { id.data[i * 4 + 3] = m[i] ? 255 : 0; }
   g.putImageData(id, 0, 0);
-  const b = cv(N, N), bg = g2(b); bg.filter = 'blur(1.5px)'; bg.drawImage(c, 0, 0, N, N);
+  const b = cv(N, N), bg = g2(b); bg.filter = `blur(${px}px)`; bg.drawImage(c, 0, 0, N, N);
   const d = bg.getImageData(0, 0, N, N).data, a = new Float32Array(N * N);
   for (let i = 0; i < N * N; i++) a[i] = d[i * 4 + 3] / 255;
   return a;
@@ -408,7 +408,11 @@ export async function build(orig, sheets, onStep = () => {}) {
   let eyes = null, ezone = null;
   if (eyesIn && (eyesIn.length === 5 || eyesIn.length === 3)) {
     onStep('Building the blink…'); await tick();
-    const e = all.filter(x => x.sheet === 3), notMouth = inv(dilate(core, 8));   // the mouth area may reach the eyes; the eye layers sit on top
+    const e = all.filter(x => x.sheet === 3), notMouth = inv(dilate(core, 8));
+    // the white of an eye (and its outline) is never the mouth, even right next to a beak or snout: the eye layers must cover it
+    const white = new Uint8Array(MW);
+    for (let i = 0; i < MW; i++) { const j = i * 4; if (od[j + 3] > 200 && od[j] > 185 && od[j + 1] > 185 && od[j + 2] > 175 && Math.max(od[j], od[j + 1], od[j + 2]) - Math.min(od[j], od[j + 1], od[j + 2]) < 40) white[i] = 1; }
+    const whiteG = dilate(open_(white, 1), 4); for (let i = 0; i < MW; i++) if (whiteG[i]) notMouth[i] = 1;
     const need = e.length >= 5 ? 2 : 1;
     // the eyes are in the head (the top 60% of the Nibble): line every face up there first, and look only there
     const sb = bboxOf(osil, W), head = [sb[0], sb[1], sb[2], Math.round(sb[1] + (sb[3] - sb[1]) * 0.6)], hm = new Uint8Array(MW);
@@ -426,7 +430,7 @@ export async function build(orig, sheets, onStep = () => {}) {
       // each eye layer covers the whole eye area (closed eyes must hide the open ones completely)
       const eall = fillHoles(close_(EM.filter((m, k) => !ebad[k]).reduce(or, new Uint8Array(MW)), 6)), full = and(dilate(eall, 7), notMouth);
       ezone = full;
-      const ering = and(and(dilate(ezone, 8), inv(ezone)), osil), ea = softMask(ezone);
+      const ering = and(and(dilate(ezone, 8), inv(ezone)), osil), ea = softMask(ezone, 4);   // a soft edge, so the layer never shows as a patch
       const layers = e.slice(1).map((x, k) => ebad[k] ? null : compose(orig, x.full, ea, gains(od, x.small, ering), true));
       const slots = layers.length === 4 ? [null, ...layers] : [null, null, null, ...layers];   // filter slots: 1 angry, 2 surprised, 3 half, 4 closed
       if (!slots[4]) { P('The closed eyes didn\'t come out right, so it goes live without the blink.', 3); ezone = null; }

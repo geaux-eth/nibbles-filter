@@ -25,6 +25,13 @@ function soft(m, px = 1.5) {   // mask -> blurred alpha 0..1
   const d = bg.getImageData(0, 0, N, N).data, a = new Float32Array(N * N); for (let i = 0; i < N * N; i++) a[i] = Math.min(m[i] ? 1 : 0.999, d[i * 4 + 3] / 255); return a;
 }
 
+function unfleck(D) {
+  const dk = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) { const i = p * 4; if (D[i + 3] > 128 && D[i] + D[i + 1] + D[i + 2] < 140) dk[p] = 1; }
+  const big = blobs(dk, 40);
+  for (let p = 0; p < N * N; p++) { if (!dk[p] || big[p]) continue; const x = p % N, y = (p / N) | 0; let r = 0, g = 0, b = 0, n = 0;
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= N || yy >= N) continue; const q = yy * N + xx; if (dk[q]) continue; const j = q * 4; r += D[j]; g += D[j + 1]; b += D[j + 2]; n++; }
+    if (n) { const i = p * 4; D[i] = r / n; D[i + 1] = g / n; D[i + 2] = b / n; } }
+}
 // pixels set in m, minus specks smaller than min
 function blobs(m, min) {
   const lab = new Int32Array(N * N), q = new Int32Array(N * N), out = new Uint8Array(N * N); let id = 0;
@@ -66,23 +73,34 @@ function inpaint(T, hole, busy) {
 
 // colour map from the reference's colours to this Nibble's, learned where both show the same body part
 function colourMap(R, T, where) {
-  const sum = new Map();
+  // per reference colour: the median of this Nibble's colours at the same spots, kept only when they agree
+  const lists = new Map();
   for (let p = 0; p < N * N; p++) { if (!where[p]) continue; const i = p * 4;
-    if (R[i + 3] < 220 || T[i + 3] < 220 || lum(R, i) < 150 || lum(T, i) < 90) continue;   // skip ink and see-through
-    const k = bin(R[i], R[i + 1], R[i + 2]); let s = sum.get(k); if (!s) sum.set(k, s = [0, 0, 0, 0, 0, 0, 0]);
-    s[0] += T[i]; s[1] += T[i + 1]; s[2] += T[i + 2]; s[3] += R[i]; s[4] += R[i + 1]; s[5] += R[i + 2]; s[6]++; }
+    if (R[i + 3] < 220 || T[i + 3] < 220 || lum(R, i) < 75 || lum(T, i) < 75) continue;   // skip ink and see-through
+    const k = bin(R[i], R[i + 1], R[i + 2]); let l = lists.get(k); if (!l) lists.set(k, l = []);
+    if (l.length < 4000) l.push(p); }
   const known = [];
-  for (const [k, s] of sum) if (s[6] >= 4) known.push({ k, r:s[3] / s[6], g:s[4] / s[6], b:s[5] / s[6], tr:s[0] / s[6], tg:s[1] / s[6], tb:s[2] / s[6], n:s[6] });
+  const med = a => { a.sort((x, y) => x - y); return a[a.length >> 1]; };
+  for (const [k, ps] of lists) { if (ps.length < 12) continue;
+    const tr = med(ps.map(p => T[p * 4])), tg = med(ps.map(p => T[p * 4 + 1])), tb = med(ps.map(p => T[p * 4 + 2]));
+    let agree = 0; for (const p of ps) { const i = p * 4; if (Math.abs(T[i] - tr) + Math.abs(T[i + 1] - tg) + Math.abs(T[i + 2] - tb) < 60) agree++; }
+    if (agree < ps.length * 0.6) continue;   // this colour lands on different things in this Nibble (clothes, glasses): not skin to copy
+    const r = med(ps.map(p => R[p * 4])), g = med(ps.map(p => R[p * 4 + 1])), b = med(ps.map(p => R[p * 4 + 2]));
+    known.push({ r, g, b, tr, tg, tb, n:ps.length }); }
   const cache = new Map();
-  // a kit colour that is close to a reference body colour takes this Nibble's version of it (keeping its own shading
-  // difference); anything else (ink, teeth, tongue, inside of the mouth) stays as drawn
   return (r, g, b) => {
     const k = bin(r, g, b); let m = cache.get(k);
     if (m === undefined) { m = null; let best = 46;
       for (const c of known) { const d = Math.abs(c.r - r) + Math.abs(c.g - g) + Math.abs(c.b - b); if (d < best) { best = d; m = c; } }
       cache.set(k, m); }
-    if (!m) return null;
-    return [m.tr + (r - m.r), m.tg + (g - m.g), m.tb + (b - m.b)].map(v => Math.max(0, Math.min(255, Math.round(v))));
+    // a darker shade of a main skin colour (Gemini often draws the fur darker, and outlines fade into it): the same
+    // shade of this Nibble's colour. Checked first for anything that isn't ink, since a dark detail colour can look alike.
+    let bd = null, bs = 0, be = r + g + b >= 80 ? 22 : 40;
+    for (const c of known) { if (c.r + c.g + c.b < 150) continue; const s0 = (r + g + b) / Math.max(1, c.r + c.g + c.b); if (s0 < 0.12 || s0 > 1.05) continue;
+      const e = Math.abs(r - s0 * c.r) + Math.abs(g - s0 * c.g) + Math.abs(b - s0 * c.b); if (e < be) { be = e; bd = c; bs = s0; } }
+    const shade = bd ? [bd.tr * bs, bd.tg * bs, bd.tb * bs].map(v => Math.max(0, Math.min(255, Math.round(v)))) : null;
+    if (m && (!shade || Math.abs(m.r - r) + Math.abs(m.g - g) + Math.abs(m.b - b) < 12)) return [m.tr + (r - m.r), m.tg + (g - m.g), m.tb + (b - m.b)].map(v => Math.max(0, Math.min(255, Math.round(v))));
+    return shade || (m ? [m.tr + (r - m.r), m.tg + (g - m.g), m.tb + (b - m.b)].map(v => Math.max(0, Math.min(255, Math.round(v)))) : null);
   };
 }
 
@@ -90,6 +108,9 @@ function colourMap(R, T, where) {
 // Returns { frames[10], eyes[5], mouthBox, eyeBox } in the builder's format.
 export function fromKit(Timg, ref, { blink = true } = {}) {
   const T = data(Timg), R = data(ref.base), K = ref.mouths.map(data);
+  // Gemini's panels have small dark flecks in the fur: a dark spot too small to be part of a line takes the colour around it
+  for (let k = 1; k < 10; k++) unfleck(K[k]);
+  if (ref.eyes) ref._E = ref.eyes.map(e => e ? data(e) : null);
   // the mouth zone: where any reference mouth differs from the reference picture
   // (changed in at least 2 of the 9 mouths, so stray specks don't count)
   const hits = new Uint8Array(N * N), Z = new Uint8Array(N * N);
@@ -104,18 +125,18 @@ export function fromKit(Timg, ref, { blink = true } = {}) {
   // the reference's face colours (fur, snout, cheeks): the commonest colours just above the mouth
   let zy = 0, zn = 0; for (let p = 0; p < N * N; p++) if (Z[p]) { zy += (p / N) | 0; zn++; } zy = zn ? zy / zn : N / 2;
   const skinOf = (where, above) => { const cnt = new Map(); let tot = 0;
-    for (let p = 0; p < N * N; p++) { if (!where[p] || (above && ((p / N) | 0) > zy)) continue; const i = p * 4; if (R[i + 3] < 220 || lum(R, i) < 150) continue; const k = bin(R[i], R[i + 1], R[i + 2]); cnt.set(k, (cnt.get(k) || 0) + 1); tot++; }
+    for (let p = 0; p < N * N; p++) { if (!where[p] || (above && ((p / N) | 0) > zy)) continue; const i = p * 4; if (R[i + 3] < 220 || lum(R, i) < 75) continue; const k = bin(R[i], R[i + 1], R[i + 2]); cnt.set(k, (cnt.get(k) || 0) + 1); tot++; }
     return [...cnt].filter(([, n]) => n > tot * 0.02).map(([k]) => k); };
   const skin = [...new Set([...skinOf(ring, true), ...(eyeRing ? skinOf(eyeRing, false) : [])])];
   const isSkinC = (r0, g0, b0) => { for (const k of skin) { const r = (k >> 10) << 3, g = ((k >> 5) & 31) << 3, b = (k & 31) << 3; if (Math.abs(r0 - r - 4) + Math.abs(g0 - g - 4) + Math.abs(b0 - b - 4) < 42) return true; } return false; };
   const isSkin = (S, i) => { for (const k of skin) { const r = (k >> 10) << 3, g = ((k >> 5) & 31) << 3, b = (k & 31) << 3; if (Math.abs(S[i] - r - 4) + Math.abs(S[i + 1] - g - 4) + Math.abs(S[i + 2] - b - 4) < 42) return true; } return false; };
   // only fur / skin colours are recoloured; ink, teeth, tongue and the inside of the mouth stay as drawn
-  const skinRing = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) if ((ring[p] || (eyeRing && eyeRing[p])) && isSkin(R, p * 4)) skinRing[p] = 1;
+  const skinRing = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) if (((ring[p] && ((p / N) | 0) < zy + 25) || (eyeRing && eyeRing[p])) && isSkin(R, p * 4)) skinRing[p] = 1;
   const map = colourMap(R, T, skinRing);
-  const mapped = (S, i) => { if (S[i + 3] < 8) return null; const m = isSkinC(S[i], S[i + 1], S[i + 2]) ? map(S[i], S[i + 1], S[i + 2]) : null; return m || [S[i], S[i + 1], S[i + 2]]; };
+  const mapped = (S, i) => { if (S[i + 3] < 8) return null; const m = isSkinC(S[i], S[i + 1], S[i + 2]) || lum(S, i) < 260 ? map(S[i], S[i + 1], S[i + 2]) : null; return m || [S[i], S[i + 1], S[i + 2]]; };
   // the reference's own clothes near the mouth: when a closing jaw shows them, this Nibble's clothes are filled in instead
   const cloth = new Set(); { const cc = new Map(); let ct = 0;
-    for (let p = 0; p < N * N; p++) { if (!ring[p] || ((p / N) | 0) < zy) continue; const i = p * 4; if (R[i + 3] < 220 || lum(R, i) < 150 || isSkin(R, i)) continue; const k = bin(R[i], R[i + 1], R[i + 2]); cc.set(k, (cc.get(k) || 0) + 1); ct++; }
+    for (let p = 0; p < N * N; p++) { if (!ring[p] || ((p / N) | 0) < zy) continue; const i = p * 4; if (R[i + 3] < 220 || lum(R, i) < 75 || isSkin(R, i)) continue; const k = bin(R[i], R[i + 1], R[i + 2]); cc.set(k, (cc.get(k) || 0) + 1); ct++; }
     for (const [k, n] of cc) if (n > ct * 0.01) cloth.add(k); }
   // the face, in the reference: skin, the ink drawn on it, and the mouth itself
   const face0 = new Uint8Array(N * N);
@@ -135,14 +156,16 @@ export function fromKit(Timg, ref, { blink = true } = {}) {
     if (!(pink || drool)) continue; const R0 = R[i], G0 = R[i + 1], B0 = R[i + 2];
     if (Math.abs(R0 - r) + Math.abs(G0 - g) + Math.abs(B0 - b) < 60) continue;   // the reference has the same thing here: not this Nibble's own
     st0[p] = 1; }
-  const stick = grow(fillHoles(blobs(st0, 400)), 6);
+  const stick = new Uint8Array(N * N);   // a hanging tongue or drool stays (filling where it was smeared); the talking mouth draws over it
   const frames = [Timg];
   let mb = [N, N, 0, 0];
   for (let k = 1; k < 10; k++) {
     const D = K[k], use = new Uint8Array(N * N);
     for (let p = 0; p < N * N; p++) { if (!Zd[p]) continue; const i = p * 4;
-      if ((ownG[p] && face[p]) || Math.abs(D[i + 3] - R[i + 3]) > 30 || dist(D, i, R, i) > 30) use[p] = 1; }
-    const useG = grow(use, 2); for (let p = 0; p < N * N; p++) useG[p] &= Zd[p];
+      if (Math.abs(D[i + 3] - R[i + 3]) > 30 || dist(D, i, R, i) > 30) use[p] = 1; }
+    // only solid changes count: scattered differences are Gemini redrawing the fur, and stay this Nibble's own
+    const solid = fillHoles(grow(shrink(grow(blobs(use, 120), 3), 3), 0));
+    const useG = grow(solid, 2); for (let p = 0; p < N * N; p++) { if (ownG[p] && face[p]) useG[p] = 1; useG[p] &= Zd[p]; }
     // pixels where this mouth shows the reference's clothes: filled from this Nibble's own picture around them
     // (a dark, wide, colourless area is clothing too: ink lines are thin and the mouth's inside is red)
     // anything here that isn't skin, the mouth (reds, pinks, teeth) or a thin ink line is the reference's clothes
@@ -169,7 +192,7 @@ export function fromKit(Timg, ref, { blink = true } = {}) {
   let eyes = [null, null, null, null, null], eb = [0, 0, 0, 0];
   if (blink && ref.eyes && ref.eyes[4]) {
     eb = [N, N, 0, 0];
-    eyes = [null, null, null, ...[3, 4].map(k => { const E = data(ref.eyes[k]), c = cv(), g = c.getContext('2d'), id = g.createImageData(N, N), o = id.data;
+    eyes = [null, null, null, ...[3, 4].map(k => { const E = ref._E[k]; unfleck(E); const  c = cv(), g = c.getContext('2d'), id = g.createImageData(N, N), o = id.data;
       for (let p = 0; p < N * N; p++) { const i = p * 4; if (E[i + 3] < 8) continue; const m = mapped(E, i);
         o[i] = m[0]; o[i + 1] = m[1]; o[i + 2] = m[2]; o[i + 3] = E[i + 3];
         const x = p % N, y = (p / N) | 0; if (x < eb[0]) eb[0] = x; if (y < eb[1]) eb[1] = y; if (x > eb[2]) eb[2] = x; if (y > eb[3]) eb[3] = y; }
