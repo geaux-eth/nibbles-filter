@@ -1,0 +1,32 @@
+name: Thumbnails
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: 'Token ids, comma separated (blank = all 8888)'
+        required: false
+        default: ''
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-save sharp@0.33.5
+      - run: node tools/thumbs.mjs
+        env:
+          IDS: ${{ inputs.ids }}
+      - name: Research samples to the research branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          mv research /tmp/research
+          git add thumbs && git commit -qm "Collection thumbnails" || echo "no thumbs change"
+          git push
+          git checkout --orphan research && git rm -rqf . && mv /tmp/research ./research
+          git add research && git commit -qm "Research samples" && git push -f origin research
