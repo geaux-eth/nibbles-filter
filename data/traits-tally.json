@@ -1,0 +1,45 @@
+{
+ "Accessory": {
+  "Wolf Bowler Hat": 1,
+  "Ghost Cowboy Hat": 1,
+  "Ghost Cloak": 1,
+  "Beaver Glasses Yellow": 1,
+  "Cock Maaaaahhhaaaaawk Yellow": 1
+ },
+ "Background": {
+  "Peach": 1,
+  "Sky Blue": 2,
+  "Coral Pink": 2
+ },
+ "Character": {
+  "Wolf": 1,
+  "Ghost": 2,
+  "Beaver": 1,
+  "Cock": 1
+ },
+ "Eyes": {
+  "Wolf Angry": 1,
+  "Ghost Angry": 2,
+  "Beaver Unpleased": 1,
+  "Cock Fire": 1
+ },
+ "Mouth": {
+  "Smile": 1,
+  "Surprised": 1,
+  "Frown": 1,
+  "Drooling": 1,
+  "Tongue Out": 1
+ },
+ "Outfit": {
+  "Wolf McNibbles Outfit": 1,
+  "Naked": 2,
+  "Beaver Cloak": 1,
+  "Cock Tattoo": 1
+ },
+ "Skin": {
+  "Blue": 1,
+  "Lime Green": 2,
+  "Dark": 1,
+  "Brown": 1
+ }
+}

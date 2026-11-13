@@ -1,0 +1,34 @@
+{
+  "attributes": [
+    {
+      "value": "Wolf Bowler Hat",
+      "trait_type": "Accessory"
+    },
+    {
+      "value": "Peach",
+      "trait_type": "Background"
+    },
+    {
+      "value": "Wolf",
+      "trait_type": "Character"
+    },
+    {
+      "value": "Wolf Angry",
+      "trait_type": "Eyes"
+    },
+    {
+      "value": "Smile",
+      "trait_type": "Mouth"
+    },
+    {
+      "value": "Wolf McNibbles Outfit",
+      "trait_type": "Outfit"
+    },
+    {
+      "value": "Blue",
+      "trait_type": "Skin"
+    }
+  ],
+  "image": "https://d24r2edyfve7yo.cloudfront.net/nibbles/images/271.png",
+  "name": "Nibble #271"
+}
