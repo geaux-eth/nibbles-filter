@@ -353,7 +353,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261113-1100';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261113-1500';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -536,16 +536,17 @@ function pickNibble(cur, onPick) {
 // ---------- the whole collection: browse all 8,888 by kind, token number or trait
 const THUMB = id => `thumbs/${id}.webp`;
 async function traitIndex() { if (!TRAITS) await traitsOf(1); return await TRAITS; }
-function pkTile(id, onPick) {
+function pkTile(id, onPick, ready = !!NIBBLES[id]) {
   const b = document.createElement('button'); b.type = 'button'; b.className = 'pk-t' + (id === S.id ? ' on' : '');
   const im = document.createElement('span'); im.className = 'pk-img'; im.style.backgroundImage = `url(${THUMB(id)})`;
-  if (NIBBLES[id]) { const ok = document.createElement('span'); ok.className = 'pk-ok'; ok.textContent = '✓'; ok.title = 'Ready'; im.appendChild(ok); }
+  if (ready) { const ok = document.createElement('span'); ok.className = 'pk-ok'; ok.textContent = '✓'; ok.title = 'Ready'; im.appendChild(ok); }
   const n = document.createElement('span'); n.className = 'pk-n'; n.textContent = '#' + id;
   b.append(im, n); b.onclick = () => onPick(id); return b;
 }
 function collection(onPick) {
   const kinds = KINDS, built = NIB_LIST();
-  const open = id => { if (NIBBLES[id]) { pkClose(); onPick(id); } else tokenCard(id); };
+  const open = async id => { if (NIBBLES[id]) { pkClose(); onPick(id); return; }
+    const t = await traitsOf(id); if (kitFor(t)) { pkClose(); if (await kitPrepare(id)) onPick(id); } else tokenCard(id); };
   const home = async () => {
     pkOpen('Choose a Nibble', [
       ...(built.length ? [{ name:'Ready now', count:built.length, paint:el => nibThumb(el, S.id || built[0].id), pick:() => readyView() }] : []),
@@ -574,9 +575,10 @@ function collection(onPick) {
     $('pkRdy').onchange = e => { f.ready = e.target.checked; fill(); };
     const fill = () => {
       const g = $('pkGrid'); g.innerHTML = ''; g.scrollTop = 0;
-      const list = mine.filter(id => (!f.ready || NIBBLES[id]) && show.every(name => f[name] == null || m.t[id - 1][m.k.indexOf(name)] === f[name]));
+      const kitOK = !!KIT_REF[k], isReady = id => !!NIBBLES[id] || (kitOK && !SPECIAL_SKINS.has(m.v[m.k.indexOf('Skin')][m.t[id - 1][m.k.indexOf('Skin')]]));
+      const list = mine.filter(id => (!f.ready || isReady(id)) && show.every(name => f[name] == null || m.t[id - 1][m.k.indexOf(name)] === f[name]));
       $('pkCnt').textContent = `${list.length.toLocaleString()} ${list.length === 1 ? 'Nibble' : 'Nibbles'} · ✓ = ready to use`;
-      let at = 0; const more = () => { const end = Math.min(list.length, at + 60); for (; at < end; at++) g.appendChild(pkTile(list[at], open)); if (at < list.length) g.appendChild(sent); else sent.remove(); };
+      let at = 0; const more = () => { const end = Math.min(list.length, at + 60); for (; at < end; at++) g.appendChild(pkTile(list[at], open, isReady(list[at]))); if (at < list.length) g.appendChild(sent); else sent.remove(); };
       const sent = document.createElement('div'); sent.style.cssText = 'grid-column:1/-1;height:1px';
       const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) more(); }, { root:g, rootMargin:'400px' }); io.observe(sent);
       more();
@@ -595,6 +597,38 @@ function collection(onPick) {
     $('pkMake').onclick = () => { pkClose(); if (AN.token !== id) { for (const x in AN) delete AN[x]; } AN.token = id; AN.kind = KINDS.includes(k) ? k : AN.kind; addNibble(); const i = $('anTok'); if (i) i.dispatchEvent(new Event('input')); };
   };
   home();
+}
+// ---------- kits: any Nibble of a kind talks with its kind's kit (see kit.js). Kinds are added as their kits are checked.
+const KIT_REF = { Wolf:271 };
+const SPECIAL_SKINS = new Set(['Red', 'Wrestler', 'Plush', 'Seawoman', 'Werewolf', 'Mage', 'Alien', 'Human', 'Metal', 'Dissection', 'Slime', 'Dragon', 'Fire', 'Mummy']);
+const kitFor = t => { const a = t && t.a; return a && !SPECIAL_SKINS.has(a.Skin) ? KIT_REF[a.Character] || null : null; };
+// eyes that don't blink: fire, lasers, X / knocked out, spirals, slot machines, glasses and anything worn over the eyes
+const NO_BLINK = /fire|ignis|laser|knocked|dizzy|slot|3d|glasses|monocle|robot|anatomy|empty|whites|eyepatch|button|glowing|magic|three|awooga|burglar/i;
+const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || ''));
+const KIT_BUSY = {};
+window.__nf = { get id() { return S.id; }, NIBBLES, fetchNibble:id => fetchNibble(id) };   // for tests
+async function kitPrepare(id) {
+  if (NIBBLES[id]) return true;
+  if (KIT_BUSY[id]) return KIT_BUSY[id];
+  return KIT_BUSY[id] = (async () => {
+    const t = await traitsOf(id), ref = kitFor(t); if (!ref) return false;
+    const a = t.a, kind = a.Character;
+    setStatus('x', `Getting ${kind} #${id} ready…`, '', 20000);
+    try {
+      const [B, K] = await Promise.all([import('./builder.js?v=' + ART_V), import('./kit.js?v=' + ART_V)]);
+      const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
+      const cut = B.cutOriginal(im), { art } = await fetchNibble(ref);
+      const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) });
+      res.face = FACE_AT[ref];
+      res.traits = B.findTraits(cut.canvas, res, kind, cut.bg, { halo:/halo/i.test(String(a.Accessory || '')), fire:/fire/i.test(String(a.Eyes || '')) });
+      const exp = await B.exportFiles(res, cut.canvas), files = {};
+      for (const k in exp.files) files[k] = URL.createObjectURL(exp.files[k]);
+      NIBBLES[id] = { bg:cut.bg, fullFace:true, files, layout:exp.layout, jiggle:exp.layout.jig, kit:ref };
+      FACE_AT[id] = exp.layout.at; delete ART[id]; addOption(id, kind);
+      setStatus('x', `${kind} #${id} is ready.`, '', 1500);
+      return true;
+    } catch (e) { console.error('kit', e); delete KIT_BUSY[id]; setStatus('x', `Couldn't get #${id} ready. Try again.`, 'err'); return false; }
+  })();
 }
 // a face to show on each kind's tile
 const KIND_FACE = { Bear:4248, Beaver:5502, Cock:8212, Gecko:2525, Ghost:4075, Gnome:3385, Raccoon:8102, Wolf:7996 };
