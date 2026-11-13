@@ -1,0 +1,25 @@
+name: Fetch pictures
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: 'Token ids, comma separated'
+        required: true
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research
+      - run: |
+          mkdir -p full
+          for id in $(echo "${{ inputs.ids }}" | tr ',' ' '); do
+            curl -sSf --retry 3 -o full/$id.png https://d24r2edyfve7yo.cloudfront.net/nibbles/images/$id.png || echo "fail $id"
+          done
+          ls full | wc -l
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add full && git commit -qm "Full-size pictures" && git push
