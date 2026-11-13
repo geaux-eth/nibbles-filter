@@ -22,11 +22,12 @@ jobs:
             echo "== $u"; curl -sS -o /dev/null -D - -H "Origin: https://geaux-eth.github.io" "$u" | grep -i -E "^(HTTP|access-control|content-type|content-length)" || true
           done
       - run: node tools/traits.mjs
+      - run: node tools/traits-min.mjs
         env:
           IDS: ${{ inputs.ids }}
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git add data/traits.json data/traits-sample.json data/traits-tally.json
+          git add data/traits.json data/traits-min.json data/traits-sample.json data/traits-tally.json
           git commit -m "Trait index from on-chain metadata" || echo "no change"
           git push

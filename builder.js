@@ -58,13 +58,36 @@ export function cutOriginal(img) {
 
 // ---------- a sheet: split into panels at its green gutters (or evenly if they touch), green keyed out
 // how many panels sit side by side in a one-row sheet (counted from its green gutters)
-export function countPanels(img) {
-  const w = img.naturalWidth, h = img.naturalHeight, c = cv(w, h); g2(c).drawImage(img, 0, 0);
-  const d = g2(c).getImageData(0, 0, w, h).data, col = new Float32Array(w);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; if (d[i + 1] > 170 && d[i + 1] - Math.max(d[i], d[i + 2]) > 60) col[x]++; }
-  let n = 0, run = false;
-  for (let x = Math.round(w * 0.06); x < w * 0.94; x++) { const g = col[x] / h > 0.97; if (g && !run) n++; run = g; }
-  return n + 1;
+export function countPanels(img) { return gridOf(img).cols; }
+// how a sheet is laid out: columns and rows of panels, counted from its green gutters
+export function gridOf(img) {
+  const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height, c = cv(w, h); g2(c).drawImage(img, 0, 0);
+  const d = g2(c).getImageData(0, 0, w, h).data, col = new Float32Array(w), row = new Float32Array(h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; if (isGreen(d, i)) { col[x]++; row[y]++; } }
+  // gutters: green bands that start and end inside the sheet (a band running out to an edge is just margin)
+  const runs = (a, len, other) => { let n = 0, st = -1; for (let x = 0; x <= len; x++) { const g = x < len && a[x] / other > 0.97;
+    if (g && st < 0) st = x; else if (!g && st >= 0) { if (st > len * 0.06 && x - 1 < len * 0.94) n++; st = -1; } } return n + 1; };
+  return { cols:runs(col, w, h), rows:runs(row, h, w) };
+}
+const isGreen = (d, i) => d[i + 1] > 150 && d[i + 1] - Math.max(d[i], d[i + 2]) > 60;
+// Gemini sometimes boxes each panel in a black (or white) frame: anything outside a frame line is made green
+function unframe(d, w, h) {
+  const dark = i => d[i] + d[i + 1] + d[i + 2] < 160 || (d[i] > 225 && d[i + 1] > 225 && d[i + 2] > 225);
+  const lim = x => Math.round(x * 0.14);
+  const colLine = x => { let n = 0; for (let y = 0; y < h; y++) if (dark((y * w + x) * 4)) n++; return n / h > 0.6; };
+  const rowLine = y => { let n = 0; for (let x = 0; x < w; x++) if (dark((y * w + x) * 4)) n++; return n / w > 0.6; };
+  const paint = (x0, y0, x1, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * w + x) * 4; d[i] = 0; d[i + 1] = 255; d[i + 2] = 0; } };
+  // a frame is a line near the edge with green just inside it
+  const colGreen = x => { let n = 0; for (let y = 0; y < h; y++) if (isGreen(d, (y * w + x) * 4)) n++; return n / h; };
+  const rowGreen = y => { let n = 0; for (let x = 0; x < w; x++) if (isGreen(d, (y * w + x) * 4)) n++; return n / w; };
+  // a thin line close to the edge, with mostly green just inside it
+  const findIn = (len, line, green, from, step) => { let first = -1, last = -1;
+    for (let k = 0; k < lim(len); k++) { const x = from + k * step;
+      if (line(x)) { if (first < 0) first = x; last = x; }
+      else if (last >= 0) return Math.abs(last - first) + 1 <= Math.max(14, len * 0.03) && green(x) > 0.3 ? last : -1; }
+    return -1; };
+  const L = findIn(w, colLine, colGreen, 0, 1), R = findIn(w, colLine, colGreen, w - 1, -1), T = findIn(h, rowLine, rowGreen, 0, 1), B = findIn(h, rowLine, rowGreen, h - 1, -1);
+  if (L >= 0) paint(0, 0, L + 3, h); if (R >= 0) paint(R - 2, 0, w, h); if (T >= 0) paint(0, 0, w, T + 3); if (B >= 0) paint(0, B - 2, w, h);
 }
 export function splitSheet(img, cols, rows) {
   const w = img.naturalWidth, h = img.naturalHeight, c = cv(w, h); g2(c).drawImage(img, 0, 0);
@@ -72,7 +95,7 @@ export function splitSheet(img, cols, rows) {
   const colG = new Float32Array(w), rowG = new Float32Array(h);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = (y * w + x) * 4, r = d[i], gg = d[i + 1], b = d[i + 2];
-    if (gg > 170 && gg - Math.max(r, b) > 60) { colG[x]++; rowG[y]++; }
+    if (isGreen(d, i)) { colG[x]++; rowG[y]++; }
   }
   const edges = (arr, len, n, other) => {
     const gut = []; let run = null;
@@ -90,6 +113,7 @@ export function splitSheet(img, cols, rows) {
     const x0 = xs[k], x1 = xs[k + 1], y0 = ys[r], y1 = ys[r + 1], p = cv(x1 - x0, y1 - y0), pg = g2(p);
     pg.drawImage(c, x0, y0, x1 - x0, y1 - y0, 0, 0, x1 - x0, y1 - y0);
     const id = pg.getImageData(0, 0, p.width, p.height), q = id.data;
+    unframe(q, p.width, p.height);
     for (let i = 0; i < q.length; i += 4) {
       const r_ = q[i], gg = q[i + 1], b = q[i + 2], gn = gg - Math.max(r_, b);
       const a = 1 - Math.min(1, Math.max(0, (gn - 30) / 90)) * Math.min(1, Math.max(0, (gg - 90) / 90));
@@ -207,10 +231,60 @@ function diffMask(a, b) {   // where two lined-up pictures (working size) differ
   }
   return m;
 }
+
+// where two lined-up pictures differ, forgiving outlines that sit a pixel or two apart (a pixel only counts as changed
+// when nothing of the same colour is within r pixels in the other picture)
+function tolDiff(a, b, r = 2) {
+  const m = new Uint8Array(MW), same = (i, j) => { const p = i * 4, q = j * 4, ap = a[p + 3] > 128, bq = b[q + 3] > 128;
+    return ap === bq && (!ap || Math.abs(a[p] - b[q]) + Math.abs(a[p + 1] - b[q + 1]) + Math.abs(a[p + 2] - b[q + 2]) <= 95); };
+  const sameR = (i, j) => same(j, i);
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x; if (a[i * 4 + 3] <= 128 && b[i * 4 + 3] <= 128) continue;
+    if (same(i, i)) continue;
+    let fa = false, fb = false;
+    for (let dy = -r; dy <= r && !(fa && fb); dy++) { const yy = y + dy; if (yy < 0 || yy >= W) continue;
+      for (let dx = -r; dx <= r; dx++) { const xx = x + dx; if (xx < 0 || xx >= W) continue; const j = yy * W + xx;
+        if (!fa && same(i, j)) fa = true; if (!fb && sameR(i, j)) fb = true; if (fa && fb) break; } }
+    if (!fa || !fb) m[i] = 1;
+  }
+  return m;
+}
+// line a placed panel up again on just one part of the picture (the face), where Gemini may have nudged the head
+function refine(x, od, win, range = 0.05) {
+  const [x0, y0, x1, y1] = win, oi = boxMax(inkOf(od, W), 1, W);
+  let on = 0; for (let y = y0; y <= y1; y++) for (let xx = x0; xx <= x1; xx++) on += oi[y * W + xx];
+  const score = (pi, dx, dy) => { let o = 0, pn = 0;
+    for (let y = y0; y <= y1; y++) { const sy = y - dy; if (sy < 0 || sy >= W) continue;
+      for (let xx = x0; xx <= x1; xx++) { const sx = xx - dx; if (sx < 0 || sx >= W) continue; const v = pi[sy * W + sx]; pn += v; o += v & oi[y * W + xx]; } }
+    return 2 * o / Math.max(1, on + pn); };
+  const cx = (x0 + x1) / 2 * N / W, cy = (y0 + y1) / 2 * N / W, k = N / W;
+  let best = { sc:-1 };
+  for (let ds = -range; ds <= range + 0.0001; ds += range / 4) {
+    const T = { s:x.T.s * (1 + ds), x:(x.T.x - cx) * (1 + ds) + cx, y:(x.T.y - cy) * (1 + ds) + cy }, pi = inkOf(pixels(render(x.p, T, W)), W);
+    let b = { sc:-1 };
+    for (let dy = -14; dy <= 14; dy += 2) for (let dx = -14; dx <= 14; dx += 2) { const sc = score(pi, dx, dy); if (sc > b.sc) b = { sc, dx, dy }; }
+    for (let dy = b.dy - 1; dy <= b.dy + 1; dy++) for (let dx = b.dx - 1; dx <= b.dx + 1; dx++) { const sc = score(pi, dx, dy); if (sc > b.sc) b = { sc, dx, dy }; }
+    if (b.sc > best.sc) best = { sc:b.sc, T:{ s:T.s, x:T.x + b.dx * k, y:T.y + b.dy * k } };
+  }
+  const before = score(inkOf(x.small, W), 0, 0);
+  if (best.sc > before) { x.T = best.T; x.full = placed(x.p, x.T); x.small = pixels(x.full, W, W); x.cov = coverOf(x); }
+  return Math.max(best.sc, before);
+}
+// where a placed panel has any drawing at all (outside its own edges nothing can be compared)
+function coverOf(x) { const c = cv(W, W), g = g2(c), k = W / N; g.setTransform(x.T.s * k, 0, 0, x.T.s * k, x.T.x * k, x.T.y * k); g.fillRect(2, 2, x.p.width - 4, x.p.height - 4);
+  const d = g.getImageData(0, 0, W, W).data, m = new Uint8Array(MW); for (let i = 0; i < MW; i++) m[i] = d[i * 4 + 3] > 200 ? 1 : 0; return boxMax(inv(m), 3, W).map(v => v ? 0 : 1); }
+const pdiff = (x, r) => and(tolDiff(x.small, r.small), and(x.cov, r.cov));
+function winOf(m, pad) { const b = bboxOf(m, W); if (b[2] < b[0]) return null; const w = b[2] - b[0], h = b[3] - b[1], p = Math.max(pad, 0.45 * Math.max(w, h));
+  return [Math.max(0, Math.round(b[0] - p)), Math.max(0, Math.round(b[1] - p)), Math.min(W - 1, Math.round(b[2] + p)), Math.min(W - 1, Math.round(b[3] + p))]; }
 // the shared core: the biggest area that changes across panels (plus pieces right next to it), holes filled
-function mainCore(m, reach = 70) {
+function mainCore(m, reach = 70, seed = null) {
   const { lab, comps } = labels(close_(m, 6)); if (!comps.length) return m;
-  const big = comps.reduce((a, b) => b.n > a.n ? b : a), keep = new Set(comps.filter(c => c.n > 20 && Math.hypot(c.cx - big.cx, c.cy - big.cy) < reach).map(c => c.id));
+  let big = comps.reduce((a, b) => b.n > a.n ? b : a);
+  if (seed) { const sb = bboxOf(seed, W); if (sb[2] >= sb[0]) { const sx = (sb[0] + sb[2]) / 2, sy = (sb[1] + sb[3]) / 2, inS = new Map();
+    for (let i = 0; i < MW; i++) if (lab[i] && seed[i]) inS.set(lab[i], (inS.get(lab[i]) || 0) + 1);
+    const cand = comps.filter(c => c.n > 20 && inS.has(c.id)); if (cand.length) big = cand.reduce((a, b) => inS.get(b.id) > inS.get(a.id) ? b : a);
+    else big = comps.filter(c => c.n > 20).reduce((a, b) => Math.hypot(b.cx - sx, b.cy - sy) < Math.hypot(a.cx - sx, a.cy - sy) ? b : a, big); } }
+  const keep = new Set(comps.filter(c => c.n > 20 && Math.hypot(c.cx - big.cx, c.cy - big.cy) < reach).map(c => c.id));
   const o = new Uint8Array(MW); for (let i = 0; i < MW; i++) if (keep.has(lab[i])) o[i] = 1;
   return fillHoles(o);
 }
@@ -253,69 +327,120 @@ function compose(base, pic, alpha, gain, layerOnly) {
 function boxOf(m) { const b = bboxOf(m, W); return b[2] < b[0] ? null : b.map(v => v * N / W); }
 
 // sheets: { s1:[6 canvases], s2:[4], eyes:[5] | null }. onStep(text) reports progress.
+// Gemini sometimes makes 6 eye panels (a 2x3 grid with the open eyes twice): keep the 5 that differ most
+export function pickPanels(panels, want) {
+  const sig = p => { const c = cv(48, 48); g2(c).drawImage(p, 0, 0, 48, 48); return g2(c).getImageData(0, 0, 48, 48).data; };
+  const ps = panels.map(p => ({ p, s:sig(p) })), d = (a, b) => { let t = 0; for (let i = 0; i < a.length; i++) t += Math.abs(a[i] - b[i]); return t; };
+  while (ps.length > want) { let k = 1, best = Infinity; for (let i = 1; i < ps.length; i++) { const v = d(ps[i].s, ps[0].s); if (v < best) { best = v; k = i; } } ps.splice(k, 1); }
+  return ps.map(x => x.p);
+}
+
+// A mouth shape that's missing borrows the closest one that worked, so one bad panel never stops a build
+const STAND_IN = { 'M/B/P':['F/V', 'frown'], 'slightly open':['AH', 'L', 'EE'], 'AH':['O', 'slightly open'], 'EE':['slightly open', 'AH'], 'O':['OO', 'AH'],
+  'OO':['O', 'M/B/P'], 'F/V':['M/B/P', 'frown'], 'L':['slightly open', 'AH'], 'frown':['M/B/P', 'F/V'] };
+
+// sheets: { s1:[6 canvases], s2:[4], eyes:[5|3] | null }. onStep(text) reports progress.
+// Returns ok (all good), usable (can go live as it is, with stand-ins), problems [{ text, sheet, hard }].
 export async function build(orig, sheets, onStep = () => {}) {
-  const problems = [], names1 = ['rest', 'M/B/P', 'slightly open', 'AH', 'EE', 'O'], names2 = ['F/V', 'L', 'frown', 'OO'], namesE = ['open', 'angry', 'surprised', 'half-closed', 'closed'];
+  const problems = [], P = (text, sheet, hard = false) => problems.push({ text, sheet, hard });
+  const names1 = ['rest', 'M/B/P', 'slightly open', 'AH', 'EE', 'O'], names2 = ['F/V', 'L', 'frown', 'OO'], namesE = ['open', 'angry', 'surprised', 'half-closed', 'closed'];
+  // Gemini sometimes adds a 6th eye face (the open eyes twice): drop the one that differs least from the open eyes, once lined up
+  let eyesIn = sheets.eyes;
+  if (eyesIn && eyesIn.length > 5) {
+    onStep('Sorting the eye faces…'); await tick();
+    const od0 = pixels(orig, W, W), sb = bboxOf(silOf(od0, W), W), head = [sb[0], sb[1], sb[2], Math.round(sb[1] + (sb[3] - sb[1]) * 0.6)];   // the head: top of the picture
+    const xs = eyesIn.map(p => { const a = align(p, orig), x = { p, T:a.T }; x.full = placed(p, x.T); x.small = pixels(x.full, W, W); x.cov = coverOf(x); refine(x, od0, head, 0.12); refine(x, od0, head, 0.03); return x; });
+    // (measured by its biggest solid change: a real new look changes one area a lot, a redraw only wobbles the lines)
+    const hm = new Uint8Array(MW); for (let y = head[1]; y <= head[3]; y++) for (let x = head[0]; x <= head[2]; x++) hm[y * W + x] = 1;
+    const solid = D => { const { comps } = labels(open_(and(D, hm), 1)); return comps.reduce((m, c) => Math.max(m, c.n), 0); };   // only the head counts
+    while (xs.length > 5) { let k = 1, best = Infinity; for (let i = 1; i < xs.length; i++) { const n = solid(pdiff(xs[i], xs[0])); if (n < best) { best = n; k = i; } } xs.splice(k, 1); }
+    eyesIn = xs.map(x => x.p);
+  }
   const all = [...sheets.s1.map((p, i) => ({ p, sheet:1, i, name:names1[i] })), ...sheets.s2.map((p, i) => ({ p, sheet:2, i, name:names2[i] })),
-    ...(sheets.eyes || []).map((p, i) => ({ p, sheet:3, i, name:(sheets.eyes.length === 3 ? ['open', 'half-closed', 'closed'] : namesE)[i] }))];
+    ...(eyesIn || []).map((p, i) => ({ p, sheet:3, i, name:(eyesIn.length === 3 ? ['open', 'half-closed', 'closed'] : namesE)[i] }))];
   let worst = 1;
   for (const x of all) {
     onStep(`Lining up sheet ${x.sheet}, ${x.name}…`); await tick();
     const a = align(x.p, orig); x.T = a.T; x.iou = a.iou; worst = Math.min(worst, a.iou);
-    if (a.iou < 0.86) problems.push(`Sheet ${x.sheet === 3 ? 'of eyes' : x.sheet}, the ${x.name} panel doesn't match your picture (it's bigger, smaller or moved). Run that sheet again.`);
-    x.full = placed(x.p, x.T); x.small = pixels(x.full, W, W);
+    x.full = placed(x.p, x.T); x.small = pixels(x.full, W, W); x.cov = coverOf(x);
   }
   const od = pixels(orig, W, W), osil = silOf(od, W);
   onStep('Finding the mouth…'); await tick();
-  const s1 = all.filter(x => x.sheet === 1), s2 = all.filter(x => x.sheet === 2), ref = s1[0];
-  // the mouth is what changes in most of sheet 1's panels
-  const heat = new Uint8Array(MW); const D1 = s1.slice(1).map(x => diffMask(x.small, ref.small));
+  const s1 = all.filter(x => x.sheet === 1), s2 = all.filter(x => x.sheet === 2), ref = s1[0], talk = [...s1.slice(1), ...s2];
+  // the mouth is what changes in most of sheet 1's panels. First a rough find from the panels that lined up best
+  // (Gemini often draws a row a little bigger or nudges the head), then every panel is lined up again on the face
+  // around it, and the mouth is found again.
+  const findCore = (xs, need, base) => { const h = new Uint8Array(MW); for (const x of xs) { const D = pdiff(x, base); for (let i = 0; i < MW; i++) h[i] += D[i]; }
+    return mainCore(and(open_(Uint8Array.from(h, v => v >= need ? 1 : 0), 1), osil)); };
+  const ranked = [...talk].sort((a, b) => b.iou - a.iou), top = ranked.filter(x => x.iou >= ranked[0].iou - 0.02).slice(0, 4);
+  const rough = findCore(top.length >= 2 ? top : ranked.slice(0, 2), top.length >= 3 ? 2 : 1, ref), win = winOf(rough, 30);
+  if (win) { onStep('Lining up the face…'); await tick(); for (const x of [ref, ...talk]) x.fit = refine(x, od, win); }
+  if (ref.iou < 0.8 || (win && ref.fit < 0.45)) P('Sheet 1\'s first panel (the rest mouth) doesn\'t line up with your picture.', 1, true);
+  const D1 = s1.slice(1).map(x => pdiff(x, ref)), heat = new Uint8Array(MW);
   for (const D of D1) for (let i = 0; i < MW; i++) heat[i] += D[i];
-  let core = mainCore(and(open_(Uint8Array.from(heat, v => v >= 3 ? 1 : 0), 1), osil));
-  if (count(core) < 30) { problems.push('The mouth couldn\'t be found: sheet 1\'s panels don\'t differ around the mouth. Run sheet 1 again.'); }
-  const M = {}; let zone = new Uint8Array(MW);
-  s1.slice(1).forEach((x, k) => { M['1' + x.i] = nearCore(D1[k], core); });
-  for (const x of s2) M['2' + x.i] = nearCore(diffMask(x.small, ref.small), core);
-  for (const k in M) zone = or(zone, M[k]);
+  const core = mainCore(and(open_(Uint8Array.from(heat, v => v >= 3 ? 1 : 0), 1), osil), 70, rough);
+  if (count(core) < 30) P('The mouth couldn\'t be found: sheet 1\'s panels don\'t change around the mouth.', 1, true);
+  const M = {};
+  s1.slice(1).forEach((x, k) => { M[x.name] = nearCore(D1[k], core); });
+  for (const x of s2) M[x.name] = nearCore(pdiff(x, ref), core);
+  // a talking panel is bad if it doesn't line up on the face or doesn't change the mouth
+  const bad = new Set();
+  for (const x of talk) if (x.iou < 0.8 || (win && x.fit < 0.45) || count(M[x.name]) < 40) bad.add(x.name);
+  let zone = new Uint8Array(MW);
+  for (const k in M) if (!bad.has(k)) zone = or(zone, M[k]);
   zone = dilate(zone, 3);
   const silN = count(osil), zN = count(zone);
-  for (const x of [...s1.slice(1), ...s2]) {
-    const n = count(M[String(x.sheet) + x.i]);
-    if (n < 40) problems.push(`Sheet ${x.sheet}, the ${x.name} panel looks the same as the rest. Run sheet ${x.sheet} again.`);
-  }
-  if (zN > silN * 0.35) problems.push('Too much of the face changes between the mouth panels (Gemini redrew more than the mouth). Run sheets 1 and 2 again.');
-  // mouth frames: the original picture, with the mouth area taken from each panel (colour-matched)
-  const ring = and(and(dilate(zone, 8), inv(zone)), osil), alpha = softMask(zone);
-  const order = [null, ['1', 1], ['1', 2], ['1', 3], ['1', 4], ['1', 5], ['2', 3], ['2', 0], ['2', 1], ['2', 2]], frames = [orig];
+  if (sheets.debug) Object.assign(sheets.debug, { heat, core, zone, D1, osil, M, rough, win });
+  if (zN > silN * 0.35) P('Too much of the face changes between the mouth panels (Gemini redrew more than the mouth).', 1, true);
+  if (bad.size > 4) P(`${bad.size} of the 9 talking mouths didn't come out right.`, 1, true);
+  // mouth frames: the original picture, with the mouth area taken from each panel (colour-matched); a bad one borrows a stand-in
+  const ring = and(and(dilate(zone, 8), inv(zone)), osil), alpha = softMask(zone), swapped = [];
+  const order = [null, 'M/B/P', 'slightly open', 'AH', 'EE', 'O', 'OO', 'F/V', 'L', 'frown'], frames = [orig];
   for (let k = 1; k < 10; k++) {
     onStep(`Building mouth ${k + 1} of 10…`); await tick();
-    const [sh, i] = order[k], x = all.find(y => y.sheet === +sh && y.i === i);
-    frames.push(compose(orig, x.full, alpha, gains(od, x.small, ring)));
+    let name = order[k];
+    if (bad.has(name)) { const sub = STAND_IN[name].find(n => !bad.has(n)); swapped.push({ name, sub:sub || 'rest', sheet:all.find(y => y.name === name).sheet }); name = sub; }
+    const x = name ? all.find(y => y.sheet < 3 && y.name === name) : null;
+    frames.push(x ? compose(orig, x.full, alpha, gains(od, x.small, ring)) : orig);
   }
+  for (const w of swapped) P(`Sheet ${w.sheet}'s ${w.name} mouth didn't come out right, so it uses the ${w.sub} mouth for now.`, w.sheet);
   // eyes
   let eyes = null, ezone = null;
-  if (sheets.eyes && (sheets.eyes.length === 5 || sheets.eyes.length === 3)) {
+  if (eyesIn && (eyesIn.length === 5 || eyesIn.length === 3)) {
     onStep('Building the blink…'); await tick();
-    const e = all.filter(x => x.sheet === 3), eh = new Uint8Array(MW), DE = e.slice(1).map(x => diffMask(x.small, e[0].small));
-    for (const D of DE) for (let i = 0; i < MW; i++) eh[i] += D[i];
-    const need = DE.length >= 4 ? 2 : 1;
-    const notMouth = inv(dilate(core, 8));   // the mouth itself (the mouth area may reach the eyes; the eye layers sit on top)
-    const ecore = mainCore(and(and(open_(Uint8Array.from(eh, v => v >= need ? 1 : 0), 1), osil), notMouth), 150);   // two eyes: both count
-    if (count(ecore) < 30) problems.push('The eyes couldn\'t be found: the eye sheet\'s panels don\'t differ around the eyes. Run the eye sheet again.');
-    ezone = new Uint8Array(MW);
-    const EM = DE.map(D => and(nearCore(D, ecore, 36), notMouth));
-    // each eye layer covers the whole eye area (closed eyes must hide the open ones completely)
-    const eall = fillHoles(close_(EM.reduce(or, new Uint8Array(MW)), 6)); EM.forEach((m, k) => EM[k] = and(dilate(eall, 7), notMouth));
-    for (const m of EM) ezone = or(ezone, m);
-    e.slice(1).forEach((x, k) => { if (count(EM[k]) < 30) problems.push(`The eye sheet's ${x.name} panel looks the same as the open eyes. Run the eye sheet again.`); });
-    const ering = and(and(dilate(ezone, 8), inv(ezone)), osil), ea = softMask(ezone);
-    const layers = e.slice(1).map(x => compose(orig, x.full, ea, gains(od, x.small, ering), true));
-    eyes = layers.length === 4 ? [null, ...layers] : [null, null, null, ...layers];   // filter slots: 1 angry, 2 surprised, 3 half, 4 closed
-  }
+    const e = all.filter(x => x.sheet === 3), notMouth = inv(dilate(core, 8));   // the mouth area may reach the eyes; the eye layers sit on top
+    const need = e.length >= 5 ? 2 : 1;
+    // the eyes are in the head (the top 60% of the Nibble): line every face up there first, and look only there
+    const sb = bboxOf(osil, W), head = [sb[0], sb[1], sb[2], Math.round(sb[1] + (sb[3] - sb[1]) * 0.6)], hm = new Uint8Array(MW);
+    for (let y = head[1]; y <= head[3]; y++) for (let x = head[0]; x <= head[2]; x++) hm[y * W + x] = 1;
+    for (const x of e) x.fit = refine(x, od, head, 0.06);
+    const eyeCore = () => { const eh = new Uint8Array(MW), DE = e.slice(1).map(x => pdiff(x, e[0])); for (const D of DE) for (let i = 0; i < MW; i++) eh[i] += D[i];
+      return { DE, ecore:mainCore(and(and(and(open_(Uint8Array.from(eh, v => v >= need ? 1 : 0), 1), osil), notMouth), hm), 150) }; };   // two eyes: both count
+    let { DE, ecore } = eyeCore();
+    const ewin = winOf(ecore, 30);
+    if (ewin && count(ecore) >= 30) { for (const x of e) x.fit = refine(x, od, ewin); ({ DE, ecore } = eyeCore()); }
+    if (count(ecore) < 30) P('The eyes couldn\'t be found on the eye sheet, so it goes live without the blink.', 3);
+    else {
+      const EM = DE.map(D => and(nearCore(D, ecore, 36), notMouth));
+      const ebad = e.slice(1).map((x, k) => x.iou < 0.8 || (x.fit != null && x.fit < 0.4) || count(EM[k]) < 30);
+      // each eye layer covers the whole eye area (closed eyes must hide the open ones completely)
+      const eall = fillHoles(close_(EM.filter((m, k) => !ebad[k]).reduce(or, new Uint8Array(MW)), 6)), full = and(dilate(eall, 7), notMouth);
+      ezone = full;
+      const ering = and(and(dilate(ezone, 8), inv(ezone)), osil), ea = softMask(ezone);
+      const layers = e.slice(1).map((x, k) => ebad[k] ? null : compose(orig, x.full, ea, gains(od, x.small, ering), true));
+      const slots = layers.length === 4 ? [null, ...layers] : [null, null, null, ...layers];   // filter slots: 1 angry, 2 surprised, 3 half, 4 closed
+      if (!slots[4]) { P('The closed eyes didn\'t come out right, so it goes live without the blink.', 3); ezone = null; }
+      else { if (!slots[3]) slots[3] = slots[4];   // a blink can skip the half-closed step
+        e.slice(1).forEach((x, k) => { if (ebad[k] && x.name !== 'closed') P(`The eye sheet's ${x.name} eyes didn't come out right, so ${x.name === 'half-closed' ? 'the blink skips that step' : 'that look is left out'}.`, 3); });
+        eyes = slots; }
+    }
+  } else if (eyesIn) P('The eye sheet didn\'t have 5 faces in it, so it goes live without the blink.', 3);
   // where the face is, for the picker's thumbnail
   const fz = ezone ? or(zone, ezone) : zone, fb = bboxOf(fz, W);
   const face = fb[2] >= fb[0] ? [Math.round((fb[0] + fb[2]) / 2 * N / W), Math.round((fb[1] + fb[3]) / 2 * N / W), 1.35] : [500, 500, 1.35];
-  return { ok:problems.length === 0, problems, score:+worst.toFixed(3), frames, eyes, face, mouthBox:boxOf(zone), eyeBox:ezone ? boxOf(ezone) : null,
-    grades:all.map(x => ({ sheet:x.sheet, name:x.name, iou:+x.iou.toFixed(3) })) };
+  const hard = problems.some(p => p.hard);
+  return { ok:problems.length === 0, usable:!hard, problems, score:+worst.toFixed(3), frames, eyes, face, mouthBox:boxOf(zone), eyeBox:ezone ? boxOf(ezone) : null,
+    grades:all.map(x => ({ sheet:x.sheet, name:x.name, iou:+x.iou.toFixed(3), fit:x.fit != null ? +x.fit.toFixed(3) : null })) };
 }
 
 // pictures to upload: the base whole, each mouth as just its changed box (re-assembled in the filter), each eye layer as its box
@@ -337,7 +462,8 @@ export async function exportFiles(res, origCanvas) {
 // ---------- traits that move on their own: a floating halo (springy wobble), fire eyes (flicker), a Cock's bare-chest
 // nipples (springy bounce). Found in the picture, lifted onto their own layers, and the art underneath filled in.
 // Works on the full-size canvases in place (the picture and every mouth frame) and returns what it found.
-export function findTraits(orig, res, kind, bgHex) {
+// hints (from the token's on-chain traits, when known): { halo:true|false, fire:true|false } skip a search the token can't need
+export function findTraits(orig, res, kind, bgHex, hints = {}) {
   const d = pixels(orig), A = i => d[i * 4 + 3], R = i => d[i * 4], G = i => d[i * 4 + 1], B = i => d[i * 4 + 2];
   const out = {}, NN = N * N, lab = new Int32Array(NN), comps = [], q = new Int32Array(NN);
   // pieces of the picture that don't touch each other
@@ -351,7 +477,7 @@ export function findTraits(orig, res, kind, bgHex) {
   }
   const body = comps.reduce((a, b) => b.n > a.n ? b : a, { n:0 });
   // halo: a separate, mostly gold piece floating above the head
-  const halos = comps.filter(c => c !== body && c.n > 1500 && c.box[3] < body.box[1] + (body.box[3] - body.box[1]) * 0.45 && c.gold / c.n > 0.35);
+  const halos = hints.halo === false ? [] : comps.filter(c => c !== body && c.n > 1500 && c.box[3] < body.box[1] + (body.box[3] - body.box[1]) * 0.45 && c.gold / c.n > 0.35);
   if (halos.length) {
     const ids = new Set(halos.map(c => c.id)), x0 = Math.min(...halos.map(c => c.box[0])) - 3, y0 = Math.min(...halos.map(c => c.box[1])) - 3,
       x1 = Math.max(...halos.map(c => c.box[2])) + 4, y1 = Math.max(...halos.map(c => c.box[3])) + 4;
@@ -370,7 +496,7 @@ export function findTraits(orig, res, kind, bgHex) {
   // fire eyes: two flame shapes (yellow with an orange rim and a pale centre, no dark pupil) in the upper face
   const isFlame = i => A(i) > 200 && ((R(i) > 200 && G(i) > 140 && B(i) < 130) || (R(i) > 230 && G(i) > 210 && B(i) > 90 && B(i) < 200));
   const top = body.box[1], hgt = body.box[3] - body.box[1], fl = new Uint8Array(NN);
-  for (let y = top; y < top + hgt * 0.62; y++) for (let x = 0; x < N; x++) { const i = y * N + x; if (lab[i] === body.id && isFlame(i)) fl[i] = 1; }
+  if (hints.fire !== false) for (let y = top; y < top + hgt * 0.62; y++) for (let x = 0; x < N; x++) { const i = y * N + x; if (lab[i] === body.id && isFlame(i)) fl[i] = 1; }
   const fcomps = []; const seen = new Uint8Array(NN);
   for (let s = 0; s < NN; s++) {
     if (!fl[s] || seen[s]) continue; let qh = 0, qt = 0; q[qt++] = s; seen[s] = 1; let n = 0, x0 = N, y0 = N, x1 = 0, y1 = 0, pale = 0; const px = [];

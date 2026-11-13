@@ -251,6 +251,7 @@ header .credit b{font-weight:400}
 .an-chk{display:flex;gap:8px;align-items:flex-start;margin:6px 0;font-size:13px}
 .an-sheet canvas{width:100%;height:auto;border:2.5px solid var(--ink);border-radius:12px;display:block}
 .an-prob{margin:8px 0;padding-left:18px}.an-prob li{margin:4px 0}
+#anSavePic{display:inline-flex;align-items:center;color:var(--ink);text-decoration:none;margin:0 0 10px}
 @keyframes anPulse{50%{opacity:.4}}
 .vm-opts select{width:100%;min-width:0;height:38px;padding:0 6px;border:2.5px solid var(--ink);border-radius:10px;background:var(--paper);font:600 14px/1 var(--body)}
 
@@ -339,7 +340,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261112-1530';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261113-1100';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -2130,6 +2131,23 @@ const SBK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZi
 const sbFetch = (path, opts = {}) => fetch(SB + path, { ...opts, headers:{ apikey:SBK, Authorization:'Bearer ' + SBK, ...(opts.headers || {}) } });
 const sbRpc = async (fn, args) => { const r = await sbFetch('/rest/v1/rpc/' + fn, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(args) }); return r.json(); };
 const KINDS = ['Bear', 'Beaver', 'Cock', 'Gecko', 'Ghost', 'Gnome', 'Raccoon', 'Wolf'];
+// every Nibble's traits, read from its on-chain metadata by the "Trait index" workflow (data/traits.json)
+let TRAITS = null;
+const nibblePic = id => `https://d24r2edyfve7yo.cloudfront.net/nibbles/images/${id}.png`;   // the collection's own pictures (open to any page)
+async function traitsOf(id) {
+  if (!TRAITS) TRAITS = fetch('data/traits-min.json?v=' + ART_V).then(r => r.ok ? r.json() : null).catch(() => null);
+  const m = await TRAITS, row = m && m.t[id - 1]; if (!row) return null;
+  const a = {}; m.k.forEach((k, j) => { if (row[j] >= 0) a[k] = m.v[j][row[j]]; });
+  return { n:`Nibble #${id}`, a };
+}
+// the traits in plain words for the Gemini prompts ("dark beaver, glasses yellow, cloak, unpleased eyes, drooling mouth")
+function traitWords(t) {
+  const a = t.a, kind = a.Character || '', strip = v => String(v).replace(new RegExp('^' + kind + '\\s+', 'i'), '').toLowerCase(), out = [];
+  if (a.Skin) out.push(`${a.Skin.toLowerCase()} ${kind.toLowerCase()}`);
+  for (const k of ['Accessory', 'Outfit']) for (const v of [].concat(a[k] || [])) if (!/^(none|naked)$/i.test(v)) out.push(strip(v));
+  if (a.Eyes) out.push(strip(a.Eyes) + ' eyes'); if (a.Mouth) out.push(strip(a.Mouth) + ' mouth');
+  return out.join(', ');
+}
 const ADMIN = () => { try { return localStorage.getItem('nf-admin') || ''; } catch (e) { return ''; } };
 if (/[?&]admin\b/.test(location.search)) {
   const k = prompt('Admin key for Nibble FILTER (leave empty to sign out):', ADMIN());
@@ -2162,7 +2180,7 @@ async function adminRemove(id) {
 
 const AN = {}; window.__an = AN;   // the Nibble being added
 const PROMPTS = {
-  s1:(n, t) => `Using the attached Nibble (${n}) as the exact model, draw a 3×2 grid of six panels on a flat pure green (#00FF00) background, 3:2 landscape. Every panel copies the original exactly: same pose, size, angle, crop (cut off at the bottom like the original), line weight and colours — ${t}. Keep a clear band of green between panels; nothing touches or crosses into another panel. No text, labels, shadows or background details.
+  s1:(n, t) => `Using the attached Nibble (${n}) as the exact model, draw a 3×2 grid of six panels on a flat pure green (#00FF00) background, 3:2 landscape. Every panel copies the original exactly: same pose, size, angle, crop (cut off at the bottom like the original), line weight and colours — ${t}. Keep a clear band of green between panels; nothing touches or crosses into another panel. Plain green only: no borders, frames, boxes, outlines or black squares around the panels and no grid lines; the green runs straight between the panels and out to the edges of the picture. No text, labels, shadows or background details.
 Only the mouth changes. The upper part of the face (snout, beak or upper lip, nose, any fangs or teeth that hang from it) stays exactly where it is in every panel; the lower jaw and lips do the talking. Eyes, brows, hair, hat, accessories, fur and clothes are identical in every panel.
 Top row, left to right:
 1. Rest — exactly the original mouth.
@@ -2172,14 +2190,14 @@ Bottom row, left to right:
 4. AH — jaw dropped wide open, dark red mouth with the tongue resting inside.
 5. EE — mouth open a little with the corners stretched back into a wide grin, flat white teeth showing.
 6. O — mouth open in a rounded shape with the corners pulled in, tongue low.`,
-  s2:(n, t) => `Using the attached Nibble (${n}) as the exact model, draw one row of four panels on a flat pure green (#00FF00) background, 3:1 wide. Every panel copies the original exactly: same pose, size, angle, crop, line weight and colours — ${t}. Clear green gaps between panels; nothing touches another panel. No text, labels or shadows.
+  s2:(n, t) => `Using the attached Nibble (${n}) as the exact model, draw one single row of four panels side by side (not a grid) on a flat pure green (#00FF00) background, 3:1 wide. Every panel copies the original exactly: same pose, size, angle, crop, line weight and colours — ${t}. Clear green gaps between panels; nothing touches another panel. Plain green only: no borders, frames, boxes, outlines or black squares around the panels and no grid lines; the green runs straight between the panels and out to the edges of the picture. No text, labels or shadows.
 Only the mouth changes. The upper part of the face stays exactly where it is in every panel; the lower jaw and lips move, and the tongue stays inside the mouth. Everything else is identical in every panel.
 Left to right:
 1. F / V — mouth almost closed, the upper lip resting on top of the lower lip, which is tucked slightly back under it.
 2. L — mouth half open, the tongue tip raised and touching the roof of the mouth behind the upper teeth.
 3. Frown — mouth closed with the corners turned down in a sulk.
 4. OO — mouth nearly closed, lips pushed forward into a small round pucker, no teeth or fangs showing.`,
-  eyes:(n, t) => `Using the attached Nibble (${n}) as the exact model, draw one row of five panels on a flat pure green (#00FF00) background, 5:1 wide. Every panel copies the original exactly: same pose, size, angle, crop, line weight and colours — ${t} — with the mouth exactly as in the original. Clear green gaps between panels. No text, labels or shadows.
+  eyes:(n, t) => `Using the attached Nibble (${n}) as the exact model, draw one single row of five panels side by side (not a grid, exactly five) on a flat pure green (#00FF00) background, 5:1 wide. Every panel copies the original exactly: same pose, size, angle, crop, line weight and colours — ${t} — with the mouth exactly as in the original. Clear green gaps between panels. Plain green only: no borders, frames, boxes, outlines or black squares around the panels and no grid lines; the green runs straight between the panels and out to the edges of the picture. No text, labels or shadows.
 Only the eyes and brows change. Glasses, eye patches, bruises, scars and anything else around the eyes stay exactly the same size, shape and colour in all five panels.
 Left to right:
 1. Open — the eyes exactly as in the original.
@@ -2198,17 +2216,35 @@ function addNibble() {
       <label>Kind<select id="anKind">${KINDS.map(k => `<option${AN.kind === k ? ' selected' : ''}>${k}</option>`).join('')}</select></label>
       <label>Token number<input id="anTok" type="number" inputmode="numeric" min="1" max="8888" placeholder="e.g. 1234" value="${AN.token || ''}"></label>
     </div>
+    <p class="note" id="anMeta">${AN.meta ? esc(AN.metaLine) : ''}</p>
     <label class="vm-go an-file" style="background:var(--paper);color:var(--ink)">${AN.cut ? 'Change the picture' : 'Add its picture'}<input id="anPic" type="file" accept="image/*" hidden></label>
     <div id="anPrev" class="an-prev"></div>
-    <p class="note">The square picture of the Nibble, at full size (like its PFP).</p>
+    <p class="note" id="anPicNote">${AN.picAuto ? 'Found its picture. Not the right one? Add your own.' : 'Type the token number and its picture appears here. Or add your own: the square picture at full size (like its PFP).'}</p>
     <button class="vm-go" id="anNext" type="button">Next</button>`);
   if (AN.cut) $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg));
   $('anPic').onchange = async e => {
     const f = e.target.files && e.target.files[0]; if (!f) return;
     const B = await import('./builder.js?v=' + ART_V);
-    try { const im = await B.loadImage(f); AN.cut = B.cutOriginal(im); AN.cutOrig = null; $('anPrev').innerHTML = ''; $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg)); }
+    try { const im = await B.loadImage(f); AN.cut = B.cutOriginal(im); AN.cutOrig = null; AN.picAuto = 0; $('anPrev').innerHTML = ''; $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg)); }
     catch (err) { setStatus('x', 'That picture wouldn\'t open. Try another one.', 'err'); }
   };
+  // a token number fills in its kind and traits from the trait index
+  let lookT = 0;
+  $('anTok').oninput = () => { clearTimeout(lookT); lookT = setTimeout(async () => {
+    const id = +$('anTok').value, t = id >= 1 && id <= 8888 ? await traitsOf(id) : null; if (+$('anTok').value !== id) return;
+    AN.meta = t; if (!t) { $('anMeta').textContent = ''; return; }
+    const kind = t.a.Character; if (KINDS.includes(kind)) $('anKind').value = kind;
+    const words = traitWords(t); if (!AN.traits || AN.traitsAuto) { AN.traits = words; AN.traitsAuto = true; }
+    AN.metaLine = `${kind} #${id}: ${words}`; $('anMeta').textContent = AN.metaLine;
+    // its picture comes straight from the collection's image server, unless they added their own
+    if (!AN.cut || (AN.picAuto && AN.picAuto !== id)) {
+      try { const B = await import('./builder.js?v=' + ART_V), im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
+        if (+$('anTok').value !== id) return;
+        AN.cut = B.cutOriginal(im); AN.cutOrig = null; AN.picAuto = id; $('anPrev').innerHTML = ''; $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg));
+        $('anPicNote').textContent = `Found ${kind} #${id}'s picture. Not the right one? Add your own.`; }
+      catch (e) { /* no picture: they add it themselves */ }
+    }
+  }, 250); };
   $('anNext').onclick = () => {
     const tok = +$('anTok').value, kind = $('anKind').value;
     if (!(tok >= 1 && tok <= 8888)) { setStatus('x', 'Enter the token number (1 to 8888).', 'err'); return; }
@@ -2219,22 +2255,32 @@ function addNibble() {
   };
 }
 function thumbOf(canvas, bg) { const c = document.createElement('canvas'); c.width = c.height = 240; const g = c.getContext('2d'); g.fillStyle = bg; g.fillRect(0, 0, 240, 240); g.drawImage(canvas, 0, 0, 240, 240); return c; }
+const promptFor = k => PROMPTS[k](`${AN.kind} #${AN.token}`, AN.traits || 'every trait exactly as in the original');
+function wireCopy() {
+  vmBody().querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
+    const el = $('anP_' + b.dataset.copy), txt = el.textContent;
+    try { await navigator.clipboard.writeText(txt); b.textContent = 'Copied!'; } catch (e) { const r = document.createRange(); r.selectNodeContents(el); getSelection().removeAllRanges(); getSelection().addRange(r); b.textContent = 'Selected'; }
+    setTimeout(() => b.textContent = 'Copy', 1500);
+  });
+}
 function addPrompts() {
   const name = `${AN.kind} #${AN.token}`;
   vmShow('Make 3 pictures in Gemini', `
-    <p>Open <b>Gemini</b> (gemini.google.com). For each prompt below: attach ${esc(name)}'s picture, paste the prompt, and save the picture it makes.</p>
+    <p>Open <b>Gemini</b> (gemini.google.com). For each prompt below: start a new chat, attach ${esc(name)}'s picture, paste the prompt, and save the picture it makes.</p>
+    ${AN.picAuto ? `<a class="chipb seg" id="anSavePic" href="${nibblePic(AN.picAuto)}" target="_blank" rel="noopener" download="nibble-${AN.picAuto}.png">Save ${esc(name)}'s picture</a>` : ''}
     <label class="an-lbl">What's on your Nibble? (helps Gemini copy it exactly)<textarea id="anTraits" rows="2" placeholder="e.g. dark slate fur, gold halo, bandage on the head, purple bruised eye, cream snout, two white fangs, gray hooded robe">${esc(AN.traits || '')}</textarea></label>
     ${['s1', 's2', 'eyes'].map((k, i) => `<div class="an-p"><div class="an-ph"><b>${['1. Mouths', '2. More mouths', '3. Eyes'][i]}</b><button class="chipb seg" type="button" data-copy="${k}">Copy</button></div><pre id="anP_${k}"></pre></div>`).join('')}
     <button class="vm-go" id="anNext" type="button">I've got all 3 pictures</button>
     <button class="chipb seg" id="anBack" type="button">Back</button>`);
-  const fill = () => { AN.traits = $('anTraits').value.trim(); const t = AN.traits || 'every trait exactly as in the original';
-    for (const k of ['s1', 's2', 'eyes']) $('anP_' + k).textContent = PROMPTS[k](name, t); };
-  fill(); $('anTraits').oninput = fill;
-  vmBody().querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
-    const txt = $('anP_' + b.dataset.copy).textContent;
-    try { await navigator.clipboard.writeText(txt); b.textContent = 'Copied!'; } catch (e) { const r = document.createRange(); r.selectNodeContents($('anP_' + b.dataset.copy)); getSelection().removeAllRanges(); getSelection().addRange(r); b.textContent = 'Selected'; }
-    setTimeout(() => b.textContent = 'Copy', 1500);
-  });
+  const fill = () => { AN.traits = $('anTraits').value.trim(); for (const k of ['s1', 's2', 'eyes']) $('anP_' + k).textContent = promptFor(k); };
+  fill(); $('anTraits').oninput = () => { AN.traitsAuto = false; fill(); }; wireCopy();
+  if ($('anSavePic')) $('anSavePic').onclick = async e => {   // save it to the phone so it can be attached in Gemini
+    e.preventDefault();
+    try { const b = await (await fetch(nibblePic(AN.picAuto))).blob(), f = new File([b], `nibble-${AN.picAuto}.png`, { type:'image/png' });
+      if (navigator.canShare && navigator.canShare({ files:[f] })) { await navigator.share({ files:[f] }); return; }
+      const u = URL.createObjectURL(b), a = document.createElement('a'); a.href = u; a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000); }
+    catch (err) { if (err && err.name === 'AbortError') return; open(nibblePic(AN.picAuto), '_blank'); }
+  };
   $('anBack').onclick = addNibble; $('anNext').onclick = addSheets;
 }
 function addSheets() {
@@ -2254,14 +2300,22 @@ async function addBuild() {
   vmShow('Building…', `<div class="vm-bar"><i id="vmProg" style="width:100%;animation:anPulse 1.2s ease-in-out infinite"></i></div><p class="note" id="anMsg">Getting started…</p>`);
   try {
     const B = await import('./builder.js?v=' + ART_V);
-    const s1 = B.splitSheet(await B.loadImage(AN.f1), 3, 2), s2 = B.splitSheet(await B.loadImage(AN.f2), 4, 1);
-    let eyes = null;
-    if (!AN.noEyes && AN.f3) { const ei = await B.loadImage(AN.f3), n = B.countPanels(ei); eyes = B.splitSheet(ei, n >= 4 ? 5 : 3, 1); }
+    // any layout Gemini chose (a row, a grid), read from the sheet's green gutters; extra panels are dropped
+    AN.layoutNotes = [];
+    const read = async (f, want, cols, rows) => { const im = await B.loadImage(f), g = B.gridOf(im); let n = g.cols * g.rows;
+      if (want === 5 && n === 3) want = 3;
+      if (n > 1 && (n < want || n > want + 2)) AN.layoutNotes.push(`Picture ${want === 6 ? 1 : want === 4 ? 2 : 3} has ${n} faces in it, but it should have ${want === 6 ? '6 (3 on top, 3 below)' : want === 4 ? '4 in one row' : '5 in one row'}. Is it in the right slot?`);
+      const ps = n >= want && n <= want + 2 ? B.splitSheet(im, g.cols, g.rows) : B.splitSheet(im, cols, rows);
+      return ps.length > want && want !== 5 ? B.pickPanels(ps, want) : ps; };   // extra eye faces are sorted out by the builder
+    const s1 = await read(AN.f1, 6, 3, 2), s2 = await read(AN.f2, 4, 4, 1);
+    const eyes = !AN.noEyes && AN.f3 ? await read(AN.f3, 5, 5, 1) : null;
     const res = await B.build(AN.cutOrig || AN.cut.canvas, { s1, s2, eyes }, t => { const m = $('anMsg'); if (m) m.textContent = t; });
     if ($('anMsg')) $('anMsg').textContent = 'Looking for a halo, fire eyes and other moving parts…';
     if (!AN.cutOrig) AN.cutOrig = AN.cut.canvas;   // keep the untouched picture, so building again starts clean
     const base = document.createElement('canvas'); base.width = base.height = 1000; base.getContext('2d').drawImage(AN.cutOrig, 0, 0); AN.cut.canvas = base;
-    res.frames[0] = base; res.traits = B.findTraits(base, res, AN.kind, AN.cut.bg);
+    res.frames[0] = base;
+    const ta = AN.meta && AN.meta.a, hints = ta ? { halo:/halo/i.test([].concat(ta.Accessory || []).join(' ')), fire:/fire/i.test(String(ta.Eyes || '')) } : {};
+    res.traits = B.findTraits(base, res, AN.kind, AN.cut.bg, hints);
     AN.res = res; AN.exp = await B.exportFiles(res, base);
     addResults();
   } catch (e) { vmShow('Something went wrong', `<p>The pictures couldn't be built (${esc(String(e && e.message || e))}). Check they're the right pictures and try again.</p><button class="vm-go" id="anBack" type="button">Back</button>`); $('anBack').onclick = addSheets; }
@@ -2275,16 +2329,24 @@ function addResults() {
   r.frames.forEach((f, k) => put([f], k));
   const ek = r.eyes ? [1, 2, 3, 4].filter(k => r.eyes[k]) : []; ek.forEach((k, i) => put([r.frames[0], r.eyes[k]], 10 + i));
   if (r.eyes) { g.fillStyle = '#fff'; g.fillRect((10 + ek.length) % 5 * cell, 2 * cell, (5 - ek.length) * cell, cell); }
-  vmShow(r.ok ? `${name} is ready` : 'A few things to fix', `
+  const soft = r.problems.filter(p => !p.hard), hard = r.problems.filter(p => p.hard), redo = [...new Set((r.usable ? soft : hard).map(p => p.sheet))].sort();
+  const KEY = { 1:'s1', 2:'s2', 3:'eyes' }, LBL = { 1:'1. Mouths', 2:'2. More mouths', 3:'3. Eyes' };
+  const fix = redo.length ? `<p class="note">${r.usable ? 'To make it better later:' : 'To fix it:'} start a <b>new</b> Gemini chat (asking Gemini to fix its old picture doesn't work), attach ${esc(name)}'s picture again and paste the prompt below. Then come back and swap in the new picture.</p>
+    ${redo.map(sh => `<div class="an-p"><div class="an-ph"><b>${LBL[sh]}</b><button class="chipb seg" type="button" data-copy="${KEY[sh]}">Copy</button></div><pre id="anP_${KEY[sh]}">${esc(promptFor(KEY[sh]))}</pre></div>`).join('')}` : '';
+  vmShow(r.ok ? `${name} is ready` : r.usable ? `${name} is ready` : 'One more try', `
     <div class="an-sheet" id="anSheet"></div>
     ${r.ok ? `<p class="note">Top two rows: the 10 mouths. ${r.eyes ? 'Bottom row: the eyes.' : ''} Look them over; if one looks wrong, go Back and change that picture.</p>` :
-      `<ul class="an-prob">${r.problems.map(p => `<li>${esc(p)}</li>`).join('')}</ul>`}
-    ${r.ok ? '<button class="vm-go" id="anTry" type="button" style="background:var(--paper);color:var(--ink)">Try it on camera</button><button class="vm-go" id="anPub" type="button">Add it to the filter</button>'
-      : '<button class="vm-go" id="anRedo" type="button">Change the pictures</button>'}
+      r.usable ? `<p class="note">It works and can go live now. A few spots were patched:</p><ul class="an-prob">${soft.map(p => `<li>${esc(p.text)}</li>`).join('')}</ul>` :
+      `<ul class="an-prob">${(AN.layoutNotes && AN.layoutNotes.length ? AN.layoutNotes : hard.map(p => p.text)).map(t => `<li>${esc(t)}</li>`).join('')}</ul>`}
+    ${r.usable ? '<button class="vm-go" id="anTry" type="button" style="background:var(--paper);color:var(--ink)">Try it on camera</button><button class="vm-go" id="anPub" type="button">Add it to the filter</button>' : ''}
+    ${fix}
+    ${r.usable ? '' : '<button class="vm-go" id="anRedo" type="button">Swap in the new picture</button>'}
+    ${r.usable && !r.ok ? '<button class="chipb seg" id="anRedo" type="button">Swap in a new picture</button>' : ''}
     <button class="chipb seg" id="anBack" type="button">Back</button>`);
-  $('anSheet').appendChild(sheet);
+  $('anSheet').appendChild(sheet); wireCopy();
   $('anBack').onclick = addSheets;
-  if (!r.ok) { $('anRedo').onclick = addSheets; return; }
+  if ($('anRedo')) $('anRedo').onclick = addSheets;
+  if (!r.usable) return;
   $('anTry').onclick = addTry; $('anPub').onclick = addPublish;
 }
 function previewFiles() {
