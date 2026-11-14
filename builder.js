@@ -116,7 +116,7 @@ export function splitSheet(img, cols, rows) {
     unframe(q, pw, ph);
     // only green that touches the real green screen is keyed: green clothes, slime or leaves inside an outline stay
     const core = new Uint8Array(pw * ph);
-    for (let k = 0; k < pw * ph; k++) { const i = k * 4; if (q[i + 1] > 170 && q[i + 1] - Math.max(q[i], q[i + 2]) > 130) core[k] = 1; }
+    for (let k = 0; k < pw * ph; k++) { const i = k * 4; if (q[i + 1] > 170 && q[i] < 100 && q[i + 2] < 100 && q[i + 1] - Math.max(q[i], q[i + 2]) > 130) core[k] = 1; }   // bright green slime or leaves (lots of blue) are not the screen
     const near = new Uint8Array(pw * ph), R = 4;
     { const t = new Uint8Array(pw * ph);
       for (let y = 0; y < ph; y++) { let c = 0; for (let x = 0; x < Math.min(R, pw); x++) c += core[y * pw + x];
@@ -126,8 +126,9 @@ export function splitSheet(img, cols, rows) {
     for (let k = 0; k < pw * ph; k++) {
       if (!near[k]) continue;
       const i = k * 4, r_ = q[i], gg = q[i + 1], b = q[i + 2], gn = gg - Math.max(r_, b);
-      const a = 1 - Math.min(1, Math.max(0, (gn - 30) / 90)) * Math.min(1, Math.max(0, (gg - 90) / 90));
-      q[i + 1] = Math.min(gg, Math.max(r_, b) + 10); q[i + 3] = Math.round(a * 255);
+      const dist = r_ + (255 - gg) + b;   // how far from the screen green
+      const a = Math.min(1, Math.max(0, (dist - 25) / 70));
+      if (a < 1) q[i + 1] = Math.min(gg, Math.max(r_, b) + 30); q[i + 3] = Math.round(a * 255);
     }
     pg.putImageData(id, 0, 0); out.push(p);
   }

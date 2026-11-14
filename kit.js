@@ -199,5 +199,14 @@ export function fromKit(Timg, ref, { blink = true } = {}) {
       g.putImageData(id, 0, 0); return c; })];
     if (eb[2] < eb[0]) { eb = [0, 0, 0, 0]; eyes = [null, null, null, null, null]; }
   }
-  return { frames, eyes, mouthBox:mb, eyeBox:eb };
+  // the face: everything the talking mouths and the blink touch, plus where this Nibble differs from the reference
+  // (its own eyes, mouth, laser beams...). A trait loop is cut away here, so the face always shows through it.
+  const face2 = new Uint8Array(N * N);
+  let zb = 0; for (let p = 0; p < N * N; p++) if (Zd[p]) zb = Math.max(zb, (p / N) | 0);   // the bottom of the mouth area: nothing below it is face
+  for (let p = 0; p < N * N; p++) { const i = p * 4; if (Zd[p] || EZ[p] || ((p / N) < zb + 20 && T[i + 3] > 128 && (R[i + 3] < 128 || dist(T, i, R, i) > 90))) face2[p] = 1; }
+  const faceMask = soft(fillHoles(grow(blobs(face2, 60), 4)), 14);   // a wide soft edge, so the still face melts into the moving body
+  const fm = cv(), fg = fm.getContext('2d'), fid = fg.createImageData(N, N);
+  for (let p = 0; p < N * N; p++) fid.data[p * 4 + 3] = Math.round(faceMask[p] * 255);
+  fg.putImageData(fid, 0, 0);
+  return { frames, eyes, mouthBox:mb, eyeBox:eb, faceMask:fm };
 }

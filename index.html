@@ -361,7 +361,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261113-1900';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261114-0000';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -396,6 +396,9 @@ const NIBBLES = {
   757: { bg:'#ffe46b', fullFace:true },
   929: { bg:'#8aecd3', fullFace:true },
   67: { bg:'#ff8588', fullFace:true },
+  // group kits (Fire and Slime ghosts): talking faces from #2757 and #5842, used only as references
+  k2757: { bg:'#ffc185', fullFace:true },
+  k5842: { bg:'#ffe46b', fullFace:true },
 };
 const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest', Cockfight:'cleeroy' };
 // backdrops that hang a sign: it goes in open space the Nibble can never reach, and the text keeps clear of it too
@@ -503,7 +506,7 @@ new ResizeObserver(fitStage).observe($('bezel'));
 addEventListener('resize', fitStage);
 setShape('Square');
 // Each control shows a picture of its current choice; the name sits underneath.
-const FACE_AT = { 757:[608,610,1.35], 929:[516,455,1.35], 67:[564,554,1.35], 1680:[559,536,1.35], 310:[560,589,1.35], 6965:[564,519,1.35], 1992:[602,582,1.35], 5502:[566,458,1.35], 4075:[534,551,1.35], 1486:[600,560,1.35], 4248:[499,469,1.35], 3133:[560,494,1.35], 271:[560,494,1.35], 7996:[600,520,1.35], 8549:[507,533,1.35], 3385:[585,560,1.35], 8212:[496,520,1.35], 3154:[496,520,1.35] };   // face centre + zoom in the 1000px art
+const FACE_AT = { k2757:[612,590,1.35], k5842:[611,581,1.35], 757:[608,610,1.35], 929:[516,455,1.35], 67:[564,554,1.35], 1680:[559,536,1.35], 310:[560,589,1.35], 6965:[564,519,1.35], 1992:[602,582,1.35], 5502:[566,458,1.35], 4075:[534,551,1.35], 1486:[600,560,1.35], 4248:[499,469,1.35], 3133:[560,494,1.35], 271:[560,494,1.35], 7996:[600,520,1.35], 8549:[507,533,1.35], 3385:[585,560,1.35], 8212:[496,520,1.35], 3154:[496,520,1.35] };   // face centre + zoom in the 1000px art
 function showNibbleThumb(id) {
   const f = $('nibFace'), [cx, cy, zoom] = FACE_AT[id];               // show the face, centred
   const pos = c => (Math.min(1, Math.max(0, (c / 1000 * zoom - 0.5) / (zoom - 1))) * 100).toFixed(1) + '%';
@@ -592,7 +595,7 @@ function collection(onPick) {
     $('pkRdy').onchange = e => { f.ready = e.target.checked; fill(); };
     const fill = () => {
       const g = $('pkGrid'); g.innerHTML = ''; g.scrollTop = 0;
-      const kitOK = !!KIT_REF[k], skinOf = id => m.v[m.k.indexOf('Skin')][m.t[id - 1][m.k.indexOf('Skin')]], isReady = id => !!NIBBLES[id] || (kitOK && !SPECIAL_SKINS.has(skinOf(id)) && !KIT_SKIP.has(k + ':' + skinOf(id)));
+      const kitOK = !!KIT_REF[k], skinOf = id => m.v[m.k.indexOf('Skin')][m.t[id - 1][m.k.indexOf('Skin')]], isReady = id => !!NIBBLES[id] || !!KIT_GROUP[k + ':' + skinOf(id)] || (kitOK && !SPECIAL_SKINS.has(skinOf(id)) && !KIT_SKIP.has(k + ':' + skinOf(id)));
       const list = mine.filter(id => (!f.ready || isReady(id)) && show.every(name => f[name] == null || m.t[id - 1][m.k.indexOf(name)] === f[name]));
       $('pkCnt').textContent = `${list.length.toLocaleString()} ${list.length === 1 ? 'Nibble' : 'Nibbles'} · ✓ = ready to use`;
       let at = 0; const more = () => { const end = Math.min(list.length, at + 60); for (; at < end; at++) g.appendChild(pkTile(list[at], open, isReady(list[at]))); if (at < list.length) g.appendChild(sent); else sent.remove(); };
@@ -620,12 +623,15 @@ const KIT_REF = { Wolf:271, Bear:1680, Cock:310, Gecko:6965, Raccoon:1992, Ghost
 const KIT_NO_BLINK = new Set();
 const KIT_SKIP = new Set();   // kind:skin pairs whose results aren't good enough yet
 const SPECIAL_SKINS = new Set(['Red', 'Wrestler', 'Plush', 'Seawoman', 'Werewolf', 'Mage', 'Alien', 'Human', 'Metal', 'Dissection', 'Slime', 'Dragon', 'Fire', 'Mummy']);
-const kitFor = t => { const a = t && t.a; return a && !SPECIAL_SKINS.has(a.Skin) && !KIT_SKIP.has(a.Character + ':' + a.Skin) ? KIT_REF[a.Character] || null : null; };
+// special skins whose whole group shares a pose: one kit each, with a moving body loop played behind the face
+const KIT_GROUP = { 'Ghost:Fire':{ ref:'k2757', loop:'ghostfire', frames:48, fps:12 }, 'Ghost:Slime':{ ref:'k5842', loop:'ghostslime', frames:48, fps:12 } };
+const groupOf = a => a && KIT_GROUP[a.Character + ':' + a.Skin];
+const kitFor = t => { const a = t && t.a; if (groupOf(a)) return groupOf(a).ref; return a && !SPECIAL_SKINS.has(a.Skin) && !KIT_SKIP.has(a.Character + ':' + a.Skin) ? KIT_REF[a.Character] || null : null; };
 // eyes that don't blink: fire, lasers, X / knocked out, spirals, slot machines, glasses and anything worn over the eyes
 const NO_BLINK = /fire|ignis|laser|knocked|dizzy|slot|3d|glasses|monocle|robot|anatomy|empty|whites|eyepatch|button|glowing|magic|three|awooga|burglar/i;
 const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || ''));
 const KIT_BUSY = {};
-window.__nf = { get id() { return S.id; }, NIBBLES, fetchNibble:id => fetchNibble(id) };   // for tests
+window.__nf = { get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id) };   // for tests
 async function kitPrepare(id) {
   if (NIBBLES[id]) return true;
   if (KIT_BUSY[id]) return KIT_BUSY[id];
@@ -643,6 +649,9 @@ async function kitPrepare(id) {
       const exp = await B.exportFiles(res, cut.canvas), files = {};
       for (const k in exp.files) files[k] = URL.createObjectURL(exp.files[k]);
       NIBBLES[id] = { bg:cut.bg, fullFace:true, files, layout:exp.layout, jiggle:exp.layout.jig, kit:ref };
+      const grp = groupOf(a);
+      if (grp) { files.hole = URL.createObjectURL(await new Promise(r => res.faceMask.toBlob(r, 'image/png')));
+        NIBBLES[id].trait = { frames:grp.frames, fps:grp.fps, from:grp.loop, hole:true }; }
       FACE_AT[id] = exp.layout.at; delete ART[id]; addOption(id, kind);
       setStatus('x', `${kind} #${id} is ready.`, '', 1500);
       return true;
@@ -720,6 +729,7 @@ function fetchNibble(id) {
       const t = cfg.trait;
       const frames = await Promise.all(Array.from({ length:t.frames }, (_, i) => loadImg(`traits/${t.from || id}/f${i}.webp?v=${ART_V}`)));
       trait = { ...t, frames };
+      if (t.hole) trait.holeImg = await loadImg(artURL(id, 'hole'));
     }
     // where the character (and its floating extras) can ever be, in the 1000px art — the text keeps out of this
     const bc = document.createElement('canvas'); bc.width = bc.height = 250; const bg = bc.getContext('2d', { willReadFrequently:true });
@@ -747,7 +757,7 @@ async function loadNibble(id) {
     S.mouth = { cur:0, prev:0, t:0 }; S.eye = { cur:0, prev:0, t:0 };
   } catch (e) { delete ART[id]; setStatus('camStatus', 'Could not load that Nibble.', 'err'); }
 }
-loadNibble(4075).then(() => { for (const id of Object.keys(NIBBLES)) fetchNibble(+id); }); showNibbleThumb(4075);
+loadNibble(4075).then(() => { for (const id of Object.keys(NIBBLES)) if (+id) fetchNibble(+id); }); showNibbleThumb(4075);
 
 // ---------------------------------------------------------------------------
 // Camera + face tracking (MediaPipe Face Landmarker, on-device)
@@ -1182,6 +1192,15 @@ function drawFire(t, x, y, size) {
   g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'destination-in'; g.drawImage(F.clip, 0, 0, 1000, 1000);
   ctx.drawImage(fireC, x, y, size, size);
 }
+const LOOP_C = [0, 0].map(() => { const c = document.createElement('canvas'); c.width = c.height = 1000; return c; });
+function drawLoopBody(t, x, y, size) {
+  const tr = S.trait, fr = tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length], [lc, fc] = LOOP_C, lg = lc.getContext('2d'), fg = fc.getContext('2d');
+  // the body whole, then the face faded onto it through the mask (cutting a hole and filling it would let the background show at the soft edge)
+  lg.globalCompositeOperation = 'source-over'; lg.clearRect(0, 0, 1000, 1000); lg.drawImage(fr, 0, 0, 1000, 1000);
+  fg.globalCompositeOperation = 'source-over'; fg.clearRect(0, 0, 1000, 1000); fg.drawImage(S.art.mouths[S.mouth.cur], 0, 0, 1000, 1000);
+  fg.globalCompositeOperation = 'destination-in'; fg.drawImage(tr.holeImg, 0, 0, 1000, 1000);
+  ctx.drawImage(lc, x, y, size, size); ctx.drawImage(fc, x, y, size, size);
+}
 function drawTrait(t, x, y, size, f) {
   const tr = S.trait; if (!tr) return;
   const img = tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length], k = size / 1000;
@@ -1225,19 +1244,20 @@ function drawNibble(t) {
   const pad = size * 0.06;   // a little past the frame edge, so head turns and tilts don't reveal it
   const x = A.edgeL && !A.edgeR ? -pad : A.edgeR && !A.edgeL ? W - size + pad : (W - size)/2, y = H - size;
   S.charAt = { x, y, size, W, H, b:A.bounds, o:A.outline, id:S.id };
-  if (NIBBLES[S.id].fullFace) {
+  if (S.trait && S.trait.holeImg) drawLoopBody(t, x, y, size);   // a moving body (fire, slime) with the talking face set into it
+  else if (NIBBLES[S.id].fullFace) {
     ctx.drawImage(A.mouths[S.mouth.cur], x, y, size, size);   // hard cut between drawn faces, like hand-drawn animation
   } else ctx.drawImage(A.base, x, y, size, size);
   ctx.drawImage(A.base, 0, 997, 1000, 3, x, H - 1, size, size * 0.3);   // body continues below the frame edge
   if (A.edgeL) { ctx.drawImage(A.base, 0, 0, 2, 1000, x - size*0.5 + 1, y, size*0.5, size); ctx.drawImage(A.base, 0, 997, 2, 3, x - size*0.5 + 1, H - 1, size*0.5, size*0.3); }
   if (A.edgeR) { ctx.drawImage(A.base, 998, 0, 2, 1000, x + size - 1, y, size*0.5, size); ctx.drawImage(A.base, 998, 997, 2, 3, x + size - 1, H - 1, size*0.5, size*0.3); }
 
-  const cfg = NIBBLES[S.id], under = S.trait && S.trait.under;
-  if (under) drawTrait(t, x, y, size, live ? f : null);
+  const cfg = NIBBLES[S.id], under = S.trait && S.trait.under, looped = S.trait && S.trait.holeImg;
+  if (under && !looped) drawTrait(t, x, y, size, live ? f : null);
   if (cfg.eyesAlways) ctx.drawImage(A.eyes[cfg.noBlink ? 0 : S.eye.cur], x, y, size, size);   // eyes made of fire don't blink
   else drawLayer(A.eyes, S.eye, t, FADE.eye, x, y, size);
   if (A.over) ctx.drawImage(A.over[S.mouth.cur], x, y, size, size);
-  if (!under) drawTrait(t, x, y, size, live ? f : null);
+  if (!under && !looped) drawTrait(t, x, y, size, live ? f : null);
   drawFire(t, x, y, size);
   drawHalo(t, x, y, size, live ? f : null);
   drawJiggle(t, x, y, size, live ? f : null);
