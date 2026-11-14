@@ -1,0 +1,15 @@
+name: Metadata check
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: 'Token ids, comma separated'
+        required: true
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for id in $(echo "${{ inputs.ids }}" | tr ',' ' '); do
+            echo "== $id"; curl -sS --retry 3 https://frankymetadataserver-production.up.railway.app/nibble/metadata/$id | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('image')); print({a['trait_type']:a['value'] for a in d['attributes']})"
+          done
