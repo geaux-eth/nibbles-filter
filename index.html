@@ -204,11 +204,13 @@ header .credit b{font-weight:400}
 .vm-bar{height:16px;border:2.5px solid var(--ink);border-radius:999px;overflow:hidden;background:#f3eee4;margin:8px 0}
 .vm-bar i{display:block;height:100%;width:0;background:var(--gold);transition:width .2s}
 .vm-cast{display:grid;gap:8px;margin:4px 0 8px}
-.vm-person{display:grid;grid-template-columns:62px 18px 62px 1fr;align-items:center;gap:8px;font:400 18px/1 var(--display)}
+.vm-person{display:grid;grid-template-columns:62px 18px 62px 44px 1fr;align-items:center;gap:8px;font:400 18px/1 var(--display)}
 .vm-face{width:62px;height:62px;border-radius:50%;border:2.5px solid var(--ink);background:#ddd;object-fit:cover}
 .vm-nib{position:relative;display:block;width:62px;height:62px}
 .vm-nib .circ{width:62px;height:62px;margin:0}
 .vm-nib{border:0;background:none;padding:0;cursor:pointer}
+.vm-bgb{width:44px;height:44px;border:2.5px solid var(--ink);border-radius:10px;background:#fff center/cover no-repeat;padding:0;cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
+.vm-bgb.same{outline:2px dashed #999;outline-offset:2px}
 .vm-person .lbl{font-size:13px;text-align:left}
 .vm-tag{display:grid;gap:5px;justify-items:start;min-width:0}.vm-tag .chipb{font-size:11px;padding:6px 8px 4px}
 .vm-row{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 8px}
@@ -361,7 +363,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261114-0000';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261114-0900';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1980,7 +1982,7 @@ function nibThumb(el, id) {
 function vmRandom() {
   const ids = NIB_NAMES().map(x => x[0]).sort(() => Math.random() - 0.5);
   VM.people.forEach((p, i) => VM.cast[i] = ids[i % ids.length]);
-  const bgs = ['Nibble color', ...Object.keys(BONKD_BGS)]; VM.bg = bgs[Math.floor(Math.random() * bgs.length)];
+  const bgs = ['Nibble color', ...Object.keys(BONKD_BGS)]; VM.bg = bgs[Math.floor(Math.random() * bgs.length)]; VM.bgs = {};
 }
 function vmCastStep() {
   const P = VM.people;
@@ -2000,12 +2002,12 @@ function vmCastStep() {
   const opt = (list, cur) => list.map(([v, t]) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${t}</option>`).join('');
   const nOn = P.filter(p => !p.off).length, off = P.some(p => p.off);
   vmShow((nOn === 1 ? 'Found 1 person' : `Found ${nOn} people`) + (off ? ' + a voice' : ''), `
-    <p class="note" style="margin-top:0">Same person showing up twice? Tap <b>Same person as ↑</b>.</p>
+    <p class="note" style="margin-top:0">Same person showing up twice? Tap <b>Same person as ↑</b>. The square next to each Nibble is that speaker's background.</p>
     <div class="vm-cast" id="vmCast"></div>
     <div class="vm-row"><button class="chipb seg" id="vmRand" type="button">🎲 Random</button>${P.some(p => p.off) ? '' : '<button class="chipb seg" id="vmAddVoice" type="button">🎙️ Add a voice off camera</button>'}</div>
 
     <div class="vm-opts">
-      <label>Background<select id="vmBg">${opt([['Nibble color', 'Nibble color'], ...Object.keys(BONKD_BGS).map(k => [k, k])], VM.bg)}</select></label>
+      <label>Background (everyone)<select id="vmBg">${opt([['Nibble color', 'Nibble color'], ...Object.keys(BONKD_BGS).map(k => [k, k])], VM.bg)}</select></label>
       <label>Music<select id="vmMusic">${opt([['', 'No music'], ...TRACKS.map(t => [t[0], t[1]])], VM.music)}</select></label>
       <label>Shape<select id="vmShape">${opt(Object.keys(ASPECTS).map(k => [k, RATIO_TXT[k]]), VM.shape)}</select></label>
     </div>
@@ -2022,6 +2024,12 @@ function vmCastStep() {
     const circ = document.createElement('span'); circ.className = 'circ'; nibThumb(circ, VM.cast[i]);
     nib.onclick = () => pickNibble(VM.cast[i], Object.assign(id => { VM.cast[i] = id; nibThumb(circ, id); }, { noAdd:true }));
     nib.append(circ);
+    // this speaker's own background (or everyone's, until one is picked)
+    VM.bgs = VM.bgs || {};
+    const bgb = document.createElement('button'); bgb.type = 'button'; bgb.className = 'vm-bgb' + (VM.bgs[i] ? '' : ' same');
+    bgb.setAttribute('aria-label', 'Background for person ' + (i + 1)); bgThumb(bgb, VM.bgs[i] || VM.bg);
+    if ((VM.bgs[i] || VM.bg) === 'Nibble color') bgb.style.backgroundColor = NIBBLES[VM.cast[i]] ? NIBBLES[VM.cast[i]].bg : '#fff';
+    bgb.onclick = () => pickBackground(VM.bgs[i] || VM.bg, name => { if (name === VM.bg) delete VM.bgs[i]; else VM.bgs[i] = name; vmCastStep(); });
     const tag = document.createElement('div'); tag.className = 'vm-tag';
     const lb = document.createElement('span'); lb.className = 'lbl'; lb.textContent = p.off ? 'Voice off camera' : i === VM.main ? 'Main' : 'Person ' + (i + 1); tag.appendChild(lb);
     if (i > 0 && !p.off) {   // the tracker can split one person in two (a jump cut, a hand over the face): one tap joins them
@@ -2029,7 +2037,7 @@ function vmCastStep() {
       same.textContent = 'Same person as ↑';
       same.onclick = () => { VM.cast[i] = VM.cast[i - 1]; vmCastStep(); }; tag.appendChild(same);
     }
-    d.append(face, document.createTextNode('→'), nib, tag); box.appendChild(d);
+    d.append(face, document.createTextNode('→'), nib, bgb, tag); box.appendChild(d);
   });
   $('vmRand').onclick = () => { vmRandom(); vmCastStep(); };
   if ($('vmAddVoice')) $('vmAddVoice').onclick = () => {
@@ -2048,7 +2056,7 @@ function vmCastStep() {
     nb.onclick = () => { l.who = (l.who + 1) % P.length; nibThumb(nb, VM.cast[l.who]); nm.textContent = pn(l.who); vmLinesToTimeline(); };
     row.append(play, tm, nb, nm); LB.appendChild(row);
   });
-  $('vmBg').onchange = e => VM.bg = e.target.value;
+  $('vmBg').onchange = e => { VM.bg = e.target.value; VM.bgs = {}; vmCastStep(); };   // everyone: per-speaker picks reset
   $('vmMusic').onchange = e => VM.music = e.target.value;
   $('vmShape').onchange = e => VM.shape = e.target.value;
   $('vmMake').onclick = vmRender;
@@ -2208,9 +2216,13 @@ async function vmRender() {
     VM.keep = { id:S.id, art:S.art, trait:S.trait, bg:S.bg, shape:S.shape || 'Square', face:S.face, mouth:S.mouth, eye:S.eye,
       v:{ an:V.an, buf:V.buf, spec:V.spec, hz:V.hz, floor:V.floor, peak:V.peak, loud:V.loud, trusted:V.trusted, on:V.on, lastVoice:V.lastVoice } };
     VM.ps = P.map(() => ({ mouth:{ cur:0, prev:0, t:0 }, eye:{ cur:0, prev:0, t:0 }, face:{ roll:0, yaw:0, pitch:0, seen:false, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 } }));
+    VM.bgs = VM.bgs || {};
+    const pics = [];
+    for (const name of new Set([VM.bg, ...P.map((_, i) => VM.bgs[i] || VM.bg)])) {   // every background in the video, loaded before it starts
+      if (!BONKD_BGS[name]) continue; S.bg = name; bonkdBg(name); pics.push(bgCache[name]); if (ENTRANCE[name]) { entrance(); pics.push(entCache[ENTRANCE[name].name]); }
+    }
+    await Promise.all(pics.filter(Boolean).map(i => i.complete && i.naturalWidth ? 0 : new Promise(r => { i.addEventListener('load', r, { once:true }); i.addEventListener('error', r, { once:true }); setTimeout(r, 5000); })));
     S.bg = VM.bg;
-    if (BONKD_BGS[S.bg]) { bonkdBg(S.bg); const pics = [bgCache[S.bg]]; if (ENTRANCE[S.bg]) { entrance(); pics.push(entCache[ENTRANCE[S.bg].name]); }
-      await Promise.all(pics.filter(Boolean).map(i => i.complete && i.naturalWidth ? 0 : new Promise(r => { i.addEventListener('load', r, { once:true }); i.addEventListener('error', r, { once:true }); setTimeout(r, 5000); }))); }
     VM.rendering = true; setShape(VM.shape);
     const v = document.createElement('video'); v.src = VM.url; v.playsInline = true; v.preload = 'auto'; VM.v = v;
     await new Promise((res, rej) => { v.oncanplay = res; v.onerror = rej; v.load(); });
@@ -2259,6 +2271,7 @@ function vmFrame(now) {
   if (p !== VM.cur) {   // a cut
     VM.cur = p; const id = +VM.cast[p], a = VM.arts[id];
     S.id = id; S.art = a.art; S.trait = a.trait; S.mouth = VM.ps[p].mouth; S.eye = VM.ps[p].eye; MH.length = 0; openLvl = 0;
+    S.bg = (VM.bgs && VM.bgs[p]) || VM.bg;   // each speaker can have their own background
   }
   const x = vmSample(p, t), f = VM.ps[p].face; S.face = f; S.tracking = true;
   if (x) { Object.assign(f, x); f.seen = true; if (x.bu > t * 1000) S.blinkUntil = now + (x.bu - t * 1000);
