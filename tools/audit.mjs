@@ -35,10 +35,12 @@ const server = http.createServer((q, r) => {
 const base = `http://127.0.0.1:${server.address().port}`;
 
 const browser = await chromium.launch();
-const page = await browser.newPage();
-page.on('pageerror', e => console.log('pageerror', String(e)));
-await page.goto(base + '/kit.js');
-await page.evaluate(() => { window.__refs = {}; });
+// a fresh page (also after one hangs: a picture that never arrives would otherwise stall the whole shard)
+let page;
+const openPage = async () => { if (page) await page.close().catch(() => {}); page = await browser.newPage();
+  page.on('pageerror', e => console.log('pageerror', String(e))); await page.goto(base + '/kit.js'); await page.evaluate(() => { window.__refs = {}; }); };
+await openPage();
+const within = (ms, p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms))]);
 
 const report = [];
 let n = 0; const t0 = Date.now();
@@ -47,9 +49,9 @@ for (const j of jobs) {
   let r;
   for (let tries = 0; tries < 3; tries++) {
     try {
-      r = await page.evaluate(async ({ pic, ref, blink }) => {
+      r = await within(120000, page.evaluate(async ({ pic, ref, blink }) => {
         const B = await import('/builder.js'), K = await import('/kit.js');
-        const li = async s => { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = s; await im.decode(); return im; };
+        const li = async s => { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = s; await Promise.race([im.decode(), new Promise((_, rej) => setTimeout(() => rej(new Error('picture timed out')), 30000))]); return im; };
         if (!window.__refs[ref]) window.__refs[ref] = { base:await li(`/faces/${ref}/base.webp`), mouths:await Promise.all([0,1,2,3,4,5,6,7,8,9].map(k => li(`/faces/${ref}/m${k}.webp`))), eyes:await Promise.all([0,1,2,3,4].map(k => li(`/faces/${ref}/e${k}.webp`).catch(() => null))) };
         const R = window.__refs[ref], cut = B.cutOriginal(await li(pic));
         const N0 = 1000, dat0 = c => { const x = document.createElement('canvas'); x.width = x.height = N0; const g = x.getContext('2d', { willReadFrequently:true }); g.drawImage(c, 0, 0, N0, N0); return g.getImageData(0, 0, N0, N0).data; };
@@ -59,6 +61,8 @@ for (const j of jobs) {
           for (let p = 0; p < N0 * N0; p++) { const i = p * 4; if (Bd[i + 3] > 200) { const k = b0(Bd[i], Bd[i + 1], Bd[i + 2]); const a = k >> 10, b = (k >> 5) & 31, c = k & 31;
             for (let x = Math.max(0, a - 1); x <= Math.min(31, a + 1); x++) for (let y = Math.max(0, b - 1); y <= Math.min(31, b + 1); y++) for (let z = Math.max(0, c - 1); z <= Math.min(31, c + 1); z++) inBase[(x << 10) | (y << 5) | z] = 1; } }
           for (const m of R.mouths.slice(1)) { const D = dat0(m); for (let p = 0; p < N0 * N0; p++) { const i = p * 4; if (D[i + 3] > 200 && Math.abs(D[i] - Bd[i]) + Math.abs(D[i + 1] - Bd[i + 1]) + Math.abs(D[i + 2] - Bd[i + 2]) > 60) drawn[b0(D[i], D[i + 1], D[i + 2])]++; } }
+          // and the dark shading the kit's own half-closed and closed eyes draw (lid creases, a half-lid's shadow)
+          for (const e of [R.eyes[3], R.eyes[4]]) if (e) { const D = dat0(e); for (let p = 0; p < N0 * N0; p++) { const i = p * 4; if (D[i + 3] > 200 && D[i] + D[i + 1] + D[i + 2] < 300) drawn[b0(D[i], D[i + 1], D[i + 2])]++; } }
           R.newCols = new Uint8Array(32768); for (let k = 0; k < 32768; k++) if (drawn[k] >= 20 && !inBase[k]) { const a = k >> 10, b = (k >> 5) & 31, c = k & 31;
             for (let x = Math.max(0, a - 1); x <= Math.min(31, a + 1); x++) for (let y = Math.max(0, b - 1); y <= Math.min(31, b + 1); y++) for (let z = Math.max(0, c - 1); z <= Math.min(31, c + 1); z++) R.newCols[(x << 10) | (y << 5) | z] = 1; } }
         const res = K.fromKit(cut.canvas, { base:R.base, mouths:R.mouths, eyes:R.eyes }, { blink });
@@ -103,9 +107,9 @@ for (const j of jobs) {
           strip = c.toDataURL('image/webp', 0.8);
         }
         return { worst, worstK:worstK && worstK.k, strip };
-      }, { pic, ref:j.ref, blink:blinks(j.a) });
+      }, { pic, ref:j.ref, blink:blinks(j.a) }));
       break;
-    } catch (e) { r = { error:String(e).slice(0, 200) }; }
+    } catch (e) { r = { error:String(e).slice(0, 200) }; if (/timed out/.test(r.error)) await openPage(); }
   }
   report.push({ id:j.id, kind:j.a.Character, skin:j.a.Skin, ref:j.ref, leak:r.worst ?? null, frame:r.worstK ?? null, error:r.error });
   if (r.strip) fs.writeFileSync(path.join(OUT, 'flags', `${j.id}.webp`), Buffer.from(r.strip.split(',')[1], 'base64'));
