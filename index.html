@@ -204,12 +204,13 @@ header .credit b{font-weight:400}
 .vm-bar{height:16px;border:2.5px solid var(--ink);border-radius:999px;overflow:hidden;background:#f3eee4;margin:8px 0}
 .vm-bar i{display:block;height:100%;width:0;background:var(--gold);transition:width .2s}
 .vm-cast{display:grid;gap:8px;margin:4px 0 8px}
-.vm-person{display:grid;grid-template-columns:62px 18px 62px 1fr;align-items:center;gap:8px;font:400 18px/1 var(--display)}
+.vm-person{display:grid;grid-template-columns:62px 18px 62px 1fr auto;align-items:center;gap:8px;font:400 18px/1 var(--display)}
 .vm-face{width:62px;height:62px;border-radius:50%;border:2.5px solid var(--ink);background:#ddd;object-fit:cover}
 .vm-nib{position:relative;display:block;width:62px;height:62px}
 .vm-nib .circ{width:62px;height:62px;margin:0}
 .vm-nib{border:0;background:none;padding:0;cursor:pointer}
 .vm-person .lbl{font-size:13px;text-align:left}
+.vm-rm{width:34px;height:34px;border-radius:50%;border:2.5px solid #1a1a1a;background:#fff;color:#1a1a1a;font-size:15px;font-weight:700;line-height:1;cursor:pointer;padding:0}
 .vm-tag{display:grid;gap:5px;justify-items:start;min-width:0}.vm-tag .chipb{font-size:11px;padding:6px 8px 4px}
 .vm-row{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 8px}
 .vm-h{margin:8px 0 6px;font:400 12px/1.2 var(--display);letter-spacing:.05em;text-transform:uppercase}.vm-h span{text-transform:none;font:600 12px/1.2 var(--body);letter-spacing:0;opacity:.65}
@@ -363,7 +364,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261114-1430';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261114-1530';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -721,7 +722,9 @@ function fetchNibble(id) {
       const t = cfg.trait;
       const frames = await Promise.all(Array.from({ length:t.frames }, (_, i) => loadImg(`traits/${t.from || id}/f${i}.webp?v=${ART_V}`)));
       trait = { ...t, frames };
-      if (t.hole) trait.holeImg = await loadImg(artURL(id, 'hole'));
+      if (t.hole) { trait.holeImg = await loadImg(artURL(id, 'hole'));
+        // where every loop frame covers the face: the still face stays inside it, so it never pokes past a moving outline
+        trait.innerImg = await loadImg(`traits/${t.from || id}/inner.webp?v=${ART_V}`).catch(() => null); }
     }
     // where the character (and its floating extras) can ever be, in the 1000px art — the text keeps out of this
     const bc = document.createElement('canvas'); bc.width = bc.height = 250; const bg = bc.getContext('2d', { willReadFrequently:true });
@@ -1190,7 +1193,8 @@ function drawLoopBody(t, x, y, size) {
   // the body whole, then the face faded onto it through the mask (cutting a hole and filling it would let the background show at the soft edge)
   lg.globalCompositeOperation = 'source-over'; lg.clearRect(0, 0, 1000, 1000); lg.drawImage(fr, 0, 0, 1000, 1000);
   fg.globalCompositeOperation = 'source-over'; fg.clearRect(0, 0, 1000, 1000); fg.drawImage(S.art.mouths[S.mouth.cur], 0, 0, 1000, 1000);
-  fg.globalCompositeOperation = 'destination-in'; fg.drawImage(tr.holeImg, 0, 0, 1000, 1000);
+  if (S.eye.cur > 0 && S.art.eyes[S.eye.cur]) fg.drawImage(S.art.eyes[S.eye.cur], 0, 0, 1000, 1000);   // the blink goes in the same masked face, so it never spills past the flames
+  fg.globalCompositeOperation = 'destination-in'; fg.drawImage(tr.holeImg, 0, 0, 1000, 1000); if (tr.innerImg) fg.drawImage(tr.innerImg, 0, 0, 1000, 1000);
   ctx.drawImage(lc, x, y, size, size); ctx.drawImage(fc, x, y, size, size);
 }
 function drawTrait(t, x, y, size, f) {
@@ -1246,7 +1250,8 @@ function drawNibble(t) {
 
   const cfg = NIBBLES[S.id], under = S.trait && S.trait.under, looped = S.trait && S.trait.holeImg;
   if (under && !looped) drawTrait(t, x, y, size, live ? f : null);
-  if (cfg.eyesAlways) ctx.drawImage(A.eyes[cfg.noBlink ? 0 : S.eye.cur], x, y, size, size);   // eyes made of fire don't blink
+  if (looped) {}   // the blink was drawn with the face (drawLoopBody)
+  else if (cfg.eyesAlways) ctx.drawImage(A.eyes[cfg.noBlink ? 0 : S.eye.cur], x, y, size, size);   // eyes made of fire don't blink
   else drawLayer(A.eyes, S.eye, t, FADE.eye, x, y, size);
   if (A.over) ctx.drawImage(A.over[S.mouth.cur], x, y, size, size);
   if (!under && !looped) drawTrait(t, x, y, size, live ? f : null);
@@ -1975,6 +1980,21 @@ function vmRandom() {
   VM.people.forEach((p, i) => VM.cast[i] = ids[i % ids.length]);
   const bgs = ['Nibble color', ...Object.keys(BONKD_BGS)]; VM.bg = bgs[Math.floor(Math.random() * bgs.length)];
 }
+// take a speaker out (a face the tracker found twice, a voice that isn't there): their lines go to the main speaker
+function vmRemovePerson(i) {
+  const P = VM.people; if (P.length < 2 || !P[i]) return;
+  const fix = w => w === i ? -1 : w > i ? w - 1 : w;
+  P.splice(i, 1);
+  const cast = {}; for (const k of Object.keys(VM.cast)) { const n = +k; if (n < i) cast[n] = VM.cast[k]; else if (n > i) cast[n - 1] = VM.cast[k]; } VM.cast = cast;
+  let main = fix(VM.main);
+  if (main < 0) {   // the main speaker went: the on-screen person who talks most takes over
+    const talk = P.map((p, j) => (VM.lines || []).filter(l => fix(l.who) === j).reduce((a, l) => a + l.t1 - l.t0, 0));
+    const pool = P.map((p, j) => j).filter(j => !P[j].off); main = (pool.length ? pool : P.map((p, j) => j)).sort((a, b) => talk[b] - talk[a])[0];
+  }
+  VM.main = main;
+  (VM.lines || []).forEach(l => { const w = fix(l.who); l.who = w < 0 ? VM.main : w; });
+  if (VM.lines) vmLinesToTimeline(); else VM.timeline = (VM.timeline || []).map(w => { const x = fix(w); return x < 0 ? VM.main : x; });
+}
 function vmCastStep() {
   const P = VM.people;
   if (!P.length) {
@@ -2022,7 +2042,10 @@ function vmCastStep() {
       same.textContent = 'Same person as ↑';
       same.onclick = () => { VM.cast[i] = VM.cast[i - 1]; vmCastStep(); }; tag.appendChild(same);
     }
-    d.append(face, document.createTextNode('→'), nib, tag); box.appendChild(d);
+    if (P.length > 1) { const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'vm-rm'; rm.textContent = '✕'; rm.setAttribute('aria-label', 'Remove ' + lb.textContent);
+      rm.onclick = () => { vmRemovePerson(i); vmCastStep(); }; d.append(face, document.createTextNode('→'), nib, tag, rm); }
+    else d.append(face, document.createTextNode('→'), nib, tag);
+    box.appendChild(d);
   });
   $('vmRand').onclick = () => { vmRandom(); vmCastStep(); };
   if ($('vmAddVoice')) $('vmAddVoice').onclick = () => {
@@ -2067,8 +2090,8 @@ function vmEditor() {
     <div class="ed-tl"><div class="ed-heads" id="edHeads"></div><div class="ed-scroll" id="edScroll"><div class="ed-inner" id="edInner"></div></div></div>
     <div class="ed-tools">
       <button class="chipb seg" id="edSplit" type="button">✂︎ Split</button><button class="chipb seg" id="edAdd" type="button">＋ Line</button>
-      <button class="chipb seg" id="edDel" type="button">🗑 Delete</button><button class="chipb seg" id="edVoice" type="button">🎙️ Add speaker</button><button class="chipb seg" id="edBg" type="button">🖼 Background</button></div>
-    <p class="note" id="edHint">Tap a line to pick it. Drag it to move it, up or down to give it to someone else, or drag its yellow ends to trim it. <b>Background</b> sets the scene for the picked line (a dashed square: the everyone background).</p>
+      <button class="chipb seg" id="edDel" type="button">🗑 Delete</button><button class="chipb seg" id="edVoice" type="button">🎙️ Add speaker</button><button class="chipb seg" id="edRm" type="button">✕ Remove speaker</button><button class="chipb seg" id="edBg" type="button">🖼 Background</button></div>
+    <p class="note" id="edHint">Tap a line to pick it. Drag it to move it, up or down to give it to someone else, or drag its yellow ends to trim it. <b>Background</b> sets the scene for the picked line (a dashed square: the everyone background). Tap a speaker's Nibble to pick them; <b>Remove</b> gives their lines to the main speaker.</p>
     <button class="vm-go" id="edMake" type="button">Make my video</button>
     <button class="chipb seg" id="edBack" type="button">Back</button>`);
   const v = $('edVid'); v.src = VM.url; ED.v = v;
@@ -2086,6 +2109,7 @@ function vmEditor() {
     const used = new Set(Object.values(VM.cast).map(Number)), free = NIB_NAMES().map(x => x[0]).find(id => !used.has(id));
     VM.cast[i] = free || NIB_NAMES()[0][0]; ED.lane = i; edDraw();
   };
+  $('edRm').onclick = () => { if (VM.people.length < 2) return; vmRemovePerson(ED.lane); ED.lane = Math.min(ED.lane, VM.people.length - 1); ED.sel = null; edDraw(); };
   $('edMake').onclick = () => { v.pause(); vmLinesToTimeline(); vmRender(); };
   $('edBack').onclick = () => { v.pause(); vmLinesToTimeline(); vmCastStep(); };
   edDraw();
@@ -2105,6 +2129,7 @@ function edDraw() {
   const P = VM.people, L = VM.lines, pps = ED.pps, W = Math.ceil(VM.dur * pps), heads = $('edHeads'), inner = $('edInner');
   if (!heads) return;
   heads.innerHTML = '<div class="ed-hrul"></div><div class="ed-hstrip"></div>'; inner.innerHTML = ''; inner.style.width = W + 'px';
+  { const rm = $('edRm'); if (rm) { rm.disabled = P.length < 2; rm.textContent = '✕ Remove ' + (P[ED.lane] ? pName(ED.lane) : 'speaker'); } }
   // ruler
   const rul = document.createElement('div'); rul.className = 'ed-rul'; rul.style.width = W + 'px';
   const step = pps > 60 ? 0.5 : pps > 24 ? 1 : pps > 12 ? 2 : 5;
