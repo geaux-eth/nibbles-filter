@@ -619,6 +619,7 @@ function collection(onPick) {
 const KIT_REF = { Wolf:271, Bear:1680, Cock:310, Gecko:6965, Raccoon:1992, Ghost:757, Gnome:67, Beaver:929 };
 const KIT_NO_BLINK = new Set();
 const KIT_SKIP = new Set();   // kind:skin pairs whose results aren't good enough yet
+const SPECIAL_SKINS = new Set(['Red', 'Wrestler', 'Plush', 'Seawoman', 'Werewolf', 'Mage', 'Alien', 'Human', 'Metal', 'Dissection', 'Slime', 'Dragon', 'Fire', 'Mummy']);
 const kitFor = t => { const a = t && t.a; return a && !SPECIAL_SKINS.has(a.Skin) && !KIT_SKIP.has(a.Character + ':' + a.Skin) ? KIT_REF[a.Character] || null : null; };
 // eyes that don't blink: fire, lasers, X / knocked out, spirals, slot machines, glasses and anything worn over the eyes
 const NO_BLINK = /fire|ignis|laser|knocked|dizzy|slot|3d|glasses|monocle|robot|anatomy|empty|whites|eyepatch|button|glowing|magic|three|awooga|burglar/i;
