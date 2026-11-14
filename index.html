@@ -363,7 +363,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261114-1500';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261114-1430';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -546,17 +546,8 @@ function pkClose() { $('pk').hidden = true; }
 $('pkX').onclick = pkClose;
 $('pk').addEventListener('pointerdown', e => { if (e.target === $('pk')) pkClose(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('pk').hidden) pkClose(); });
-// Nibbles: pick a kind (Wolf, Bear, Cock…), then a token
-function pickNibble(cur, onPick) {
-  const list = NIB_LIST(), kinds = [...new Set(list.map(n => n.kind))], curKind = (list.find(n => n.id === cur) || {}).kind;
-  const kindsView = () => pkOpen('Choose a Nibble', [...kinds.map(k => { const ns = list.filter(n => n.kind === k);
-    return { name:k, count:ns.length, on:k === curKind, paint:el => nibThumb(el, ns[0].id), pick:() => tokens(k) }; }),
-    ...(onPick.noAdd ? [] : [{ name:'Add Nibble', plus:true, paint:() => {}, pick:() => { pkClose(); addNibble(); } }])]);
-  const tokens = k => pkOpen(k === 'Wolf' ? 'Wolves' : k + 's', list.filter(n => n.kind === k).map(n => ({ name:'#' + n.num, on:n.id === cur, paint:el => nibThumb(el, n.id),
-    pick:() => { pkClose(); onPick(n.id); },
-    remove:ADMIN() && NIBBLES[n.id].remote ? () => adminRemove(n.id) : null })), kindsView);
-  kindsView();
-}
+// Nibbles for the video cast: the same collection browser as the main Nibble button (all 8,888)
+const pickNibble = (cur, onPick) => collection(onPick);
 // ---------- the whole collection: browse all 8,888 by kind, token number or trait
 const THUMB = id => `thumbs/${id}.webp`;
 async function traitIndex() { if (!TRAITS) await traitsOf(1); return await TRAITS; }
@@ -568,20 +559,18 @@ function pkTile(id, onPick, ready = !!NIBBLES[id]) {
   b.append(im, n); b.onclick = () => onPick(id); return b;
 }
 function collection(onPick) {
-  const kinds = KINDS, built = NIB_LIST();
+  const kinds = KINDS;
   const open = async id => { if (NIBBLES[id]) { pkClose(); onPick(id); return; }
     const t = await traitsOf(id); if (kitFor(t)) { pkClose(); if (await kitPrepare(id)) onPick(id); } else tokenCard(id); };
   const home = async () => {
     pkOpen('Choose a Nibble', [
       ...kinds.map(k => ({ name:k === 'Wolf' ? 'Wolves' : k + 's', count:1111, paint:el => { el.style.backgroundImage = `url(${THUMB(KIND_FACE[k])})`; }, pick:() => kindView(k, {}) })),
-      { name:'Add Nibble', plus:true, paint:() => {}, pick:() => { pkClose(); addNibble(); } }]);
+      ...(onPick.noAdd ? [] : [{ name:'Add Nibble', plus:true, paint:() => {}, pick:() => { pkClose(); addNibble(); } }])]);
     const t = $('pkTools'); t.hidden = false;
     t.innerHTML = '<input id="pkNum" type="number" inputmode="numeric" min="1" max="8888" placeholder="Token number (1 to 8888)"><button class="pk-go" id="pkGo" type="button">Go</button>';
     const go = () => { const id = +$('pkNum').value; if (id >= 1 && id <= 8888) open(id); else setStatus('x', 'Enter a token number from 1 to 8888.', 'err'); };
     $('pkGo').onclick = go; $('pkNum').onkeydown = e => { if (e.key === 'Enter') go(); };
   };
-  const readyView = () => pkOpen('Ready now', built.map(n => ({ name:`${n.kind} #${n.num}`, on:n.id === S.id, paint:el => nibThumb(el, n.id), pick:() => { pkClose(); onPick(n.id); },
-    remove:ADMIN() && NIBBLES[n.id].remote ? () => adminRemove(n.id) : null })), home);
   const kindView = async (k, f) => {
     pkOpen(k === 'Wolf' ? 'Wolves' : k + 's', [], home);
     const m = await traitIndex(); if (!m) { setStatus('x', 'The collection list didn\'t load. Try again.', 'err'); return; }
@@ -615,9 +604,9 @@ function collection(onPick) {
     c.innerHTML = `<img src="${nibblePic(id)}" alt="${esc(k)} #${id}">
       <dl>${['Skin', 'Eyes', 'Mouth', 'Outfit', 'Accessory', 'Background'].filter(x => a[x]).map(x => `<dt>${x}</dt><dd>${esc(String(a[x]))}</dd>`).join('')}</dl>
       <p>This Nibble can't talk yet. Every ${esc(k)} is on the way; or make this one talk now with three pictures from Gemini.</p>
-      <button class="vm-go" type="button" id="pkMake">Make it talk now</button>`;
+      ${onPick.noAdd ? '<p>You can make it talk with Add Nibble on the main screen, then cast it here.</p>' : '<button class="vm-go" type="button" id="pkMake">Make it talk now</button>'}`;
     g.appendChild(c);
-    $('pkMake').onclick = () => { pkClose(); if (AN.token !== id) { for (const x in AN) delete AN[x]; } AN.token = id; AN.kind = KINDS.includes(k) ? k : AN.kind; addNibble(); const i = $('anTok'); if (i) i.dispatchEvent(new Event('input')); };
+    if ($('pkMake')) $('pkMake').onclick = () => { pkClose(); if (AN.token !== id) { for (const x in AN) delete AN[x]; } AN.token = id; AN.kind = KINDS.includes(k) ? k : AN.kind; addNibble(); const i = $('anTok'); if (i) i.dispatchEvent(new Event('input')); };
   };
   home();
 }
@@ -634,7 +623,7 @@ const kitFor = t => { const a = t && t.a; if (groupOf(a)) return groupOf(a).ref;
 const NO_BLINK = /fire|ignis|laser|knocked|dizzy|slot|3d|glasses|monocle|robot|anatomy|empty|whites|eyepatch|button|glowing|magic|three|awooga|burglar/i;
 const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || ''));
 const KIT_BUSY = {};
-window.__nf = { get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id) };   // for tests
+window.__nf = { get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id), pickNibble:(c, f) => pickNibble(c, f) };   // for tests
 async function kitPrepare(id) {
   if (NIBBLES[id]) return true;
   if (KIT_BUSY[id]) return KIT_BUSY[id];

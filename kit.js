@@ -97,7 +97,7 @@ function colourMap(R, T, where, okT) {
     if (agree < ps.length * 0.6) continue;   // this colour lands on different things in this Nibble (clothes, glasses): not skin to copy
     if (okT && !okT(tr, tg, tb, R[ps[0] * 4], R[ps[0] * 4 + 1], R[ps[0] * 4 + 2])) { rejected.push([tr, tg, tb, ps.length]); continue; }   // it lands on this Nibble's hat, clothes or background, not its skin
     const r = med(ps.map(p => R[p * 4])), g = med(ps.map(p => R[p * 4 + 1])), b = med(ps.map(p => R[p * 4 + 2]));
-    known.push({ r, g, b, tr, tg, tb, n:ps.length }); }
+    known.push({ r, g, b, tr, tg, tb, n:ps.length, at:ps[ps.length >> 1] }); }
   colourMap.last = { known, rejected };
   const cache = new Map();
   return (r, g, b) => {
@@ -153,7 +153,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
   for (let k = 1; k < 10; k++) { const D = K[k]; for (let p = 0; p < N * N; p++) { if (!Zd[p]) continue; const i = p * 4;
     if (R[i + 3] < 200 || D[i + 3] < 200 || !Z[p] || dist(D, i, R, i) < 60) continue; if (!inPal(bodyP, D[i], D[i + 1], D[i + 2])) mc[bin(D[i], D[i + 1], D[i + 2])]++; } }
   const mouthP = palette(mc, 15, 1);
-  const mouthHue = (r, g, b) => r + g + b < 160 || (r + g + b > 660 && Math.max(r, g, b) - Math.min(r, g, b) < 40) || (r > 60 && g < r * 0.45 && b < r * 0.75 && b > g * 0.6) || (r > 170 && b >= g * 0.95 && g < r * 0.78);
+  const mouthHue = (r, g, b) => r + g + b < 160 || (r + g + b < 300 && r > g * 1.5 && r > b * 1.3) || (r + g + b > 660 && Math.max(r, g, b) - Math.min(r, g, b) < 40) || (r > 60 && g < r * 0.45 && b < r * 0.75 && b > g * 0.6) || (r > 170 && b >= g * 0.95 && g < r * 0.78);
   const isMouthC = (r, g, b) => r + g + b < 160 || (inPal(mouthP, r, g, b) && mouthHue(r, g, b));
   // fur around the eyes counts as skin too, but not a colour the mouth uses (white horns next to the eyes vs white teeth)
   // the jaw's own colours (a lighter chin, lips): the reference's colours inside the mouth zone
@@ -186,13 +186,20 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
     let bk = -1, bn = 0; for (let k = 0; k < 32768; k++) { const r = ((k >> 10) << 3) + 4, g = (((k >> 5) & 31) << 3) + 4, b = ((k & 31) << 3) + 4; if (bc[k] > bn && r + g + b >= 160 && !(inPal(mouthP, r, g, b) && mouthHue(r, g, b))) { bn = bc[k]; bk = k; } }
     if (bk >= 0) { let r = 0, g = 0, b = 0, n = 0; for (let p = 0; p < N * N; p++) { if (!eyeRing[p] || ((p / N) | 0) < ey) continue; const i = p * 4; if (T[i + 3] > 200 && bin(T[i], T[i + 1], T[i + 2]) === bk) { r += T[i]; g += T[i + 1]; b += T[i + 2]; n++; } }
       lidC = [r / n, g / n, b / n]; } }
-  const okT = (r, g, b, sr, sg, sb) => { if (belowP && sr !== undefined && !nearK(snout, sr, sg, sb) && !inPal(belowP, r, g, b)) return false; let t = 0, s = 0; const R0 = r >> 3, G0 = g >> 3, B0 = b >> 3;
+  const okT = (r, g, b, sr, sg, sb) => { if (belowP && sr !== undefined && !nearK(snout, sr, sg, sb) && !nearK(jaw, sr, sg, sb) && !inPal(belowP, r, g, b)) return false; let t = 0, s = 0; const R0 = r >> 3, G0 = g >> 3, B0 = b >> 3;
     for (let a = Math.max(0, R0 - 1); a <= Math.min(31, R0 + 1); a++) for (let c = Math.max(0, G0 - 1); c <= Math.min(31, G0 + 1); c++) for (let d = Math.max(0, B0 - 1); d <= Math.min(31, B0 + 1); d++) { const k = (a << 10) | (c << 5) | d; t += tTot[k]; s += tOut[k]; }
     return s < Math.max(40, t * 0.08); };
   // the jaw too (a lighter chin): learned just below the mouth area, where the chin and neck go on but no
   // Nibble's own mouth ever is (the colour must be the reference's jaw colour there, so its clothes don't count)
-  { const jawK = new Set(jaw), below = grow(Zd, 40);
-    for (let p = 0; p < N * N; p++) { if (Zd[p] || !below[p] || ((p / N) | 0) < zy) continue; const i = p * 4; if (R[i + 3] < 220 || T[i + 3] < 200 || lum(T, i) < 160) continue;
+  { const jawK = new Set(jaw), below = grow(Zd, 40), tj = new Uint32Array(32768);
+    // only colours this Nibble also shows on its own jaw (its chin), not a collar or shirt just below it
+    for (let p = 0; p < N * N; p++) { if (!Z[p]) continue; const i = p * 4; if (T[i + 3] > 200 && lum(T, i) >= 160 && R[i + 3] > 200 && isSkin(R, i) && !mouthHue(T[i], T[i + 1], T[i + 2])) tj[bin(T[i], T[i + 1], T[i + 2])]++; }
+    // minus this Nibble's clothes: colours it shows where the reference wears clothes
+    const tcl = new Uint32Array(32768);
+    for (let p = 0; p < N * N; p++) { const i = p * 4; if (R[i + 3] > 220 && T[i + 3] > 200 && lum(R, i) >= 75 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2])) tcl[bin(T[i], T[i + 1], T[i + 2])]++; }
+    for (let k = 0; k < 32768; k++) if (tcl[k] > 300 && tcl[k] > tj[k]) tj[k] = 0;
+    const tjP = palette(tj, 30, 1);
+    for (let p = 0; p < N * N; p++) { if (!Z[p] || ((p / N) | 0) < zy) continue; const i = p * 4; if (R[i + 3] < 220 || T[i + 3] < 200 || lum(T, i) < 160 || mouthHue(T[i], T[i + 1], T[i + 2]) || !inPal(tjP, T[i], T[i + 1], T[i + 2])) continue;
       if (jawK.has(bin(R[i], R[i + 1], R[i + 2])) || (isSkin(R, i) && !nearK(snout, R[i], R[i + 1], R[i + 2]))) skinRing[p] = 1; } }
   const map = colourMap(R, T, skinRing, okT);
   { const sm = snout.length ? map(((snout[0] >> 10) << 3) + 4, (((snout[0] >> 5) & 31) << 3) + 4, ((snout[0] & 31) << 3) + 4) : null; if (sm) lidC = sm; }   // lids: this Nibble's main face colour
@@ -225,6 +232,27 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
     if (R[i + 3] > 220 && lum(R, i) >= 75 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2])) cc2[bin(R[i], R[i + 1], R[i + 2])]++;   // anywhere on the reference, around the mouth too (a scarf the jaw moves over)
     if (T[i + 3] > 200) tc[bin(T[i], T[i + 1], T[i + 2])]++; }
   const clothP = palette(cc2, 40, 1), ownP = palette(tc, 6, 2);
+  const rc = new Uint32Array(32768); for (let p = 0; p < N * N; p++) { const i = p * 4; if (R[i + 3] > 220 && lum(R, i) >= 75 && !isMouthC(R[i], R[i + 1], R[i + 2])) rc[bin(R[i], R[i + 1], R[i + 2])]++; }
+  const refP = palette(rc, 40, 1);   // every colour of the reference's own body
+  // this Nibble's own face colours around the mouth (a jaw shade must be one of these, not e.g. a yellow logo elsewhere)
+  const tf = new Uint32Array(32768); for (let p = 0; p < N * N; p++) { if (!ring[p] && !Zd[p]) continue; const i = p * 4; if (T[i + 3] > 200) tf[bin(T[i], T[i + 1], T[i + 2])]++; }
+  const faceP = palette(tf, 40, 2);
+  // this Nibble's own chin: its commonest light, non-mouth colour just below the mouth area (for skin the map can't match)
+  // the reference's jaw skin: its light colours inside the mouth area that aren't snout, mouth, or its clothes (clothes reach the bottom of the picture)
+  const jawC = new Uint32Array(32768), botC = new Uint32Array(32768);
+  for (let p = 0; p < N * N; p++) { const i = p * 4; if (R[i + 3] < 220 || lum(R, i) < 300) continue; const k = bin(R[i], R[i + 1], R[i + 2]);
+    if (((p / N) | 0) > N * 0.88) botC[k]++; if (Z[p] && !nearK(snout, R[i], R[i + 1], R[i + 2]) && !mouthHue(R[i], R[i + 1], R[i + 2])) jawC[k]++; }
+  for (let k = 0; k < 32768; k++) if (botC[k] > 200) jawC[k] = 0;
+  const botP = palette(botC, 200, 1);   // what the reference wears: its colours along the bottom of the picture
+  const jawP = palette(jawC, 60, 1), onJawR = i => R[i + 3] > 200 && inPal(jawP, R[i], R[i + 1], R[i + 2]);
+  let chinT = null, lumJaw = 600;
+  { const cnt = new Uint32Array(32768), below = new Uint8Array(N * N); let bk = -1, bn = 0;
+    for (let p = 0; p < N * N; p++) if (Zd[p] && onJawR(p * 4)) below[p] = 1;   // the reference's jaw skin
+    for (let p = 0; p < N * N; p++) { if (!below[p] || ((p / N) | 0) < zy) continue; const i = p * 4; if (T[i + 3] < 200 || lum(T, i) < 300 || mouthHue(T[i], T[i + 1], T[i + 2])) continue; const k = bin(T[i], T[i + 1], T[i + 2]); if (++cnt[k] > bn) { bn = cnt[k]; bk = k; } }
+    if (bn > 150) { let r = 0, g = 0, b = 0, n = 0; for (let p = 0; p < N * N; p++) { if (!below[p] || ((p / N) | 0) < zy) continue; const i = p * 4; if (T[i + 3] > 200 && bin(T[i], T[i + 1], T[i + 2]) === bk) { r += T[i]; g += T[i + 1]; b += T[i + 2]; n++; } } chinT = [r / n, g / n, b / n]; }
+    { let jk = -1, jn = 0; for (let k = 0; k < 32768; k++) if (jawC[k] > jn) { jn = jawC[k]; jk = k; } if (jk >= 0) { lumJaw = ((jk >> 10) << 3) + (((jk >> 5) & 31) << 3) + ((jk & 31) << 3) + 12;
+      if (!chinT) chinT = map(((jk >> 10) << 3) + 4, (((jk >> 5) & 31) << 3) + 4, ((jk & 31) << 3) + 4); } } }   // too little chin showing: the learned match of the reference's jaw colour
+  if (dbg) Object.assign(dbg, { chinT, lumJaw, jawN:jawC.reduce((a, v) => a + (v ? 1 : 0), 0) });
   const stick = new Uint8Array(N * N);   // a hanging tongue or drool stays (filling where it was smeared); the talking mouth draws over it
   const frames = [Timg];
   let mb = [N, N, 0, 0];
@@ -241,27 +269,43 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
     const hole = new Uint8Array(N * N), other = new Uint8Array(N * N);
     for (let p = 0; p < N * N; p++) { if (!useG[p]) continue; const i = p * 4; if (D[i + 3] < 200 || isSkin(D, i)) continue;
       if (!isMouthC(D[i], D[i + 1], D[i + 2]) && lum(D, i) >= 200) other[p] = 1; }   // the mouth is dark, red, pink or white teeth; clothes are anything else
-    const wide = grow(shrink(other, 4), 4); for (let p = 0; p < N * N; p++) if (other[p] && wide[p] && R[p * 4 + 3] > 200 && isSkin(R, p * 4)) hole[p] = 1;
+    const wide = grow(shrink(other, 4), 4), subst0 = new Map();
+    for (let p = 0; p < N * N; p++) if (other[p] && wide[p] && R[p * 4 + 3] > 200 && isSkin(R, p * 4)) { const i = p * 4;
+      // the reference's clothes showing: filled from this Nibble's own; any other colour (a lighter lip Gemini drew) is its chin
+      if (chinT && !inPal(clothP, D[i], D[i + 1], D[i + 2]) && !map(D[i], D[i + 1], D[i + 2])) { const sc = Math.min(1.1, lum(D, i) / lumJaw); subst0.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); }
+      else hole[p] = 1; }
     for (let p = 0; p < N * N; p++) if (stick[p]) { hole[p] = 1; useG[p] = 1; }
     // nothing of the reference's own body may come through: where this mouth leaves the reference's clothes or
     // accessories as they were, this Nibble keeps its own; where it shows them moved, or shows any colour this Nibble
     // doesn't have that isn't a mouth colour, it is filled from this Nibble's own picture
-    const keepT = new Uint8Array(N * N), foreign = new Uint8Array(N * N);
-    for (let p = 0; p < N * N; p++) { if (!useG[p] || hole[p]) continue; const i = p * 4; if (D[i + 3] < 200) continue;
+    const keepT = new Uint8Array(N * N), foreign = new Uint8Array(N * N), subst = subst0;
+    for (let p = 0; p < N * N; p++) { if (!useG[p] || hole[p] || subst.has(p)) continue; const i = p * 4; if (D[i + 3] < 200) continue;
       const mouthy = isMouthC(D[i], D[i + 1], D[i + 2]);
       // unchanged by this mouth: this Nibble's own, except where its own mouth is being replaced
-      if (dist(D, i, R, i) <= 30) { if (!ownG[p] || (R[i + 3] > 200 && lum(R, i) >= 75 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2]))) keepT[p] = 1; continue; }
-      if (mouthy || isSkin(D, i)) { if (mouthy) continue; const m = mapped(D, i); if (!inPal(ownP, m[0], m[1], m[2])) foreign[p] = 1; continue; }
+      if (dist(D, i, R, i) <= 30 && (!ownG[p] || (R[i + 3] > 200 && lum(R, i) >= 75 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2])))) { keepT[p] = 1; continue; }
+      // skin: drawn in this Nibble's matching colour; a skin colour with no match here (a chin its hoodie hides) is filled from its own picture
+      if (mouthy || isSkin(D, i)) { if (mouthy) continue; const mm = lum(D, i) >= 75 ? map(D[i], D[i + 1], D[i + 2]) : 1, m = mapped(D, i);
+        const onJaw = onJawR(i);
+        if (chinT && (!mm || (onJaw && !inPal(faceP, m[0], m[1], m[2])))) { const sc = Math.min(1.1, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); continue; }
+        if (!mm || !inPal(ownP, m[0], m[1], m[2])) foreign[p] = 1; continue; }
+      if (dist(D, i, R, i) <= 30) continue;
+      // another colour of the reference's body (a lighter lip) that this Nibble has no match for: its own chin colour
+      if (chinT && inPal(refP, D[i], D[i + 1], D[i + 2]) && !inPal(clothP, D[i], D[i + 1], D[i + 2]) && !map(D[i], D[i + 1], D[i + 2])) { const sc = Math.min(1.1, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); continue; }
       if (!(R[i + 3] > 200 && isSkin(R, i))) { keepT[p] = 1; continue; }
+      if (chinT && !inPal(clothP, D[i], D[i + 1], D[i + 2]) && !map(D[i], D[i + 1], D[i + 2])) { const sc = Math.min(1.1, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); continue; }   // over the reference's skin: a lip shade with no match here
       if (inPal(clothP, D[i], D[i + 1], D[i + 2]) || !inPal(ownP, D[i], D[i + 1], D[i + 2])) foreign[p] = 1; }
     { const f = blobs(foreign, 12); for (let p = 0; p < N * N; p++) if (f[p]) hole[p] = 1; }
+    // a hole on the reference's jaw skin that isn't its clothes showing (a lip, a chin shade): this Nibble's own chin colour
+    if (chinT) for (let p = 0; p < N * N; p++) { if (!hole[p] || stick[p]) continue; const i = p * 4;
+      if ((onJawR(i) || (R[i + 3] > 200 && isSkin(R, i) && ((p / N) | 0) > zy)) && D[i + 3] > 200 && lum(D, i) >= 300 && !inPal(botP, D[i], D[i + 1], D[i + 2])) {
+        hole[p] = 0; const sc = Math.min(1.1, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); } }
     const fill = inpaint(T, grow(hole, 1), useG);
     if (dbg) { const c = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) c[p] = !useG[p] ? 0 : hole[p] ? 3 : keepT[p] ? 2 : 1; (dbg.cls = dbg.cls || [])[k] = c; }
     const a = soft(useG), c = cv(), g = c.getContext('2d'), id = g.createImageData(N, N), o = id.data;
     for (let p = 0; p < N * N; p++) { const i = p * 4, w = a[p];
       if (w <= 0) { o[i] = T[i]; o[i + 1] = T[i + 1]; o[i + 2] = T[i + 2]; o[i + 3] = T[i + 3]; continue; }
       const f = fill.get(p);
-      const m = f ? f : keepT[p] ? [T[i], T[i + 1], T[i + 2]] : (mapped(D, i) || [T[i], T[i + 1], T[i + 2]]), da = f ? 255 : keepT[p] ? T[i + 3] : D[i + 3];
+      const m = f ? f : subst.has(p) ? subst.get(p) : keepT[p] ? [T[i], T[i + 1], T[i + 2]] : (mapped(D, i) || [T[i], T[i + 1], T[i + 2]]), da = f ? 255 : keepT[p] ? T[i + 3] : D[i + 3];
       for (let ch = 0; ch < 3; ch++) o[i + ch] = Math.round(T[i + ch] * (1 - w) + m[ch] * w);
       o[i + 3] = Math.round(T[i + 3] * (1 - w) + da * w);
       if (useG[p]) { const x = p % N, y = (p / N) | 0; if (x < mb[0]) mb[0] = x; if (y < mb[1]) mb[1] = y; if (x > mb[2]) mb[2] = x; if (y > mb[3]) mb[3] = y; }
