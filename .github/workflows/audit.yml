@@ -1,0 +1,51 @@
+name: Leak audit
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: 'Token ids, comma separated (blank = every Nibble with a kit)'
+        required: false
+        default: ''
+permissions:
+  contents: write
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-save playwright@1.48.2 && npx playwright install --with-deps chromium
+      - run: node tools/audit.mjs ${{ matrix.shard }} 16 out
+        env:
+          IDS: ${{ inputs.ids }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audit-${{ matrix.shard }}
+          path: out
+  merge:
+    needs: run
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: audit-*
+          path: parts
+          merge-multiple: true
+      - run: pip install pillow==10.4.0 && python3 tools/audit_merge.py parts audit
+      - name: Results to the audit branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          mv audit /tmp/audit
+          git checkout --orphan audit-results && git rm -rqf . && mv /tmp/audit ./audit
+          git add audit && git commit -qm "Leak audit $(date -u +%F)" && git push -f origin audit-results
