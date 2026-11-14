@@ -18,7 +18,9 @@ async function worker() {
     const id = ids[next++];
     try { const j = await get(id); if (!j) { fails.push(id); continue; } if (!sample) sample = j;
       const a = {}; for (const t of j.attributes || []) { const k = t.trait_type ?? t.type ?? 'trait'; a[k] = a[k] ? [].concat(a[k], t.value) : t.value; }
-      out[id] = { n:j.name || '', a }; }
+      out[id] = { n:j.name || '', a };
+      // the token's own picture: usually <id>.png, but some tokens point at another file
+      const pm = String(j.image || '').match(/\/(\d+)\.png$/); if (pm && +pm[1] !== id) out[id].img = +pm[1]; }
     catch (e) { fails.push(id); }
   }
 }
@@ -30,4 +32,5 @@ fs.writeFileSync('data/traits-sample.json', JSON.stringify(sample, null, 2));
 // a count of every trait value, to see the vocabulary at a glance
 const tally = {}; for (const v of Object.values(sorted)) for (const [k, x] of Object.entries(v.a)) for (const y of [].concat(x)) { tally[k] ??= {}; tally[k][y] = (tally[k][y] || 0) + 1; }
 fs.writeFileSync('data/traits-tally.json', JSON.stringify(tally, null, 1));
+console.log('pictures elsewhere', Object.entries(sorted).filter(([, v]) => v.img).map(([k, v]) => k + '->' + v.img).join(' '));
 console.log('got', Object.keys(sorted).length, 'failed', fails.length, fails.slice(0, 40).join(','));

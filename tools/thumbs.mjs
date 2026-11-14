@@ -4,7 +4,7 @@
 import fs from 'fs';
 import sharp from 'sharp';
 const T = JSON.parse(fs.readFileSync('data/traits.json', 'utf8'));
-const IMG = id => `https://d24r2edyfve7yo.cloudfront.net/nibbles/images/${id}.png`;
+const IMG = id => `https://d24r2edyfve7yo.cloudfront.net/nibbles/images/${(T[id] && T[id].img) || id}.png`;   // some tokens' pictures are other files
 const ONLY = (process.env.IDS || '').trim() ? process.env.IDS.split(',').map(Number) : null;
 const SPECIAL = new Set(['Red', 'Wrestler', 'Plush', 'Seawoman', 'Werewolf', 'Mage', 'Alien', 'Human', 'Metal', 'Dissection', 'Slime', 'Dragon', 'Fire', 'Mummy']);
 // pick research samples: first 2 tokens of each kind x skin, first of each kind x mouth / eyes / accessory / outfit, every special

@@ -21,7 +21,7 @@ const kitFor = a => groupOf(a) ? groupOf(a).ref : (!SPECIAL_SKINS.has(a.Skin) &&
 const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || '')) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || '')));
 
 const traits = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/traits.json'), 'utf8'));
-const jobs = Object.entries(traits).map(([id, t]) => ({ id:+id, a:t.a, ref:kitFor(t.a) })).filter(j => j.ref)
+const jobs = Object.entries(traits).map(([id, t]) => ({ id:+id, a:t.a, ref:kitFor(t.a), img:t.img || +id })).filter(j => j.ref)
   .filter(j => !process.env.IDS || process.env.IDS.split(',').includes(String(j.id)))
   .filter((j, n) => n % +SHARDS === +SHARD);
 
@@ -43,7 +43,7 @@ await page.evaluate(() => { window.__refs = {}; });
 const report = [];
 let n = 0; const t0 = Date.now();
 for (const j of jobs) {
-  const pic = PICS ? `${base}/pic/${j.id}.png` : `https://d24r2edyfve7yo.cloudfront.net/nibbles/images/${j.id}.png`;
+  const pic = PICS ? `${base}/pic/${j.img}.png` : `https://d24r2edyfve7yo.cloudfront.net/nibbles/images/${j.img}.png`;
   let r;
   for (let tries = 0; tries < 3; tries++) {
     try {

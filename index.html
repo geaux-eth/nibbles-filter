@@ -2299,10 +2299,13 @@ const sbRpc = async (fn, args) => { const r = await sbFetch('/rest/v1/rpc/' + fn
 const KINDS = ['Bear', 'Beaver', 'Cock', 'Gecko', 'Ghost', 'Gnome', 'Raccoon', 'Wolf'];
 // every Nibble's traits, read from its on-chain metadata by the "Trait index" workflow (data/traits.json)
 let TRAITS = null;
-const nibblePic = id => `https://d24r2edyfve7yo.cloudfront.net/nibbles/images/${id}.png`;   // the collection's own pictures (open to any page)
+// the collection's own pictures (open to any page). A few tokens' metadata points at another file than <id>.png:
+// PIC_OF holds those (from data/traits-min.json), filled in as soon as the trait index loads
+const PIC_OF = {};
+const nibblePic = id => `https://d24r2edyfve7yo.cloudfront.net/nibbles/images/${PIC_OF[id] || id}.png`;
 async function traitsOf(id) {
   if (!TRAITS) TRAITS = fetch('data/traits-min.json?v=' + ART_V).then(r => r.ok ? r.json() : null).catch(() => null);
-  const m = await TRAITS, row = m && m.t[id - 1]; if (!row) return null;
+  const m = await TRAITS; if (m && m.p && !m._p) { Object.assign(PIC_OF, m.p); m._p = 1; } const row = m && m.t[id - 1]; if (!row) return null;
   const a = {}; m.k.forEach((k, j) => { if (row[j] >= 0) a[k] = m.v[j][row[j]]; });
   return { n:`Nibble #${id}`, a };
 }

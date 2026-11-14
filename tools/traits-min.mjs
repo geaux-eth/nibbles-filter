@@ -8,5 +8,7 @@ for (let id = 1; id <= 8888; id++) {
   const x = all[id]; if (!x) { t.push(null); continue; }
   t.push(k.map((key, j) => { const val = x.a[key]; if (val == null) return -1; const s = [].concat(val).join(' + '); let i = v[j].indexOf(s); if (i < 0) { i = v[j].length; v[j].push(s); } return i; }));
 }
-fs.writeFileSync('data/traits-min.json', JSON.stringify({ k, v, t }));
+// p: tokens whose picture is another file than <id>.png
+const p = {}; for (const [id, x] of Object.entries(all)) if (x.img) p[id] = x.img;
+fs.writeFileSync('data/traits-min.json', JSON.stringify({ k, v, t, p }));
 console.log('traits-min', fs.statSync('data/traits-min.json').size, 'bytes');
