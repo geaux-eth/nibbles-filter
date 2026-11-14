@@ -571,7 +571,6 @@ function collection(onPick) {
     const t = await traitsOf(id); if (kitFor(t)) { pkClose(); if (await kitPrepare(id)) onPick(id); } else tokenCard(id); };
   const home = async () => {
     pkOpen('Choose a Nibble', [
-      ...(built.length ? [{ name:'Ready now', count:built.length, paint:el => nibThumb(el, S.id || built[0].id), pick:() => readyView() }] : []),
       ...kinds.map(k => ({ name:k === 'Wolf' ? 'Wolves' : k + 's', count:1111, paint:el => { el.style.backgroundImage = `url(${THUMB(KIND_FACE[k])})`; }, pick:() => kindView(k, {}) })),
       { name:'Add Nibble', plus:true, paint:() => {}, pick:() => { pkClose(); addNibble(); } }]);
     const t = $('pkTools'); t.hidden = false;
