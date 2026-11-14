@@ -69,7 +69,7 @@ export function gridOf(img) {
     if (g && st < 0) st = x; else if (!g && st >= 0) { if (st > len * 0.06 && x - 1 < len * 0.94) n++; st = -1; } } return n + 1; };
   return { cols:runs(col, w, h), rows:runs(row, h, w) };
 }
-const isGreen = (d, i) => d[i + 1] > 150 && d[i + 1] - Math.max(d[i], d[i + 2]) > 60;
+const isGreen = (d, i) => d[i + 1] > 170 && d[i + 1] - Math.max(d[i], d[i + 2]) > 110;
 // Gemini sometimes boxes each panel in a black (or white) frame: anything outside a frame line is made green
 function unframe(d, w, h) {
   const dark = i => d[i] + d[i + 1] + d[i + 2] < 160 || (d[i] > 225 && d[i + 1] > 225 && d[i + 2] > 225);
@@ -112,10 +112,20 @@ export function splitSheet(img, cols, rows) {
   for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) {
     const x0 = xs[k], x1 = xs[k + 1], y0 = ys[r], y1 = ys[r + 1], p = cv(x1 - x0, y1 - y0), pg = g2(p);
     pg.drawImage(c, x0, y0, x1 - x0, y1 - y0, 0, 0, x1 - x0, y1 - y0);
-    const id = pg.getImageData(0, 0, p.width, p.height), q = id.data;
-    unframe(q, p.width, p.height);
-    for (let i = 0; i < q.length; i += 4) {
-      const r_ = q[i], gg = q[i + 1], b = q[i + 2], gn = gg - Math.max(r_, b);
+    const id = pg.getImageData(0, 0, p.width, p.height), q = id.data, pw = p.width, ph = p.height;
+    unframe(q, pw, ph);
+    // only green that touches the real green screen is keyed: green clothes, slime or leaves inside an outline stay
+    const core = new Uint8Array(pw * ph);
+    for (let k = 0; k < pw * ph; k++) { const i = k * 4; if (q[i + 1] > 170 && q[i + 1] - Math.max(q[i], q[i + 2]) > 130) core[k] = 1; }
+    const near = new Uint8Array(pw * ph), R = 4;
+    { const t = new Uint8Array(pw * ph);
+      for (let y = 0; y < ph; y++) { let c = 0; for (let x = 0; x < Math.min(R, pw); x++) c += core[y * pw + x];
+        for (let x = 0; x < pw; x++) { if (x + R < pw) c += core[y * pw + x + R]; if (x - R - 1 >= 0) c -= core[y * pw + x - R - 1]; t[y * pw + x] = c > 0; } }
+      for (let x = 0; x < pw; x++) { let c = 0; for (let y = 0; y < Math.min(R, ph); y++) c += t[y * pw + x];
+        for (let y = 0; y < ph; y++) { if (y + R < ph) c += t[(y + R) * pw + x]; if (y - R - 1 >= 0) c -= t[(y - R - 1) * pw + x]; near[y * pw + x] = c > 0; } } }
+    for (let k = 0; k < pw * ph; k++) {
+      if (!near[k]) continue;
+      const i = k * 4, r_ = q[i], gg = q[i + 1], b = q[i + 2], gn = gg - Math.max(r_, b);
       const a = 1 - Math.min(1, Math.max(0, (gn - 30) / 90)) * Math.min(1, Math.max(0, (gg - 90) / 90));
       q[i + 1] = Math.min(gg, Math.max(r_, b) + 10); q[i + 3] = Math.round(a * 255);
     }
@@ -177,7 +187,21 @@ function shiftScore(A, B, R, dx, dy) {   // overlap of A with B shifted by (dx, 
   for (let y = ys; y < ye; y++) { const ra = y * R, rb = (y - dy) * R - dx; for (let x = xs; x < xe; x++) o += A[ra + x] & B[rb + x]; }
   return o;
 }
+// some Nibbles have a white sticker border around the outline that Gemini leaves off: line up without it
+const RIMLESS = new WeakMap();
+function rimless(orig) {
+  if (RIMLESS.has(orig)) return RIMLESS.get(orig);
+  const R = 500, c = cv(R, R), g = g2(c); g.drawImage(orig, 0, 0, R, R);
+  const id = g.getImageData(0, 0, R, R), d = id.data, seen = new Uint8Array(R * R), q = new Int32Array(R * R); let h = 0, t = 0;
+  const wh = p => { const i = p * 4; return d[i + 3] > 40 && d[i] > 225 && d[i + 1] > 225 && d[i + 2] > 215; };
+  for (let p = 0; p < R * R; p++) if (d[p * 4 + 3] <= 40) { seen[p] = 1; q[t++] = p; }
+  let n = 0;
+  while (h < t) { const p = q[h++], x = p % R; for (const r of [x > 0 ? p - 1 : -1, x < R - 1 ? p + 1 : -1, p - R, p + R]) if (r >= 0 && r < R * R && !seen[r] && wh(r)) { seen[r] = 1; q[t++] = r; d[r * 4 + 3] = 0; n++; } }
+  const out = n > R * 4 ? (g.putImageData(id, 0, 0), c) : orig;   // only when there really is a rim
+  RIMLESS.set(orig, out); return out;
+}
 export function align(panel, orig) {
+  orig = rimless(orig);
   // first guess from the outlines: same top, same height to the bottom edge, same head centre
   const R1 = 160, od = pixels(orig, R1, R1), os = silOf(od, R1), ob = bboxOf(os, R1);
   const pc = cv(R1, Math.round(R1 * panel.height / panel.width)), pk = R1 / panel.width;   // panel at the same working scale
