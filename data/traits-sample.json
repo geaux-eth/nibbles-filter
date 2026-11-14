@@ -1,34 +1,34 @@
 {
   "attributes": [
     {
-      "value": "Dark Magic",
+      "value": "Gecko Crown",
       "trait_type": "Accessory"
     },
     {
-      "value": "Sea Foam",
+      "value": "Sky Blue",
       "trait_type": "Background"
     },
     {
-      "value": "Gnome",
+      "value": "Gecko",
       "trait_type": "Character"
     },
     {
-      "value": "Gnome Candy Stone",
+      "value": "Gecko Eyelashes",
       "trait_type": "Eyes"
     },
     {
-      "value": "Frown",
+      "value": "Happy",
       "trait_type": "Mouth"
     },
     {
-      "value": "Gnome Vest Brown",
+      "value": "Gecko Overalls Brown",
       "trait_type": "Outfit"
     },
     {
-      "value": "Stone",
+      "value": "Orange",
       "trait_type": "Skin"
     }
   ],
-  "image": "https://d24r2edyfve7yo.cloudfront.net/nibbles/images/2.png",
-  "name": "Nibble #2"
+  "image": "https://d24r2edyfve7yo.cloudfront.net/nibbles/images/11.png",
+  "name": "Nibble #11"
 }
