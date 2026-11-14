@@ -181,6 +181,8 @@ header .credit b{font-weight:400}
 .pk-tools input{flex:1 1 150px}.pk-tools input[type=checkbox]{flex:none;width:20px;height:20px;padding:0;accent-color:var(--red)}.pk-tools select{flex:1 1 120px;max-width:calc(50% - 3px)}
 .pk-tools .pk-go{height:34px;border:2px solid var(--ink);border-radius:10px;background:var(--red);color:#fff;font:400 15px/1 var(--display);padding:0 12px;cursor:pointer}
 .pk-tools .pk-cnt{flex:1 0 100%;font:600 12.5px/1.2 var(--body);color:#555}
+.pk-tabs{flex:1 0 100%;display:flex;gap:6px}.pk-tabs .chipb{flex:1 1 auto;font-size:14px;padding:7px 8px 5px;white-space:nowrap}
+@media (max-width:400px){ .pk-tabs .chipb{font-size:13px;padding:7px 6px 5px} }
 .pk-tools .pk-ready{display:flex;align-items:center;gap:5px;font:600 13px/1 var(--body)}
 .pk-ok{position:absolute;left:6px;top:6px;width:22px;height:22px;border:2px solid var(--ink);border-radius:50%;background:#8ee26b;font:700 12px/18px var(--body);text-align:center}
 .pk-card-n{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
@@ -364,7 +366,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261114-1530';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261114-1700';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -405,7 +407,7 @@ const NIBBLES = {
   k4946: { bg:'#9ee8ff', fullFace:true },
   k500: { bg:'#ffc185', fullFace:true },
 };
-const BONKD_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest', Cockfight:'cleeroy' };
+const IMG_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest', Cockfight:'cleeroy' };
 // backdrops that hang a sign: it goes in open space the Nibble can never reach, and the text keeps clear of it too
 const SIGNS = { Cockfight:'cleeroy_logo' };   // Cleeroy's Cockfight Club (Cleeroy owns Cock #8212)
 // when the screen is tall enough, the club's own entrance art is used instead, cropped so its sign sits at the top
@@ -423,12 +425,127 @@ function entrance() {
   const size = Math.min(W, H);
   return { img, sc, tx, ty, sr, size };
 }
+// Backgrounds come in three groups: the NFT collection's own (its flat colours and its one-of-one scenes),
+// BONKD's scenes, and pictures people added (theirs on this device, plus everyone's that GEAUX approved)
+const BONKD_NAMES = Object.keys(IMG_BGS);
+const NFT_COLORS = { 'Sea Foam':'#8aecd4', 'Sky Blue':'#9fe8ff', 'Pink':'#ffb8dc', 'Light Yellow':'#fee46b', 'Coral Pink':'#ff8688', 'Peach':'#ffc184', 'Light Turquoise':'#c3f8f6', 'Dark':'#3e3a52' };
+// The collection's one-of-one backgrounds, redrawn from the originals' colours and shapes. Each painter fills the whole
+// canvas (W x H) with the Nibble's square at X, Y; u is that square's size / 2160 (the collection's picture size).
+const NFT_ART = (() => {
+  const TAU = Math.PI * 2;
+  // repeat a 2160-wide cell of scattered shapes over the whole canvas, anchored to the Nibble's square
+  const cells = (W, H, X, Y, u, fn) => { const s = 2160 * u;
+    for (let i = Math.floor(-X / s) - 1; i <= Math.ceil((W - X) / s); i++) for (let j = Math.floor(-Y / s) - 1; j <= Math.ceil((H - Y) / s); j++) fn(X + i * s, Y + j * s); };
+  const spark = (c, x, y, r) => { const k = r * 0.16; c.beginPath(); c.moveTo(x, y - r);
+    c.quadraticCurveTo(x + k, y - k, x + r, y); c.quadraticCurveTo(x + k, y + k, x, y + r);
+    c.quadraticCurveTo(x - k, y + k, x - r, y); c.quadraticCurveTo(x - k, y - k, x, y - r); c.fill(); };
+  const heart = (c, x, y, s, rot = 0) => { c.save(); c.translate(x, y); c.rotate(rot); c.scale(s / 100, s / 100); c.beginPath();
+    c.moveTo(0, 32); c.bezierCurveTo(-8, 24, -50, -2, -50, -26); c.bezierCurveTo(-50, -44, -36, -54, -24, -54);
+    c.bezierCurveTo(-12, -54, -4, -46, 0, -36); c.bezierCurveTo(4, -46, 12, -54, 24, -54);
+    c.bezierCurveTo(36, -54, 50, -44, 50, -26); c.bezierCurveTo(50, -2, 8, 24, 0, 32); c.closePath(); c.fill(); c.restore(); };
+  const far = (W, H, cx, cy) => Math.hypot(Math.max(cx, W - cx), Math.max(cy, H - cy)) + 4;
+  return {
+    Seigaiha(c, W, H, X, Y, u) {   // overlapping rows of rings
+      c.fillStyle = '#ffd4f7'; c.fillRect(0, 0, W, H);
+      const R = 250 * u, lw = 17 * u; c.lineWidth = lw; c.strokeStyle = '#f3c5ea';
+      const j0 = Math.floor(-Y / (R / 2)) - 2, j1 = Math.ceil((H - Y) / (R / 2)) + 2;
+      for (let j = j0; j <= j1; j++) { const cy = Y + j * R / 2, off = (j & 1) ? R : 0;
+        for (let i = Math.floor((-X - off) / (2 * R)) - 1; i <= Math.ceil((W - X) / (2 * R)) + 1; i++) { const cx = X + off + i * 2 * R;
+          c.beginPath(); c.arc(cx, cy, R, 0, TAU); c.fillStyle = '#ffd4f7'; c.fill();
+          for (const f of [0.9, 0.66, 0.42, 0.18]) { c.beginPath(); c.arc(cx, cy, R * f, Math.PI, TAU); c.stroke(); } } }
+    },
+    Sunburst(c, W, H, X, Y, u) {   // cream with orange rays from behind the head
+      const cx = X + 1080 * u, cy = Y + 1240 * u, R = far(W, H, cx, cy), n = 14;
+      c.fillStyle = '#ffeba6'; c.fillRect(0, 0, W, H); c.fillStyle = '#f1a63a';
+      for (let k = 0; k < n; k++) { const a = -Math.PI / 2 + (k + 0.25) * TAU / n; c.beginPath(); c.moveTo(cx, cy);
+        c.arc(cx, cy, R, a, a + TAU / n / 2); c.closePath(); c.fill(); }
+      const g = c.createRadialGradient(cx, cy, 0, cx, cy, 420 * u); g.addColorStop(0, 'rgba(255,240,190,.95)'); g.addColorStop(1, 'rgba(255,240,190,0)');
+      c.fillStyle = g; c.fillRect(0, 0, W, H);
+    },
+    Sparkle(c, W, H, X, Y, u) {   // lavender with soft four-point sparkles
+      c.fillStyle = '#d7c5ff'; c.fillRect(0, 0, W, H); c.fillStyle = '#f3dfff';
+      const S = [[1160, 180, 120], [1650, 420, 230], [240, 470, 190], [420, 1500, 120], [1880, 1180, 150], [1950, 1800, 95], [700, 140, 70], [120, 1900, 140], [1450, 1950, 80], [2030, 160, 60], [880, 820, 60]];
+      cells(W, H, X, Y, u, (ox, oy) => { for (const [x, y, r] of S) spark(c, ox + x * u, oy + y * u, r * u); });
+    },
+    Hearts(c, W, H, X, Y, u) {   // pink with big pale hearts and one little red one
+      c.fillStyle = '#fb9ea9'; c.fillRect(0, 0, W, H); c.fillStyle = '#ffbcc5';
+      const S = [[1820, 330, 700, 0.18], [1960, 1120, 520, -0.12], [250, 520, 620, -0.2], [600, 1650, 480, 0.15], [1500, 1900, 420, -0.1], [1050, 160, 380, 0.08]];
+      cells(W, H, X, Y, u, (ox, oy) => { for (const [x, y, s, r] of S) heart(c, ox + x * u, oy + y * u, s * u, r); });
+      c.fillStyle = '#ff5e70'; heart(c, X + 1950 * u, Y + 650 * u, 240 * u, 0.2);
+    },
+    Vortex(c, W, H, X, Y, u) {   // a purple whirlpool behind the Nibble
+      const cx = X + 1080 * u, cy = Y + 1150 * u, R = far(W, H, cx, cy), r0 = 30 * u, n = 8, b = 0.85;
+      c.fillStyle = '#1e0f38'; c.fillRect(0, 0, W, H);
+      for (let a = 0; a < n; a++) { const t0 = a * TAU / n, w = TAU / n * 0.55; c.beginPath();
+        for (let r = r0; r < R * 1.05; r *= 1.03) { const th = t0 + b * Math.log(r / r0); c.lineTo(cx + r * Math.cos(th), cy + r * Math.sin(th)); }
+        for (let r = R * 1.05; r > r0; r /= 1.03) { const th = t0 + w + b * Math.log(r / r0); c.lineTo(cx + r * Math.cos(th), cy + r * Math.sin(th)); }
+        c.closePath(); c.fillStyle = a & 1 ? '#2a114d' : '#42157c'; c.fill(); }
+      const g = c.createRadialGradient(cx, cy, 0, cx, cy, R);
+      g.addColorStop(0, 'rgba(8,3,20,.95)'); g.addColorStop(0.16, 'rgba(8,3,20,0)'); g.addColorStop(0.55, 'rgba(30,15,56,0)'); g.addColorStop(1, 'rgba(30,15,56,.75)');
+      c.fillStyle = g; c.fillRect(0, 0, W, H);
+    },
+    Nebula(c, W, H, X, Y, u) {   // deep space: purple clouds, a ringed planet, a little red one, stars
+      c.fillStyle = '#251168'; c.fillRect(0, 0, W, H);
+      const blob = (x, y, r, col) => { const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, col); g.addColorStop(1, 'rgba(37,17,104,0)'); c.fillStyle = g; c.fillRect(x - r, y - r, 2 * r, 2 * r); };
+      cells(W, H, X, Y, u, (ox, oy) => { blob(ox + 1500 * u, oy + 900 * u, 900 * u, 'rgba(57,28,129,.9)'); blob(ox + 400 * u, oy + 1500 * u, 800 * u, 'rgba(124,65,105,.35)'); blob(ox + 1900 * u, oy + 200 * u, 600 * u, 'rgba(17,17,41,.6)'); });
+      // ringed planet, upper left
+      const px = X + 160 * u, py = Y + 380 * u, pr = 420 * u;
+      c.save(); c.translate(px, py); c.rotate(-0.35);
+      c.strokeStyle = '#8e4f7a'; c.lineWidth = 34 * u; c.beginPath(); c.ellipse(0, 0, pr * 1.6, pr * 0.42, 0, Math.PI, TAU); c.stroke();
+      c.fillStyle = '#7c4169'; c.beginPath(); c.arc(0, 0, pr, 0, TAU); c.fill();
+      c.fillStyle = '#6c3760'; for (const [x, y, r] of [[-0.3, -0.2, 0.22], [0.25, 0.3, 0.16], [0.35, -0.35, 0.1], [-0.1, 0.5, 0.12]]) { c.beginPath(); c.arc(x * pr, y * pr, r * pr, 0, TAU); c.fill(); }
+      c.beginPath(); c.ellipse(0, 0, pr * 1.6, pr * 0.42, 0, 0, Math.PI); c.stroke(); c.restore();
+      // small red planet, upper right
+      const qx = X + 1820 * u, qy = Y + 200 * u, qr = 165 * u;
+      c.fillStyle = '#a0573a'; c.beginPath(); c.arc(qx, qy, qr, 0, TAU); c.fill();
+      c.fillStyle = '#82422b'; for (const [x, y, r] of [[-0.35, -0.2, 0.25], [0.3, 0.25, 0.22], [0.2, -0.45, 0.14]]) { c.beginPath(); c.arc(qx + x * qr, qy + y * qr, r * qr, 0, TAU); c.fill(); }
+      c.fillStyle = '#8f9be6'; const st = [[1350, 260, 34], [2050, 820, 30], [1950, 1550, 26], [300, 1200, 28], [800, 90, 22], [1100, 1950, 24], [120, 2000, 30]];
+      cells(W, H, X, Y, u, (ox, oy) => { for (const [x, y, r] of st) spark(c, ox + x * u, oy + y * u, r * u);
+        c.fillStyle = 'rgba(220,225,255,.7)'; for (const [x, y] of [[600, 600], [1700, 1100], [950, 400], [1500, 1700], [200, 800], [2000, 1300], [700, 1800]]) { c.beginPath(); c.arc(ox + x * u, oy + y * u, 7 * u, 0, TAU); c.fill(); }
+        c.fillStyle = '#8f9be6'; });
+    },
+    Money(c, W, H, X, Y, u) {   // blue with dollar bills drifting past
+      c.fillStyle = '#739ed3'; c.fillRect(0, 0, W, H);
+      const bill = (x, y, rot) => { c.save(); c.translate(x, y); c.rotate(rot); const w = 330 * u, h = 165 * u, r = 18 * u;
+        c.lineWidth = 11 * u; c.strokeStyle = '#111'; c.fillStyle = '#5edc5e';
+        c.beginPath(); c.roundRect(-w / 2, -h / 2, w, h, r); c.fill(); c.stroke();
+        c.lineWidth = 7 * u; c.strokeStyle = '#47b44a'; c.beginPath(); c.roundRect(-w / 2 + 22 * u, -h / 2 + 20 * u, w - 44 * u, h - 40 * u, r * 0.6); c.stroke();
+        c.fillStyle = '#47b44a'; c.beginPath(); c.ellipse(0, 0, 42 * u, 50 * u, 0, 0, TAU); c.fill(); c.restore(); };
+      const S = [[300, 300, -0.4], [1880, 520, 0.35], [180, 1380, 0.25], [2000, 1500, -0.3], [1100, 120, 0.1], [700, 1950, -0.15], [1500, 2000, 0.4]];
+      cells(W, H, X, Y, u, (ox, oy) => { for (const [x, y, r] of S) bill(ox + x * u, oy + y * u, r); });
+    },
+    Moonlight(c, W, H, X, Y, u) {   // a big full moon rising behind the Nibble
+      c.fillStyle = '#566386'; c.fillRect(0, 0, W, H);
+      const cx = X + 1170 * u, cy = Y + 990 * u, r = 780 * u;
+      const g = c.createRadialGradient(cx, cy, r * 0.9, cx, cy, r * 1.45); g.addColorStop(0, 'rgba(160,185,220,.35)'); g.addColorStop(1, 'rgba(160,185,220,0)');
+      c.fillStyle = g; c.fillRect(0, 0, W, H);
+      c.fillStyle = 'rgba(230,240,255,.8)'; cells(W, H, X, Y, u, (ox, oy) => { for (const [x, y] of [[200, 200], [1900, 150], [350, 900], [2050, 1500], [120, 1700], [900, 80], [1500, 600], [700, 1300]]) { c.beginPath(); c.arc(ox + x * u, oy + y * u, 8 * u, 0, TAU); c.fill(); } });
+      c.fillStyle = '#d7efff'; c.beginPath(); c.arc(cx, cy, r, 0, TAU); c.fill();
+      c.fillStyle = '#c5e1f4'; for (const [x, y, s] of [[-0.45, -0.5, 0.17], [0.3, -0.62, 0.11], [0.55, -0.15, 0.14], [-0.62, 0.05, 0.1], [0.05, -0.25, 0.08], [0.6, 0.45, 0.12], [-0.3, 0.55, 0.15]]) { c.beginPath(); c.arc(cx + x * r, cy + y * r, s * r, 0, TAU); c.fill(); }
+    },
+  };
+})();
 const MY_BG = {};   // backgrounds this person added: name -> picture (data URL), kept on this device
 try { Object.assign(MY_BG, JSON.parse(localStorage.getItem('nf-bgs') || '{}')); } catch (e) {}
-for (const k in MY_BG) BONKD_BGS[k] = 'mine';
-const BACKGROUNDS = ['Nibble color', ...Object.keys(BONKD_BGS)];
-const bgList = () => ['Nibble color', ...Object.keys(BONKD_BGS)];
-const bgSrc = name => MY_BG[name] || `bg/${ENTRANCE[name] ? ENTRANCE[name].name : BONKD_BGS[name]}.webp?v=${ART_V}`;
+for (const k in MY_BG) IMG_BGS[k] = 'mine';
+const SHARED_BG = {};   // backgrounds people submitted and GEAUX approved: name -> picture URL (Supabase)
+const bgCat = name => name === 'Nibble color' || NFT_COLORS[name] || NFT_ART[name] ? 'nft' : BONKD_NAMES.includes(name) ? 'bonkd' : 'user';
+const bgList = () => ['Nibble color', ...Object.keys(NFT_COLORS), ...Object.keys(NFT_ART), ...Object.keys(IMG_BGS)];
+const BACKGROUNDS = bgList();
+const bgSrc = name => MY_BG[name] || SHARED_BG[name] || `bg/${ENTRANCE[name] ? ENTRANCE[name].name : IMG_BGS[name]}.webp?v=${ART_V}`;
+// the one-of-one scenes are painted to fit the screen, around where the Nibble stands; kept until the screen changes
+const nftCache = {};
+function nftArt(name, W, H) {
+  const size = S.shape === 'Square' && W > H * 1.05 ? H * 0.82 : Math.min(W, H), key = [name, W, H, size].join('|');
+  if (nftCache.key !== key) { const c = nftCache.c || (nftCache.c = document.createElement('canvas')); c.width = W; c.height = H;
+    NFT_ART[name](c.getContext('2d'), W, H, (W - size) / 2, H - size, size / 2160); nftCache.key = key; }
+  return nftCache.c;
+}
+const nftThumbs = {};
+function nftThumb(name) {
+  if (!nftThumbs[name]) { const c = document.createElement('canvas'); c.width = c.height = 192; NFT_ART[name](c.getContext('2d'), 192, 192, 0, 0, 192 / 2160); nftThumbs[name] = c.toDataURL('image/png'); }
+  return nftThumbs[name];
+}
 const ASPECTS = { 'Square':[1080,1080], 'Vertical':[1080,1920], 'Wide':[1920,1080] };
 
 const UA = navigator.userAgent;
@@ -472,10 +589,10 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 for (const name of BACKGROUNDS) { const o = document.createElement('option'); o.value = o.textContent = name; $('bgSel').appendChild(o); }
 const bgCache = {};
 function bonkdBg(name) {
-  if (!bgCache[name]) { const i = new Image(); i.src = MY_BG[name] || `bg/${BONKD_BGS[name]}.webp?v=${ART_V}`; bgCache[name] = i; }
+  if (!bgCache[name]) { const i = new Image(); if (SHARED_BG[name]) i.crossOrigin = 'anonymous'; i.src = MY_BG[name] || SHARED_BG[name] || `bg/${IMG_BGS[name]}.webp?v=${ART_V}`; bgCache[name] = i; }
   const i = bgCache[name]; return i.complete && i.naturalWidth ? i : null;
 }
-$('bgSel').onchange = e => { S.bg = e.target.value; if (BONKD_BGS[S.bg]) bonkdBg(S.bg); showSceneThumb(); };
+$('bgSel').onchange = e => { S.bg = e.target.value; if (IMG_BGS[S.bg]) bonkdBg(S.bg); showSceneThumb(); };
 const SHAPE_ICON = { 'Square':[22,22], 'Vertical':[17,28], 'Wide':[30,17] };
 const RATIO_TXT = { 'Square':'Square (fills screen)', 'Vertical':'9:16 Vertical', 'Wide':'16:9 Wide' };
 for (const name of Object.keys(ASPECTS)) { const o = document.createElement('option'); o.value = name; o.textContent = RATIO_TXT[name]; $('shapeSel').appendChild(o); }
@@ -519,11 +636,7 @@ function showNibbleThumb(id) {
   f.style.backgroundPosition = `${pos(cx)} ${pos(cy)}`; f.style.backgroundColor = NIBBLES[id].bg;
   showSceneThumb();
 }
-function showSceneThumb() {
-  const f = $('bgFace');
-  f.style.backgroundImage = BONKD_BGS[S.bg] ? `url(${bgSrc(S.bg)})` : 'none';
-  f.style.backgroundColor = S.bg === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
-}
+function showSceneThumb() { bgThumb($('bgFace'), S.bg); }
 $('nibbleSel').onchange = e => { loadNibble(+e.target.value); showNibbleThumb(+e.target.value); };
 // ---- pickers ----
 const NIB_LIST = () => Array.from($('nibbleSel').options).map(o => { const [kind, num] = o.textContent.split(' #'); return { id:+o.value, kind, num }; });
@@ -624,7 +737,7 @@ const kitFor = t => { const a = t && t.a; if (groupOf(a)) return groupOf(a).ref;
 const NO_BLINK = /fire|ignis|laser|knocked|dizzy|slot|3d|glasses|monocle|robot|anatomy|empty|whites|eyepatch|button|glowing|magic|three|awooga|burglar/i;
 const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || ''));
 const KIT_BUSY = {};
-window.__nf = { get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id), pickNibble:(c, f) => pickNibble(c, f) };   // for tests
+window.__nf = { get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id), pickNibble:(c, f) => pickNibble(c, f), bgOptions:c => bgOptions(c), vmRandom:() => { vmRandom(); return VM.bg; } };   // for tests
 async function kitPrepare(id) {
   if (NIBBLES[id]) return true;
   if (KIT_BUSY[id]) return KIT_BUSY[id];
@@ -655,33 +768,101 @@ async function kitPrepare(id) {
 const KIND_FACE = { Bear:4248, Beaver:5502, Cock:8212, Gecko:2525, Ghost:4075, Gnome:3385, Raccoon:8102, Wolf:7996 };
 $('nibFace').onclick = () => collection(id => { if (S.recorder) return; $('nibbleSel').value = id; loadNibble(id); showNibbleThumb(id); });
 function bgThumb(el, name) {
-  el.style.backgroundImage = BONKD_BGS[name] ? `url(${bgSrc(name)})` : 'none'; el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center';
-  el.style.backgroundColor = name === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff';
+  const pic = NFT_ART[name] ? nftThumb(name) : IMG_BGS[name] ? bgSrc(name) : null;
+  el.style.backgroundImage = pic ? `url(${pic})` : 'none'; el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center';
+  el.style.backgroundColor = NFT_COLORS[name] || (name === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff');
 }
-function pickBackground(cur, onPick) {
-  pkOpen('Choose a background', [...bgList().map(name => ({ name, on:name === cur, paint:el => bgThumb(el, name), pick:() => { pkClose(); onPick(name); },
-      remove:MY_BG[name] ? () => { delete MY_BG[name]; delete BONKD_BGS[name]; saveMyBgs(); if (S.bg === name) onPick('Nibble color'); pickBackground(S.bg, onPick); } : null })),
-    { name:'Add background', plus:true, paint:() => {}, pick:() => addBackground(onPick) }]);
+// the background picker: three tabs (NFT Collection, BONKD, User Submitted); it opens on the tab of the current choice
+const BG_TABS = [['nft', 'NFT Collection'], ['bonkd', 'BONKD'], ['user', 'User Submitted']];
+const bgLabel = name => name === 'Nibble color' ? 'This Nibble\'s color' : name;
+function pickBackground(cur, onPick, tab = bgCat(cur)) {
+  const again = t => pickBackground(cur, onPick, t), tile = name => ({ name:bgLabel(name), on:name === cur, paint:el => bgThumb(el, name), pick:() => { pkClose(); onPick(name); },
+    remove:MY_BG[name] ? () => { delete MY_BG[name]; delete IMG_BGS[name]; saveMyBgs(); if (S.bg === name) onPick('Nibble color'); again('user'); }
+      : SHARED_BG[name] && ADMIN() ? () => bgModerate(SHARED_ID[name], 'hidden', () => { unshare(name); if (S.bg === name) onPick('Nibble color'); again('user'); }) : null });
+  const names = bgList().filter(n => bgCat(n) === tab);
+  const tiles = names.map(tile);
+  if (tab === 'user') {
+    for (const w of BG_WAITING) tiles.push({ name:'Waiting: ' + w.name, paint:el => { el.style.backgroundImage = `url(${SB}/storage/v1/object/public/nibbles/${w.file})`; el.style.backgroundSize = 'cover'; el.style.opacity = '.75'; }, pick:() => bgReview(w, () => again('user')) });
+    tiles.push({ name:'Add background', plus:true, paint:() => {}, pick:() => addBackground(onPick) });
+  }
+  pkOpen('Choose a background', tiles);
+  const t = $('pkTools'); t.hidden = false;
+  t.innerHTML = '<div class="pk-tabs">' + BG_TABS.map(([k, label]) => `<button type="button" class="chipb${k === tab ? ' on' : ''}" data-tab="${k}">${label}</button>`).join('') + '</div>' +
+    (tab === 'user' ? `<span class="pk-cnt">${names.length ? 'Pictures people added. ' : ''}Add your own: it's yours right away, and everyone gets it once GEAUX approves it.</span>` : '');
+  t.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => again(b.dataset.tab));
+  if (tab === 'user' && ADMIN() && !BG_WAITING.loaded) loadWaiting().then(() => { if (!$('pk').hidden && BG_WAITING.length) again('user'); });
 }
 function saveMyBgs() { try { localStorage.setItem('nf-bgs', JSON.stringify(MY_BG)); return true; } catch (e) { return false; } }
-// a picture from this device becomes a background: resized, kept here only
+const uniqBgName = base => { base = String(base).trim().slice(0, 40) || 'Background'; let name = base, n = 2; while (bgList().includes(name) || name === 'Nibble color') name = `${base} (${n++})`; return name; };
+// a picture from this device becomes a background: kept here right away, and (if they want) sent in for everyone
 function addBackground(onPick) {
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
   inp.onchange = async () => {
     const f = inp.files && inp.files[0]; if (!f) return;
+    let c;
     try {
       const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(f); });
-      const k = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight)), c = document.createElement('canvas');
+      const k = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight)); c = document.createElement('canvas');
       c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
-      let n = 1; while (MY_BG['My background ' + n]) n++; const name = 'My background ' + n;
-      MY_BG[name] = c.toDataURL('image/jpeg', 0.82); BONKD_BGS[name] = 'mine';
+    } catch (e) { setStatus('x', 'That picture wouldn\'t open. Try another one.', 'err'); return; }
+    let n = 1; while (bgList().includes('My background ' + n)) n++;
+    pkOpen('Add a background', [], () => pickBackground(S.bg, onPick, 'user'));
+    const card = document.createElement('div'); card.className = 'pk-card-n';
+    card.innerHTML = `<img alt="Your picture" style="width:min(300px,80%);aspect-ratio:auto;object-fit:contain">
+      <label style="display:grid;gap:4px;width:min(300px,90%);text-align:left;font:600 14px/1.2 var(--body)">Name<input id="bgName" maxlength="40" value="My background ${n}" style="height:38px;border:2.5px solid var(--ink);border-radius:10px;padding:0 8px;font:600 15px/1 var(--body)"></label>
+      <label style="display:flex;gap:8px;align-items:center;width:min(300px,90%);text-align:left;font:600 14px/1.25 var(--body)"><input type="checkbox" id="bgShare" checked style="width:20px;height:20px;accent-color:var(--red)">Share it with everyone (GEAUX checks it first)</label>
+      <button class="vm-go" type="button" id="bgAdd">Add background</button>`;
+    card.querySelector('img').src = c.toDataURL('image/jpeg', 0.8);
+    $('pkGrid').appendChild(card);
+    $('bgAdd').onclick = async () => {
+      const name = uniqBgName($('bgName').value), share = $('bgShare').checked;
+      MY_BG[name] = c.toDataURL('image/jpeg', 0.82); IMG_BGS[name] = 'mine';
       if (!saveMyBgs()) setStatus('x', 'Added for now. This browser is out of room to keep it after you leave.', '', 5000);
       pkClose(); onPick(name);
-    } catch (e) { setStatus('x', 'That picture wouldn\'t open. Try another one.', 'err'); }
+      if (share) submitBackground(c, name);
+    };
   };
   inp.click();
 }
-$('bgFace').onclick = () => pickBackground(S.bg, name => { if (!$('bgSel').querySelector(`option[value="${CSS.escape(name)}"]`)) { const o = document.createElement('option'); o.value = o.textContent = name; $('bgSel').appendChild(o); } $('bgSel').value = name; S.bg = name; if (BONKD_BGS[S.bg]) bonkdBg(S.bg); showSceneThumb(); });
+async function submitBackground(c, name) {
+  try {
+    const blob = await new Promise(r => c.toBlob(r, 'image/webp', 0.82)); if (!blob) throw new Error('no webp');
+    const file = `b/${Array.from(crypto.getRandomValues(new Uint8Array(10)), x => (x % 36).toString(36)).join('')}.webp`;
+    const r = await sbFetch(`/storage/v1/object/nibbles/${file}`, { method:'POST', headers:{ 'Content-Type':'image/webp', 'x-upsert':'false' }, body:blob });
+    if (!r.ok) throw new Error('upload ' + r.status);
+    const res = await sbRpc('nf_bg_submit', { p_name:name, p_file:file, p_key:ADMIN() || null });
+    if (!res || !res.ok) throw new Error(res && res.reason || 'submit');
+    setStatus('x', res.live ? `"${name}" is live for everyone.` : `Sent in. Everyone gets "${name}" once GEAUX approves it.`, '', 4500);
+    if (res.live) shareBg({ id:res.id, name, file });
+  } catch (e) { console.error('bg submit', e); setStatus('x', 'It\'s yours on this device, but sending it in didn\'t work. Try adding it again later.', 'err', 5000); }
+}
+// approved backgrounds everyone gets; the admin also sees the ones waiting and approves or turns them down
+const SHARED_ID = {}, BG_WAITING = [];
+function shareBg(row) { const name = uniqBgName(row.name); SHARED_BG[name] = `${SB}/storage/v1/object/public/nibbles/${row.file}`; SHARED_ID[name] = row.id; IMG_BGS[name] = 'shared'; }
+function unshare(name) { delete SHARED_BG[name]; delete SHARED_ID[name]; delete IMG_BGS[name]; }
+async function loadWaiting() {
+  BG_WAITING.loaded = true;
+  try { const rows = await sbRpc('nf_bg_waiting', { p_key:ADMIN() }); if (Array.isArray(rows)) BG_WAITING.splice(0, BG_WAITING.length, ...rows); } catch (e) {}
+}
+async function bgModerate(id, status, done) {
+  const res = await sbRpc('nf_bg_set', { p_id:id, p_status:status, p_key:ADMIN() }).catch(() => ({}));
+  if (!res || !res.ok) { setStatus('x', res && res.reason === 'not_admin' ? 'That admin key isn\'t right.' : 'That didn\'t go through. Try again.', 'err'); return; }
+  done();
+}
+function bgReview(w, back) {
+  pkOpen('Waiting for approval', [], back);
+  const card = document.createElement('div'); card.className = 'pk-card-n';
+  card.innerHTML = `<img alt="" style="width:min(320px,85%);aspect-ratio:auto;object-fit:contain"><p><b>${esc(w.name)}</b></p>
+    <div style="display:flex;gap:10px;width:min(320px,90%)"><button class="vm-go" type="button" id="bgOk" style="background:var(--green);color:var(--ink)">Approve</button><button class="vm-go" type="button" id="bgNo">Turn down</button></div>`;
+  card.querySelector('img').src = `${SB}/storage/v1/object/public/nibbles/${w.file}`;
+  $('pkGrid').appendChild(card);
+  const drop = () => { const i = BG_WAITING.indexOf(w); if (i >= 0) BG_WAITING.splice(i, 1); };
+  $('bgOk').onclick = () => bgModerate(w.id, 'live', () => { drop(); shareBg(w); setStatus('x', `"${w.name}" is live for everyone.`); back(); });
+  $('bgNo').onclick = () => bgModerate(w.id, 'hidden', () => { drop(); setStatus('x', 'Turned down.'); back(); });
+}
+// the background choices as a list, grouped the same way (the video maker's menu)
+const bgOptions = cur => BG_TABS.map(([k, label]) => { const ns = bgList().filter(n => bgCat(n) === k); return ns.length ? `<optgroup label="${label}">${ns.map(n => `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(bgLabel(n))}</option>`).join('')}</optgroup>` : ''; }).join('');
+$('bgFace').onclick = () => pickBackground(S.bg, name => { if (!$('bgSel').querySelector(`option[value="${CSS.escape(name)}"]`)) { const o = document.createElement('option'); o.value = o.textContent = name; $('bgSel').appendChild(o); } $('bgSel').value = name; S.bg = name; if (IMG_BGS[S.bg]) bonkdBg(S.bg); showSceneThumb(); });
 
 // ---------------------------------------------------------------------------
 // Loading a Nibble (everything is bundled with the site)
@@ -1118,7 +1299,7 @@ function signRect() {
   return signAt.r;
 }
 function drawBackground() {
-  const img = BONKD_BGS[S.bg] && bonkdBg(S.bg);
+  const img = IMG_BGS[S.bg] && bonkdBg(S.bg);
   const ent = entrance();
   if (ent) { ctx.drawImage(ent.img, ent.tx, ent.ty, ent.img.naturalWidth * ent.sc, ent.img.naturalHeight * ent.sc); return; }
   if (img) {
@@ -1127,7 +1308,8 @@ function drawBackground() {
     if (sr && si) ctx.drawImage(si, sr[0], sr[1], sr[2] - sr[0], sr[3] - sr[1]);
     return;
   }
-  ctx.fillStyle = S.id ? NIBBLES[S.id].bg : '#fff';
+  if (NFT_ART[S.bg]) { ctx.drawImage(nftArt(S.bg, stage.width, stage.height), 0, 0); return; }
+  ctx.fillStyle = NFT_COLORS[S.bg] || (S.id ? NIBBLES[S.id].bg : '#fff');
   ctx.fillRect(0, 0, stage.width, stage.height);
 }
 function drawLayer(list, slot, now, fade, x, y, size) {
@@ -1978,7 +2160,7 @@ function nibThumb(el, id) {
 function vmRandom() {
   const ids = NIB_NAMES().map(x => x[0]).sort(() => Math.random() - 0.5);
   VM.people.forEach((p, i) => VM.cast[i] = ids[i % ids.length]);
-  const bgs = ['Nibble color', ...Object.keys(BONKD_BGS)]; VM.bg = bgs[Math.floor(Math.random() * bgs.length)];
+  const bgs = bgList().filter(n => bgCat(n) !== 'user'); VM.bg = bgs[Math.floor(Math.random() * bgs.length)];
 }
 // take a speaker out (a face the tracker found twice, a voice that isn't there): their lines go to the main speaker
 function vmRemovePerson(i) {
@@ -2018,7 +2200,7 @@ function vmCastStep() {
     <div class="vm-row"><button class="chipb seg" id="vmRand" type="button">🎲 Random</button>${P.some(p => p.off) ? '' : '<button class="chipb seg" id="vmAddVoice" type="button">🎙️ Add a voice off camera</button>'}</div>
 
     <div class="vm-opts">
-      <label>Background<select id="vmBg">${opt([['Nibble color', 'Nibble color'], ...Object.keys(BONKD_BGS).map(k => [k, k])], VM.bg)}</select></label>
+      <label>Background<select id="vmBg">${bgOptions(VM.bg)}</select></label>
       <label>Music<select id="vmMusic">${opt([['', 'No music'], ...TRACKS.map(t => [t[0], t[1]])], VM.music)}</select></label>
       <label>Shape<select id="vmShape">${opt(Object.keys(ASPECTS).map(k => [k, RATIO_TXT[k]]), VM.shape)}</select></label>
     </div>
@@ -2232,7 +2414,7 @@ async function vmRender() {
     VM.ps = P.map(() => ({ mouth:{ cur:0, prev:0, t:0 }, eye:{ cur:0, prev:0, t:0 }, face:{ roll:0, yaw:0, pitch:0, seen:false, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 } }));
     const pics = [];
     for (const name of new Set([VM.bg, ...(VM.lines || []).map(l => l.bg || VM.bg)])) {   // every background in the video, loaded before it starts
-      if (!BONKD_BGS[name]) continue; S.bg = name; bonkdBg(name); pics.push(bgCache[name]); if (ENTRANCE[name]) { entrance(); pics.push(entCache[ENTRANCE[name].name]); }
+      if (!IMG_BGS[name]) continue; S.bg = name; bonkdBg(name); pics.push(bgCache[name]); if (ENTRANCE[name]) { entrance(); pics.push(entCache[ENTRANCE[name].name]); }
     }
     await Promise.all(pics.filter(Boolean).map(i => i.complete && i.naturalWidth ? 0 : new Promise(r => { i.addEventListener('load', r, { once:true }); i.addEventListener('error', r, { once:true }); setTimeout(r, 5000); })));
     S.bg = VM.bg;
@@ -2350,6 +2532,12 @@ function registerCommunity(row) {
   try {
     const r = await sbFetch('/rest/v1/nf_nibbles?select=token,kind,bg,face,folder,ext&order=token');
     for (const row of await r.json()) if (!NIBBLES[row.token] || NIBBLES[row.token].remote) registerCommunity(row);
+  } catch (e) {}
+})();
+(async () => {
+  try {
+    const r = await sbFetch('/rest/v1/nf_backgrounds?select=id,name,file&status=eq.live&order=id');
+    const rows = await r.json(); if (Array.isArray(rows)) rows.forEach(shareBg);
   } catch (e) {}
 })();
 async function adminRemove(id) {
