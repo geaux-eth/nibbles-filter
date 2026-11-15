@@ -511,6 +511,7 @@ export async function exportFiles(res, origCanvas) {
   const layout = { at:res.face, mb:mb.map(Math.round), eb:eb.map(Math.round) }, tr = res.traits || {};
   if (tr.halo) { files.h0 = await blob(tr.halo.img); layout.halo = { box:tr.halo.box.map(Math.round), centre:tr.halo.centre.map(Math.round) }; }
   if (tr.fire) { files.fc = await blob(tr.fire.clip); layout.fire = { xf:tr.fire.xf.map(v => +v.toFixed(4)) }; }
+  if (tr.laser) { files.lz = await blob(tr.laser.img); layout.laser = { box:tr.laser.box, slope:tr.laser.slope, colour:tr.laser.colour }; }
   if (tr.jig) { for (let k = 0; k < tr.jig.length; k++) files['n' + k] = await blob(tr.jigImgs[k]); layout.jig = tr.jig; }
   return { files, ext, layout };
 }
@@ -591,6 +592,52 @@ export function findTraits(orig, res, kind, bgHex, hints = {}) {
     }
     res.eyes = null;   // fire eyes don't blink
     out.fire = { xf:[sx, sy, x0 - 351 * sx, y0 - 313 * sy], clip };
+  }
+  // laser eyes: bright beams (a white core with a coloured rim) running from the eyes out to the picture's right edge.
+  // The beam pixels go on their own layer so the filter can make them pulse and stream; the art underneath stays.
+  if (hints.laser) {
+    const beamC = i => A(i) > 150 && ((R(i) > 225 && G(i) > 225 && B(i) > 215) || (Math.max(R(i), G(i), B(i)) > 190 && Math.max(R(i), G(i), B(i)) - Math.min(R(i), G(i), B(i)) > 80));
+    // white counts only right beside the beam's coloured rim (white fur or teeth elsewhere isn't beam)
+    const sat = i => A(i) > 150 && Math.max(R(i), G(i), B(i)) > 190 && Math.max(R(i), G(i), B(i)) - Math.min(R(i), G(i), B(i)) > 80;
+    const sm = new Uint8Array(NN); for (let y = top; y < top + hgt * 0.7; y++) for (let x = 0; x < N; x++) { const i = y * N + x; if (sat(i)) sm[i] = 1; }
+    const nearSat = new Uint8Array(NN), RR = 14;
+    { const t = new Uint8Array(NN); for (let y = 0; y < N; y++) { let c = 0; for (let x = 0; x < Math.min(RR, N); x++) c += sm[y * N + x]; for (let x = 0; x < N; x++) { if (x + RR < N) c += sm[y * N + x + RR]; if (x - RR - 1 >= 0) c -= sm[y * N + x - RR - 1]; t[y * N + x] = c > 0; } }
+      for (let x = 0; x < N; x++) { let c = 0; for (let y = 0; y < Math.min(RR, N); y++) c += t[y * N + x]; for (let y = 0; y < N; y++) { if (y + RR < N) c += t[(y + RR) * N + x]; if (y - RR - 1 >= 0) c -= t[(y - RR - 1) * N + x]; nearSat[y * N + x] = c > 0; } } }
+    const bm = new Uint8Array(NN); for (let y = top; y < top + hgt * 0.7; y++) for (let x = 0; x < N; x++) { const i = y * N + x; if (sm[i] || (beamC(i) && nearSat[i])) bm[i] = 1; }
+    // traced from the picture's right edge inward, column by column, along bright pixels; a run that suddenly gets much
+    // taller has reached the face (white fur, a glowing eye), and the trace stops there
+    const keep = new Uint8Array(NN); let x0 = N, y0 = N, x1 = 0, y1 = 0, sx = 0, sy = 0, sxx = 0, sxy = 0, n = 0;
+    const runsAt = (x, ok) => { const rs = []; let st = -1; for (let y = 0; y <= N; y++) { const on = y < N && bm[y * N + x] && ok(y); if (on && st < 0) st = y; else if (!on && st >= 0) { rs.push([st, y - 1]); st = -1; } } return rs; };
+    let prev = runsAt(N - 1, () => true).filter(r => r[1] - r[0] >= 6), cap = prev.reduce((m, r) => Math.max(m, r[1] - r[0] + 1), 0) * 1.6 + 30;
+    // the band's centre line and thickness, from the stretch nearest the edge (where only beam is), keep it from spreading
+    let lineF = null;
+    { let m = 0, smx = 0, smy = 0, smxx = 0, smxy = 0, p0 = prev; const pts = [];
+      for (let x = N - 1; x >= N - 220 && p0.length; x--) { const ip = y => p0.some(r => y >= r[0] - 2 && y <= r[1] + 2);
+        const rs = x === N - 1 ? p0 : runsAt(x, ip).filter(r => r[1] - r[0] + 1 <= cap);
+        for (const [a0, a1] of rs) for (let y = a0; y <= a1; y++) { pts.push([x, y]); m++; smx += x; smy += y; smxx += x * x; smxy += x * y; } p0 = rs; }
+      if (m > 500) { const b = (m * smxy - smx * smy) / Math.max(1, m * smxx - smx * smx), a = (smy - b * smx) / m; let hw = 0; for (const [x, y] of pts) hw = Math.max(hw, Math.abs(y - (a + b * x))); lineF = { a, b, hw }; } }
+    for (let x = N - 1; x >= 0 && prev.length; x--) {
+      const inPrev = y => prev.some(r => y >= r[0] - 2 && y <= r[1] + 2) && (!lineF || Math.abs(y - (lineF.a + lineF.b * x)) <= lineF.hw + 10);
+      const rs = x === N - 1 ? prev : runsAt(x, inPrev).filter(r => r[1] - r[0] + 1 <= cap);
+      for (const [a0, a1] of rs) for (let y = a0; y <= a1; y++) { const i = y * N + x; keep[i] = 1; n++; sx += x; sy += y; sxx += x * x; sxy += x * y;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      prev = rs;
+    }
+    if (n > 3000) {
+      // the beams' slope (least squares: y on x), so the light can stream along them
+      const slope = (n * sxy - sx * sy) / Math.max(1, n * sxx - sx * sx);
+      // their soft rim too (the antialiased edge pixels next to the beam)
+      const img = cv(N, N), id = g2(img).createImageData(N, N);
+      for (let y = Math.max(0, y0 - 3); y <= Math.min(N - 1, y1 + 3); y++) for (let x = Math.max(0, x0 - 3); x < N; x++) { const i = y * N + x;
+        let on = keep[i]; if (!on && A(i) > 60) for (const j of [i - 1, i + 1, i - N, i + N, i - 2, i + 2, i - 2 * N, i + 2 * N]) if (j >= 0 && j < NN && keep[j]) { on = 1; break; }
+        if (on) { for (let c = 0; c < 3; c++) id.data[i * 4 + c] = d[i * 4 + c]; id.data[i * 4 + 3] = A(i); } }
+      g2(img).putImageData(id, 0, 0);
+      // its colour: the commonest saturated colour in the beam (the white core is the same for every laser)
+      const cc = new Map(); for (let i = 0; i < NN; i++) if (keep[i] && Math.max(R(i), G(i), B(i)) - Math.min(R(i), G(i), B(i)) > 80) { const k = (R(i) >> 4) << 8 | (G(i) >> 4) << 4 | (B(i) >> 4); cc.set(k, (cc.get(k) || 0) + 1); }
+      let ck = 0, cn = 0; for (const [k, v] of cc) if (v > cn) { cn = v; ck = k; }
+      const colour = [((ck >> 8) & 15) * 16 + 8, ((ck >> 4) & 15) * 16 + 8, (ck & 15) * 16 + 8];
+      out.laser = { img, box:[Math.max(0, x0 - 3), Math.max(0, y0 - 3), N - 1, Math.min(N - 1, y1 + 3)], slope:+slope.toFixed(4), colour };
+    }
   }
   // a Cock's nipples: two pink round shapes on the lower chest, each with its ink outline
   if (/cock/i.test(kind)) {

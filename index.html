@@ -366,7 +366,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261114-2300';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261114-2330';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -752,7 +752,7 @@ async function kitPrepare(id) {
       const cut = B.cutOriginal(im), { art } = await fetchNibble(ref);
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))) });
       res.face = FACE_AT[ref];
-      res.traits = B.findTraits(cut.canvas, res, kind, cut.bg, { halo:/halo/i.test(String(a.Accessory || '')), fire:/fire/i.test(String(a.Eyes || '')) });
+      res.traits = B.findTraits(cut.canvas, res, kind, cut.bg, { halo:/halo/i.test(String(a.Accessory || '')), fire:/fire/i.test(String(a.Eyes || '')), laser:/laser/i.test(String(a.Eyes || '')) });
       const exp = await B.exportFiles(res, cut.canvas), files = {};
       for (const k in exp.files) files[k] = URL.createObjectURL(exp.files[k]);
       NIBBLES[id] = { bg:cut.bg, fullFace:true, files, layout:exp.layout, jiggle:exp.layout.jig, kit:ref };
@@ -893,6 +893,7 @@ function fetchNibble(id) {
       art.fire = { clip:await loadImg(artURL(id, 'fc')), frames:await Promise.all(Array.from({ length:6 }, (_, i) => loadImg(`traits/8212/f${i}.webp?v=${ART_V}`))),
         eyes:await loadImg(`faces/8212/e0.webp?v=${ART_V}`), xf:lt.fire.xf };
     }
+    if (lt.laser) art.laser = { img:await loadImg(artURL(id, 'lz')), ...lt.laser };   // laser beams: their own layer, made to pulse and stream
     if (cfg.overlay) art.over = await Promise.all(Array.from({ length:10 }, (_, i) => loadImg(`faces/${id}/b${i}.webp?v=${ART_V}`)));
     // does the art's body run off its left / right edge? then it keeps going in wide frames
     const pc = document.createElement('canvas'); pc.width = 1000; pc.height = 1000; const pg = pc.getContext('2d', { willReadFrequently:true });
@@ -1370,6 +1371,35 @@ function drawFire(t, x, y, size) {
   g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'destination-in'; g.drawImage(F.clip, 0, 0, 1000, 1000);
   ctx.drawImage(fireC, x, y, size, size);
 }
+// laser eyes: the beams glow brighter and dimmer in a fast flicker, and bands of light stream out along them
+let laserC = null;
+function drawLaser(t, x, y, size) {
+  const L = S.art && S.art.laser; if (!L || !L.img) return;
+  const [bx, by, bx1, by1] = L.box, bw = bx1 - bx + 1, bh = by1 - by + 1, k = size / 1000;
+  if (!L.glow) {   // a soft glow in the beam's colour, made once
+    const pad = 40, g = document.createElement('canvas'); g.width = bw + pad * 2; g.height = bh + pad * 2; const gg = g.getContext('2d');
+    gg.filter = 'blur(14px)'; gg.drawImage(L.img, bx, by, bw, bh, pad, pad, bw, bh); gg.filter = 'none';
+    gg.globalCompositeOperation = 'source-in'; gg.fillStyle = `rgb(${L.colour.join(',')})`; gg.fillRect(0, 0, g.width, g.height);
+    L.glow = g; L.pad = pad;
+  }
+  if (!laserC) laserC = document.createElement('canvas');
+  if (laserC.width !== bw || laserC.height !== bh) { laserC.width = bw; laserC.height = bh; }
+  const lg = laserC.getContext('2d');
+  // streaming bands: a repeating light gradient along the beam's direction, moving outward, kept inside the beam
+  lg.globalCompositeOperation = 'source-over'; lg.clearRect(0, 0, bw, bh); lg.drawImage(L.img, bx, by, bw, bh, 0, 0, bw, bh);
+  lg.globalCompositeOperation = 'source-in';
+  const ang = Math.atan(L.slope || 0), dx = Math.cos(ang), dy = Math.sin(ang), period = 90, shift = (t * 0.45) % period;
+  lg.save(); lg.translate(0, bh / 2); lg.rotate(ang);
+  const gr = lg.createLinearGradient(shift - period, 0, shift, 0);
+  gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  for (let o = -period; o < bw / Math.max(0.3, dx) + period; o += period) { lg.fillStyle = gr; lg.save(); lg.translate(o, 0); lg.fillRect(shift - period, -bh * 2, period, bh * 4); lg.restore(); }
+  lg.restore();
+  const flick = 0.55 + 0.25 * Math.sin(t / 37) + 0.2 * Math.sin(t / 13.7 + 1.3);
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = Math.max(0, Math.min(1, 0.55 * flick)); ctx.drawImage(L.glow, x + (bx - L.pad) * k, y + (by - L.pad) * k, L.glow.width * k, L.glow.height * k);
+  ctx.globalAlpha = 0.5; ctx.drawImage(laserC, x + bx * k, y + by * k, bw * k, bh * k);
+  ctx.restore();
+}
 const LOOP_C = [0, 0].map(() => { const c = document.createElement('canvas'); c.width = c.height = 1000; return c; });
 function drawLoopBody(t, x, y, size) {
   const tr = S.trait, fr = tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length], [lc, fc] = LOOP_C, lg = lc.getContext('2d'), fg = fc.getContext('2d');
@@ -1439,6 +1469,7 @@ function drawNibble(t) {
   if (A.over) ctx.drawImage(A.over[S.mouth.cur], x, y, size, size);
   if (!under && !looped) drawTrait(t, x, y, size, live ? f : null);
   drawFire(t, x, y, size);
+  drawLaser(t, x, y, size);
   drawHalo(t, x, y, size, live ? f : null);
   drawJiggle(t, x, y, size, live ? f : null);
   ctx.restore();
@@ -2686,7 +2717,7 @@ async function addBuild() {
     if (!AN.cutOrig) AN.cutOrig = AN.cut.canvas;   // keep the untouched picture, so building again starts clean
     const base = document.createElement('canvas'); base.width = base.height = 1000; base.getContext('2d').drawImage(AN.cutOrig, 0, 0); AN.cut.canvas = base;
     res.frames[0] = base;
-    const ta = AN.meta && AN.meta.a, hints = ta ? { halo:/halo/i.test([].concat(ta.Accessory || []).join(' ')), fire:/fire/i.test(String(ta.Eyes || '')) } : {};
+    const ta = AN.meta && AN.meta.a, hints = ta ? { halo:/halo/i.test([].concat(ta.Accessory || []).join(' ')), fire:/fire/i.test(String(ta.Eyes || '')), laser:/laser/i.test(String(ta.Eyes || '')) } : {};
     res.traits = B.findTraits(base, res, AN.kind, AN.cut.bg, hints);
     AN.res = res; AN.exp = await B.exportFiles(res, base);
     addResults();
