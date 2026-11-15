@@ -348,6 +348,28 @@ header .credit b{font-weight:400}
         <option value="757">Ghost #757</option>
         <option value="929">Beaver #929</option>
         <option value="67">Gnome #67</option>
+        <option value="546">Cock #546</option>
+        <option value="2775">Ghost #2775</option>
+        <option value="3113">Gecko #3113</option>
+        <option value="3159">Raccoon #3159</option>
+        <option value="3295">Gnome #3295</option>
+        <option value="3543">Beaver #3543</option>
+        <option value="5900">Bear #5900</option>
+        <option value="8482">Wolf #8482</option>
+        <option value="794">Bear #794</option>
+        <option value="1998">Beaver #1998</option>
+        <option value="3538">Wolf #3538</option>
+        <option value="5807">Raccoon #5807</option>
+        <option value="7192">Gnome #7192</option>
+        <option value="7813">Gecko #7813</option>
+        <option value="8617">Ghost #8617</option>
+        <option value="8637">Cock #8637</option>
+        <option value="2471">Gecko #2471</option>
+        <option value="3491">Cock #3491</option>
+        <option value="4479">Bear #4479</option>
+        <option value="4676">Gnome #4676</option>
+        <option value="7677">Raccoon #7677</option>
+        <option value="8426">Ghost #8426</option>
       </select>
 <select id="bgSel" aria-label="Background" hidden></select>
 <div class="pk" id="pk" hidden><div class="pk-card" role="dialog" aria-modal="true" aria-labelledby="pkTitle">
@@ -366,7 +388,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261114-2330';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261115-0100';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -406,6 +428,29 @@ const NIBBLES = {
   k5842: { bg:'#ffe46b', fullFace:true },
   k4946: { bg:'#9ee8ff', fullFace:true },
   k500: { bg:'#ffc185', fullFace:true },
+  // the special Nibbles (robots, dissections, one of ones): their own ten mouths (and blink where they have one), made from Canva sheets
+  546: { bg:'#3e3951', fullFace:true, layout:{"at":[640,664,1.35],"mb":[450,508,830,820],"eb":[0,0,0,0]} },
+  2775: { bg:'#385049', fullFace:true, layout:{"at":[665,586,1.35],"mb":[574,508,756,664],"eb":[0,0,0,0]} },
+  3113: { bg:'#3c4655', fullFace:true, layout:{"at":[558,634,1.35],"mb":[302,486,814,782],"eb":[0,0,0,0]} },
+  3159: { bg:'#3c5549', fullFace:true, layout:{"at":[657,676,1.35],"mb":[464,548,850,804],"eb":[0,0,0,0]} },
+  3295: { bg:'#553c3c', fullFace:true, layout:{"at":[599,600,1.35],"mb":[416,502,782,698],"eb":[0,0,0,0]} },
+  3543: { bg:'#3b314a', fullFace:true, layout:{"at":[588,526,1.35],"mb":[402,452,774,600],"eb":[0,0,0,0]} },
+  5900: { bg:'#393b51', fullFace:true, layout:{"at":[603,655,1.35],"mb":[424,534,782,776],"eb":[0,0,0,0]} },
+  8482: { bg:'#394851', fullFace:true, layout:{"at":[592,712,1.35],"mb":[448,616,736,808],"eb":[0,0,0,0]} },
+  794: { bg:'#c2f8f5', fullFace:true, layout:{"at":[586,635,1.35],"mb":[424,542,748,728],"eb":[0,0,0,0]} },
+  1998: { bg:'#c2f8f5', fullFace:true, layout:{"at":[466,547,1.35],"mb":[322,438,610,656],"eb":[0,0,0,0]} },
+  3538: { bg:'#c2f8f5', fullFace:true, layout:{"at":[627,701,1.35],"mb":[494,586,760,816],"eb":[0,0,0,0]} },
+  5807: { bg:'#c2f8f5', fullFace:true, layout:{"at":[522,638,1.35],"mb":[370,502,674,774],"eb":[0,0,0,0]} },
+  7192: { bg:'#c2f8f5', fullFace:true, layout:{"at":[479,618,1.35],"mb":[322,520,636,716],"eb":[0,0,0,0]} },
+  7813: { bg:'#c2f8f5', fullFace:true, layout:{"at":[554,642,1.35],"mb":[366,528,742,756],"eb":[0,0,0,0]} },
+  8617: { bg:'#c2f8f5', fullFace:true, layout:{"at":[583,672,1.35],"mb":[380,532,786,812],"eb":[0,0,0,0]} },
+  8637: { bg:'#c2f8f5', fullFace:true, layout:{"at":[550,702,1.35],"mb":[314,550,786,854],"eb":[0,0,0,0]} },
+  2471: { bg:'#ffd4f7', fullFace:true, layout:{"at":[503,632,1.35],"mb":[316,528,690,736],"eb":[0,0,0,0]} },
+  3491: { bg:'#f1a63a', fullFace:true, layout:{"at":[508,697,1.35],"mb":[302,556,714,838],"eb":[0,0,0,0]} },
+  4479: { bg:'#d7c5ff', fullFace:true, layout:{"at":[616,591,1.35],"mb":[444,484,788,698],"eb":[0,0,0,0]} },
+  4676: { bg:'#3e147b', fullFace:true, layout:{"at":[542,632,1.35],"mb":[422,550,662,714],"eb":[0,0,0,0]} },
+  7677: { bg:'#151634', fullFace:true, layout:{"at":[494,418,1.35],"mb":[422,608,746,816],"eb":[0,0,0,0]} },
+  8426: { bg:'#739ed3', fullFace:true, layout:{"at":[625,533,1.35],"mb":[488,586,800,764],"eb":[450,302,780,620]} },
 };
 const IMG_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest', Cockfight:'cleeroy' };
 // backdrops that hang a sign: it goes in open space the Nibble can never reach, and the text keeps clear of it too
@@ -630,6 +675,28 @@ addEventListener('resize', fitStage);
 setShape('Square');
 // Each control shows a picture of its current choice; the name sits underneath.
 const FACE_AT = { k500:[573,533,1.35], k4946:[609,582,1.35], k2757:[612,590,1.35], k5842:[611,581,1.35], 757:[608,610,1.35], 929:[516,455,1.35], 67:[564,554,1.35], 1680:[559,536,1.35], 310:[560,589,1.35], 6965:[564,519,1.35], 1992:[602,582,1.35], 5502:[566,458,1.35], 4075:[534,551,1.35], 1486:[600,560,1.35], 4248:[499,469,1.35], 3133:[560,494,1.35], 271:[560,494,1.35], 7996:[600,520,1.35], 8549:[507,533,1.35], 3385:[585,560,1.35], 8212:[496,520,1.35], 3154:[496,520,1.35] };   // face centre + zoom in the 1000px art
+FACE_AT[546] = [640, 664, 1.35];
+FACE_AT[2775] = [665, 586, 1.35];
+FACE_AT[3113] = [558, 634, 1.35];
+FACE_AT[3159] = [657, 676, 1.35];
+FACE_AT[3295] = [599, 600, 1.35];
+FACE_AT[3543] = [588, 526, 1.35];
+FACE_AT[5900] = [603, 655, 1.35];
+FACE_AT[8482] = [592, 712, 1.35];
+FACE_AT[794] = [586, 635, 1.35];
+FACE_AT[1998] = [466, 547, 1.35];
+FACE_AT[3538] = [627, 701, 1.35];
+FACE_AT[5807] = [522, 638, 1.35];
+FACE_AT[7192] = [479, 618, 1.35];
+FACE_AT[7813] = [554, 642, 1.35];
+FACE_AT[8617] = [583, 672, 1.35];
+FACE_AT[8637] = [550, 702, 1.35];
+FACE_AT[2471] = [503, 632, 1.35];
+FACE_AT[3491] = [508, 697, 1.35];
+FACE_AT[4479] = [616, 591, 1.35];
+FACE_AT[4676] = [542, 632, 1.35];
+FACE_AT[7677] = [494, 418, 1.35];
+FACE_AT[8426] = [625, 533, 1.35];
 function showNibbleThumb(id) {
   const f = $('nibFace'), [cx, cy, zoom] = FACE_AT[id];               // show the face, centred
   const pos = c => (Math.min(1, Math.max(0, (c / 1000 * zoom - 0.5) / (zoom - 1))) * 100).toFixed(1) + '%';
