@@ -223,11 +223,11 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
       // the usual lid (the map's match for the reference's face colour) is kept when this Nibble really shows it there
       const oldK = lidC ? bin(lidC[0], lidC[1], lidC[2]) : -1; let oldN = 0;
       if (oldK >= 0) { const a = oldK >> 10, b = (oldK >> 5) & 31, c = oldK & 31; for (let x = Math.max(0, a - 1); x <= Math.min(31, a + 1); x++) for (let y = Math.max(0, b - 1); y <= Math.min(31, b + 1); y++) for (let z = Math.max(0, c - 1); z <= Math.min(31, c + 1); z++) oldN += tc[(x << 10) | (y << 5) | z]; }
-      if (oldN >= tot * 0.15) bk = -1;
+      if (oldN >= tot * 0.15) { bk = -1; faceOwn = { ref:[rr, rg, rb], c:lidC, lum:rr + rg + rb }; }   // still this Nibble's face colour
       if (bk >= 0 && bn > 200 && bn > tot * 0.25) { let r = 0, g = 0, b = 0, n = 0;
         for (let p = 0; p < N * N; p++) { if (!around[p] || EZ[p] || Zd[p] || ((p / N) | 0) < ey) continue; const i = p * 4; if (T[i + 3] > 220 && bin(T[i], T[i + 1], T[i + 2]) === bk) { r += T[i]; g += T[i + 1]; b += T[i + 2]; n++; } }
         lidC = [r / n, g / n, b / n]; faceOwn = { ref:[rr, rg, rb], c:lidC, lum:lidLum }; } else lidLum = 0; } }
-  if (dbg) Object.assign(dbg, { lidC, lumSkin, known: colourMap.last, map, okT, skin, snout, isMouthC, mouthP });
+  if (dbg) Object.assign(dbg, { faceOwn, lidC, lumSkin, known: colourMap.last, map, okT, skin, snout, isMouthC, mouthP });
   // the reference's jaw skin, once this Nibble's own chin is known: the chin colour (shaded like the reference) when the
   // colour map says something far from it (a scarf or collar learned as the jaw)
   let chinOwn = null;
@@ -236,8 +236,8 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
   // the same for the reference's main face skin (the colour of its lids): this Nibble's own face colour from around its
   // eyes, when the map learned something far off (a hat or monocle where the reference shows its head)
   const faceFix = (r, g, b, m) => { if (!faceOwn || Math.abs(r - faceOwn.ref[0]) + Math.abs(g - faceOwn.ref[1]) + Math.abs(b - faceOwn.ref[2]) > 60) return m;
-    const sc = Math.max(0.55, Math.min(1.15, (r + g + b) / faceOwn.lum)), c = faceOwn.c.map(v => Math.max(0, Math.min(255, Math.round(v * sc))));
-    return !m || Math.abs(m[0] - c[0]) + Math.abs(m[1] - c[1]) + Math.abs(m[2] - c[2]) > 110 ? c : m; };
+    const sc = Math.max(0.55, Math.min(1.04, (r + g + b) / faceOwn.lum)), c = faceOwn.c.map(v => Math.max(0, Math.min(255, Math.round(v * sc))));
+    return !m || Math.abs(m[0] - c[0]) + Math.abs(m[1] - c[1]) + Math.abs(m[2] - c[2]) > 80 ? c : m; };
   const mapped = (S, i) => { if (S[i + 3] < 8) return null; if (lum(S, i) >= 160 && !isSkinC(S[i], S[i + 1], S[i + 2]) && inPal(mouthP, S[i], S[i + 1], S[i + 2]) && mouthHue(S[i], S[i + 1], S[i + 2])) return [S[i], S[i + 1], S[i + 2]]; const m = faceFix(S[i], S[i + 1], S[i + 2], jawFix(S[i], S[i + 1], S[i + 2], isSkinC(S[i], S[i + 1], S[i + 2]) || lum(S, i) < 260 ? map(S[i], S[i + 1], S[i + 2]) : null)); return m || [S[i], S[i + 1], S[i + 2]]; };
   // the reference's own clothes near the mouth: when a closing jaw shows them, this Nibble's clothes are filled in instead
   const cloth = new Set(); { const cc = new Map(); let ct = 0;
@@ -365,7 +365,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
     eyes = [null, null, null, ...[3, 4].map(k => { const E = ref._E[k]; unfleck(E); const  c = cv(), g = c.getContext('2d'), id = g.createImageData(N, N), o = id.data;
       for (let p = 0; p < N * N; p++) { const i = p * 4; if (E[i + 3] < 8) continue; let m = mapped(E, i);
         // a lid colour this Nibble doesn't have: the skin just under its eyes, shaded like the kit's
-        if (lidC && lidLum && E[i + 3] > 120 && lum(E, i) >= 75 && isSkin(E, i)) { const sc = Math.max(0.55, Math.min(1.15, lum(E, i) / lidLum)); m = lidC.map(v => Math.max(0, Math.min(255, Math.round(v * sc)))); }
+        if (lidC && lidLum && E[i + 3] > 120 && lum(E, i) >= 75 && (isSkin(E, i) || !inPal(ownP, m[0], m[1], m[2]))) { const sc = Math.max(0.55, Math.min(1.04, lum(E, i) / lidLum)); m = lidC.map(v => Math.max(0, Math.min(255, Math.round(v * sc)))); }   // a lid shade this Nibble doesn't have: its lid colour too
         else if (lidC && E[i + 3] > 120 && lum(E, i) >= 75 && isSkin(E, i)) { const mm = map(E[i], E[i + 1], E[i + 2]);
           if (!mm || !inPal(ownP, mm[0], mm[1], mm[2]) || (belowP && !nearK(snout, E[i], E[i + 1], E[i + 2]) && !inPal(belowP, mm[0], mm[1], mm[2]))) {
             const sc = Math.min(1.1, lum(E, i) / Math.max(1, lumSkin)); m = lidC.map(v => Math.max(0, Math.min(255, Math.round(v * sc)))); } }
