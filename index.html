@@ -400,7 +400,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261115-1430';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261115-1800';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -895,7 +895,7 @@ const KIT_NO_BLINK = new Set();
 const KIT_SKIP = new Set();   // kind:skin pairs whose results aren't good enough yet
 const SPECIAL_SKINS = new Set(['Red', 'Wrestler', 'Plush', 'Seawoman', 'Werewolf', 'Mage', 'Alien', 'Human', 'Metal', 'Dissection', 'Slime', 'Dragon', 'Fire', 'Mummy']);
 // special skins whose whole group shares a pose: one kit each, with a moving body loop played behind the face
-const KIT_GROUP = { 'Ghost:Fire':{ ref:'k2757', loop:'ghostfire', frames:48, fps:12 }, 'Ghost:Slime':{ ref:'k5842', loop:'ghostslime', frames:48, fps:12 }, 'Ghost:Mummy':{ ref:'k4946' }, 'Gecko:Dragon':{ ref:'k500', noBlink:/big|eyelashes/i } };
+const KIT_GROUP = { 'Ghost:Fire':{ ref:'k2757', loop:'ghostfire', frames:48, fps:12 }, 'Ghost:Slime':{ ref:'k5842', loop:'ghostslime', frames:48, fps:12, wideFace:true }, 'Ghost:Mummy':{ ref:'k4946' }, 'Gecko:Dragon':{ ref:'k500', noBlink:/big|eyelashes/i } };
 const groupOf = a => a && KIT_GROUP[a.Character + ':' + a.Skin];
 const kitFor = t => { const a = t && t.a; if (groupOf(a)) return groupOf(a).ref; return a && !SPECIAL_SKINS.has(a.Skin) && !KIT_SKIP.has(a.Character + ':' + a.Skin) ? KIT_REF[a.Character] || null : null; };
 // eyes that don't blink: fire, lasers, X / knocked out, spirals, slot machines, glasses and anything worn over the eyes
@@ -914,7 +914,7 @@ async function kitPrepare(id) {
       const [B, K] = await Promise.all([import('./builder.js?v=' + ART_V), import('./kit.js?v=' + ART_V)]);
       const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
       const cut = B.cutOriginal(im), { art } = await fetchNibble(ref);
-      const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))) });
+      const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop) });
       res.face = FACE_AT[ref];
       res.traits = B.findTraits(cut.canvas, res, kind, cut.bg, { halo:/halo/i.test(String(a.Accessory || '')), fire:/fire/i.test(String(a.Eyes || '')), laser:/laser/i.test(String(a.Eyes || '')) });
       const exp = await B.exportFiles(res, cut.canvas), files = {};

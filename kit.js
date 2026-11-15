@@ -123,7 +123,7 @@ function colourMap(R, T, where, okT) {
 
 // T: this Nibble's picture (background cut, 1000 px). ref: { base, mouths[10], eyes[5] } of the kind's reference.
 // Returns { frames[10], eyes[5], mouthBox, eyeBox } in the builder's format.
-export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
+export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false } = {}) {
   const T = data(Timg), R = data(ref.base), K = ref.mouths.map(data);
   // Gemini's panels have small dark flecks in the fur: a dark spot too small to be part of a line takes the colour around it
   for (let k = 1; k < 10; k++) unfleck(K[k]);
@@ -153,7 +153,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
   for (let k = 1; k < 10; k++) { const D = K[k]; for (let p = 0; p < N * N; p++) { if (!Zd[p]) continue; const i = p * 4;
     if (R[i + 3] < 200 || D[i + 3] < 200 || !Z[p] || dist(D, i, R, i) < 60) continue; if (!inPal(bodyP, D[i], D[i + 1], D[i + 2])) mc[bin(D[i], D[i + 1], D[i + 2])]++; } }
   const mouthP = palette(mc, 15, 1);
-  const mouthHue = (r, g, b) => r + g + b < 160 || (r + g + b < 300 && r > g * 1.5 && r > b * 1.3) || (r + g + b > 660 && Math.max(r, g, b) - Math.min(r, g, b) < 40) || (r > 60 && g < r * 0.45 && b < r * 0.75 && b > g * 0.6) || (r > 170 && b >= g * 0.95 && g < r * 0.78);
+  const mouthHue = (r, g, b) => r + g + b < 160 || (r + g + b < 300 && r > g * 1.5 && r > b * 1.3) || (r + g + b > 660 && Math.max(r, g, b) - Math.min(r, g, b) < 40) || (r > 60 && g < r * 0.45 && b < r * 0.75 && b > g * 0.6) || (r > 170 && b >= g * 0.95 && g < r * 0.78) || (r > 200 && r - g > 70 && r - b > 70 && b > g * 0.7 && r + g + b < 560);   // salmon tongues
   const isDrip = (r, g, b) => b > 180 && g > 150 && r < 170 && b - r > 50;   // drool: never a chin colour
   const isMouthC = (r, g, b) => r + g + b < 160 || (inPal(mouthP, r, g, b) && mouthHue(r, g, b));
   // fur around the eyes counts as skin too, but not a colour the mouth uses (white horns next to the eyes vs white teeth)
@@ -257,7 +257,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
   // a tongue or drool hanging out of this Nibble's mouth (Tongue Out, Drooling): gone while it talks
   const st0 = new Uint8Array(N * N), near = grow(Zd, 150);
   for (let p = 0; p < N * N; p++) { if (!near[p] || ((p / N) | 0) < zy - 20) continue; const i = p * 4; if (T[i + 3] < 200) continue;
-    const r = T[i], g = T[i + 1], b = T[i + 2], pink = r > 190 && g < 150 && b > 70 && b < 190 && r - g > 70, drool = b > 180 && g > 150 && r < 170 && b - r > 50;
+    const r = T[i], g = T[i + 1], b = T[i + 2], pink = r > 190 && g < 150 && b > 70 && b < 215 && r - g > 70, drool = b > 180 && g > 150 && r < 170 && b - r > 50;
     if (!(pink || drool)) continue; const R0 = R[i], G0 = R[i + 1], B0 = R[i + 2];
     if (Math.abs(R0 - r) + Math.abs(G0 - g) + Math.abs(B0 - b) < 60) continue;   // the reference has the same thing here: not this Nibble's own
     st0[p] = 1; }
@@ -298,7 +298,10 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
       if (!chinT) chinT = map(((jk >> 10) << 3) + 4, (((jk >> 5) & 31) << 3) + 4, ((jk & 31) << 3) + 4); } } }   // too little chin showing: the learned match of the reference's jaw colour
   if (chinLearned) chinOwn = { c:chinT, P:jawP, lum:lumJaw };
   if (dbg) Object.assign(dbg, { chinT, lumJaw, jawN:jawC.reduce((a, v) => a + (v ? 1 : 0), 0) });
-  const stick = new Uint8Array(N * N);   // a hanging tongue or drool stays (filling where it was smeared); the talking mouth draws over it
+  // a hanging tongue or drool stays on a still body (the talking mouth draws over it); on a moving body (slime, fire)
+  // only the resting face shows it, so the talking mouths paint out what's left of it below the jaw
+  const stick = loopBody ? grow(st0, 5) : new Uint8Array(N * N);
+  if (loopBody) for (let p = 0; p < N * N; p++) if (((p / N) | 0) <= zy) stick[p] = 0;
   const frames = [Timg];
   let mb = [N, N, 0, 0];
   for (let k = 1; k < 10; k++) {
@@ -319,7 +322,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
       // the reference's clothes showing: filled from this Nibble's own; any other colour (a lighter lip Gemini drew) is its chin
       if (chinT && !inPal(clothP, D[i], D[i + 1], D[i + 2]) && !map(D[i], D[i + 1], D[i + 2])) { const sc = Math.min(1.1, lum(D, i) / lumJaw); subst0.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); }
       else hole[p] = 1; }
-    for (let p = 0; p < N * N; p++) if (stick[p]) { hole[p] = 1; useG[p] = 1; }
+    for (let p = 0; p < N * N; p++) if (stick[p] && !useG[p]) { hole[p] = 1; useG[p] = 1; }
     // nothing of the reference's own body may come through: where this mouth leaves the reference's clothes or
     // accessories as they were, this Nibble keeps its own; where it shows them moved, or shows any colour this Nibble
     // doesn't have that isn't a mouth colour, it is filled from this Nibble's own picture
@@ -386,7 +389,28 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
   for (const k of [1, 2]) if (eyes[k] && ref._E[k]) { const E = ref._E[k]; for (let p = 0; p < N * N; p++) if (E[p * 4 + 3] > 20) face2[p] = 1; }
   let zb = 0; for (let p = 0; p < N * N; p++) if (Zd[p]) zb = Math.max(zb, (p / N) | 0);   // the bottom of the mouth area: nothing below it is face
   for (let p = 0; p < N * N; p++) { const i = p * 4; if (Zd[p] || EZ[p] || ((p / N) < zb + 20 && T[i + 3] > 128 && (R[i + 3] < 128 || dist(T, i, R, i) > 90))) face2[p] = 1; }
-  const faceMask = soft(fillHoles(grow(blobs(face2, 60), 4)), 14);   // a wide soft edge, so the still face melts into the moving body
+  const fm0 = fillHoles(grow(blobs(face2, 60), 4));
+  // a loop body with no face of its own (slime): the still face reaches well past its features above the chin, so the
+  // soft edge never fades through a brow or cheek line (the loop's inner mask still keeps it inside the body)
+  if (wideFace) { const wide = grow(fm0, 30); for (let p = 0; p < N * N; p++) if (wide[p] && (p / N) < zb - 10) fm0[p] = 1; }
+  const faceMask = soft(fm0, 14);   // a wide soft edge, so the still face melts into the moving body
+  // where the still face fades into the moving body below the mouth, any line it draws there would show as a faint
+  // broken stroke (its own drips, a chin): painted over with the body colour around it
+  if (wideFace) { const band = new Uint8Array(N * N);
+    for (let p = 0; p < N * N; p++) if (((p / N) | 0) > zy && faceMask[p] > 0.01 && faceMask[p] < 0.97) band[p] = 1;
+    for (let k = 0; k < frames.length; k++) { let c = frames[k];
+      if (k === 0) { c = cv(); c.getContext('2d').drawImage(Timg, 0, 0, N, N); frames[0] = c; }
+      const g = c.getContext('2d', { willReadFrequently:true }), id = g.getImageData(0, 0, N, N), F = id.data, ink = new Uint8Array(N * N);
+      for (let p = Math.ceil(zy) * N; p < N * N; p++) if (F[p * 4 + 3] > 100 && lum(F, p * 4) < 280) ink[p] = 1;
+      // whole strokes: a line reaching into the fade goes entirely, not just its faded end
+      const seen = new Uint8Array(N * N), q = new Int32Array(N * N), cut = new Uint8Array(N * N);
+      for (let s0 = 0; s0 < N * N; s0++) { if (!ink[s0] || seen[s0]) continue; let h = 0, t = 0, hit = false; q[t++] = s0; seen[s0] = 1;
+        while (h < t) { const p = q[h++], x = p % N; if (band[p]) hit = true;
+          for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && ink[j] && !seen[j]) { seen[j] = 1; q[t++] = j; } }
+        if (hit && t < 6000) for (let k = 0; k < t; k++) cut[q[k]] = 1; }   // (not the mouth itself: a big shape)
+      const hole = grow(cut, 2); for (let p = 0; p < N * N; p++) if (((p / N) | 0) <= zy) hole[p] = 0;
+      for (const [p, m] of inpaint(F, hole, new Uint8Array(N * N))) { const i = p * 4; F[i] = m[0]; F[i + 1] = m[1]; F[i + 2] = m[2]; }
+      g.putImageData(id, 0, 0); } }
   const fm = cv(), fg = fm.getContext('2d'), fid = fg.createImageData(N, N);
   for (let p = 0; p < N * N; p++) fid.data[p * 4 + 3] = Math.round(faceMask[p] * 255);
   fg.putImageData(fid, 0, 0);
