@@ -400,7 +400,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261115-1345';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261115-1430';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1630,7 +1630,7 @@ function bottomStrip(img) {
   let c = STRIPS.get(img); if (c) return c;
   const t = document.createElement('canvas'); t.width = 1000; t.height = 40; const tg = t.getContext('2d', { willReadFrequently:true });
   tg.drawImage(img, 0, 940, 1000, 40, 0, 0, 1000, 40);   // rows 940-979: above the ragged edge
-  const d = tg.getImageData(0, 0, 1000, 40).data;
+  const d = tg.getImageData(0, 0, 1000, 40).data; t.width = t.height = 0;
   c = document.createElement('canvas'); c.width = 1000; c.height = 1; const cg = c.getContext('2d'), out = cg.createImageData(1000, 1), o = out.data;
   const col = new Int32Array(1000).fill(-1);
   for (let x = 0; x < 1000; x++) for (let y = 39; y >= 0; y--) { if (d[(y * 1000 + x) * 4 + 3] > 200) { if (y >= 28) col[x] = y; break; } }   // only the body that reaches the edge
@@ -1650,21 +1650,36 @@ function drawLoopBody(t, x, y, size) {
   fg.globalCompositeOperation = 'destination-in'; fg.drawImage(tr.holeImg, 0, 0, 1000, 1000); if (tr.innerImg) fg.drawImage(tr.innerImg, 0, 0, 1000, 1000);
   ctx.drawImage(lc, x, y, size, size); ctx.drawImage(fc, x, y, size, size);
   // a tongue hanging out past the face reaches over the moving body (the face's outline would cut it off)
-  const tg = tongueOf(S.art.mouths[S.mouth.cur]); if (tg) ctx.drawImage(tg, x, y, size, size);
+  if (S.eye.cur === 2 && !hasLook(S.art, 2)) popEyes(S.art, x, y, size);
+  // the resting face's tongue only (the other mouths keep just a stray end of it)
+  const tg = S.mouth.cur === 0 && tongueOf(S.art.mouths[0], tr.holeImg); if (tg) { const k = size / 1000; ctx.drawImage(tg.c, x + tg.x * k, y + tg.y * k, tg.c.width * k, tg.c.height * k); }
 }
 const TONGUES = new WeakMap();
-function tongueOf(img) {
+// the tongue's own pixels (pink, with its ink outline), cut to its box: { c, x, y } in the 1000px art, or null.
+// Kept small: phones (Safari) only allow so much canvas memory in all.
+function tongueOf(img, hole) {
   if (TONGUES.has(img)) return TONGUES.get(img);
   const c = document.createElement('canvas'); c.width = c.height = 1000; const g = c.getContext('2d', { willReadFrequently:true });
   g.drawImage(img, 0, 0, 1000, 1000); const im = g.getImageData(0, 0, 1000, 1000), d = im.data, m = new Uint8Array(1000 * 1000);
-  for (let i = 0; i < m.length; i++) { const r = d[i * 4], gg = d[i * 4 + 1], b = d[i * 4 + 2]; if (d[i * 4 + 3] > 200 && r > 190 && b > 120 && gg < 150 && b > gg + 10) m[i] = 1; }   // pink
-  let n = 0; for (let i = 0; i < m.length; i++) n += m[i];
+  c.width = c.height = 0;
+  let n = 0, x0 = 1000, y0 = 1000, x1 = 0, y1 = 0;
+  for (let i = 0; i < m.length; i++) { const r = d[i * 4], gg = d[i * 4 + 1], b = d[i * 4 + 2]; if (d[i * 4 + 3] > 200 && r > 190 && b > 120 && gg < 150 && b > gg + 10) { m[i] = 1; n++; } }   // pink
   if (n < 300) { TONGUES.set(img, null); return null; }
-  // the pink and its ink outline (dark pixels right next to it)
+  // only a tongue that hangs out of the mouth: pink pieces partly inside the face (a stray piece below the chin stays hidden)
+  if (hole) { const hc = document.createElement('canvas'); hc.width = hc.height = 1000; const hg = hc.getContext('2d', { willReadFrequently:true }); hg.drawImage(hole, 0, 0, 1000, 1000);
+    const hd = hg.getImageData(0, 0, 1000, 1000).data; hc.width = hc.height = 0;
+    const lab = new Int32Array(m.length), q = new Int32Array(m.length); let id = 0;
+    for (let s0 = 0; s0 < m.length; s0++) { if (!m[s0] || lab[s0]) continue; id++; let h = 0, t = 0, inside = 0; q[t++] = s0; lab[s0] = id;
+      while (h < t) { const i = q[h++], x = i % 1000; if (hd[i * 4 + 3] > 128) inside++;
+        for (const j of [x > 0 ? i - 1 : -1, x < 999 ? i + 1 : -1, i - 1000, i + 1000]) if (j >= 0 && j < m.length && m[j] && !lab[j]) { lab[j] = id; q[t++] = j; } }
+      if (inside < 30) for (let k = 0; k < t; k++) m[q[k]] = 0; }
+    n = 0; for (let i = 0; i < m.length; i++) n += m[i]; if (n < 300) { TONGUES.set(img, null); return null; } }
   const keep = new Uint8Array(m); for (let y = 2; y < 998; y++) for (let x = 2; x < 998; x++) { const i = y * 1000 + x; if (m[i]) continue;
     if (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2] < 200 && (m[i - 3] || m[i + 3] || m[i - 3000] || m[i + 3000] || m[i - 2] || m[i + 2] || m[i - 2000] || m[i + 2000])) keep[i] = 1; }
-  for (let i = 0; i < m.length; i++) if (!keep[i]) d[i * 4 + 3] = 0;
-  g.putImageData(im, 0, 0); TONGUES.set(img, c); return c;
+  for (let i = 0; i < m.length; i++) if (keep[i]) { const x = i % 1000, y = (i / 1000) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  const w = x1 - x0 + 1, h = y1 - y0 + 1, out = document.createElement('canvas'); out.width = w; out.height = h; const og = out.getContext('2d'), oi = og.createImageData(w, h);
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = y * 1000 + x; if (!keep[i]) continue; const o = ((y - y0) * w + (x - x0)) * 4; oi.data.set(d.subarray(i * 4, i * 4 + 4), o); }
+  og.putImageData(oi, 0, 0); const t = { c:out, x:x0, y:y0 }; TONGUES.set(img, t); return t;
 }
 function drawTrait(t, x, y, size, f) {
   const tr = S.trait; if (!tr) return;
@@ -2742,13 +2757,18 @@ async function vmRender() {
     const mimeType = REC_TYPES.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
     const chunks = []; const rec = new MediaRecorder(out, mimeType ? { mimeType, videoBitsPerSecond:4_000_000 } : undefined); VM.rec = rec;
     rec.ondataavailable = e => e.data && e.data.size && chunks.push(e.data);
-    rec.onstop = () => {
+    // finishing happens once: when the recorder says it stopped, or (phones sometimes never say) a few seconds after stopping it
+    let finished = false;
+    VM.finish = () => {
+      if (finished) return; finished = true; clearTimeout(VM.finishT);
       const type = ((rec.mimeType || mimeType || 'video/webm').split(';')[0].trim()) || 'video/webm';
       const blob = new Blob(chunks, { type }); vmRestore();
-      if (VM.cancel || !blob.size) return;
+      if (VM.cancel) return;
+      if (!blob.size) { vmShow('Nibble a Video', '<p>The video didn\'t come out. Close other apps and tabs to free up memory, then try again.</p><button class="chipb seg" id="vmAgain2" type="button">‹ Back to editing</button>'); $('vmAgain2').onclick = () => vmEditor(); return; }
       vmDone(blob, type, `nibbled-video-${Date.now()}.${type === 'video/mp4' ? 'mp4' : 'webm'}`);
     };
-    VM.cancel = false; VM.cur = -1;
+    rec.onstop = () => VM.finish();
+    VM.cancel = false; VM.stopping = false; VM.cur = -1; VM.lastT = -1;
     $('vm').classList.add('rendering');
     vmShow('Nibbling your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note">Keep this screen open until it's done. You'll hear it as it goes.</p><button class="chipb seg" id="vmStop" type="button">Cancel</button>`);
     $('vmStop').onclick = () => vmStop(true);
@@ -2758,9 +2778,10 @@ async function vmRender() {
   } catch (e) { vmRestore(); vmShow('Nibble a Video', '<p>Something went wrong making the video. Try again.</p>'); }
 }
 function vmStop(cancel) {
-  if (!VM.rendering) return; VM.cancel = cancel;
+  if (!VM.rendering || (VM.stopping && !cancel)) return; VM.stopping = true; VM.cancel = cancel;
   try { VM.v.pause(); } catch (e) {} try { VM.mus && VM.mus.stop(); } catch (e) {} VM.mus = null;
-  try { VM.rec && VM.rec.state !== 'inactive' ? VM.rec.stop() : vmRestore(); } catch (e) { vmRestore(); }
+  try { if (VM.rec && VM.rec.state !== 'inactive') { try { VM.rec.requestData(); } catch (e) {} VM.rec.stop(); VM.finishT = setTimeout(() => VM.finish && VM.finish(), 4000); } else if (VM.finish) VM.finish(); else vmRestore(); }
+  catch (e) { if (VM.finish) VM.finish(); else vmRestore(); }
   if (cancel) vmHide();
 }
 function vmRestore() {
@@ -2791,6 +2812,9 @@ function vmFrame(now) {
   ctx.save(); if (VM.mirror[p]) { ctx.translate(stage.width, 0); ctx.scale(-1, 1); }
   drawNibble(now); ctx.restore();
   const pr = $('vmProg'); if (pr) pr.style.width = (100 * t / VM.dur).toFixed(1) + '%';
+  // the end: phones don't always send the video's "ended" event, so the last frame (or a stall right at the end) finishes it too
+  if (v.ended || t >= VM.dur - 0.06) { vmStop(false); return; }
+  if (t > VM.dur - 1.5) { if (VM.lastT === t) { if (now - VM.stallAt > 1500) { vmStop(false); return; } } else { VM.lastT = t; VM.stallAt = now; } }
 }
 
 // ---------------------------------------------------------------------------
