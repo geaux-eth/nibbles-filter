@@ -773,7 +773,6 @@ async function traitIndex() { if (!TRAITS) await traitsOf(1); return TRAITS_M = 
 function pkTile(id, onPick, ready = !!NIBBLES[id]) {
   const b = document.createElement('button'); b.type = 'button'; b.className = 'pk-t' + (id === S.id ? ' on' : '');
   const im = document.createElement('span'); im.className = 'pk-img'; im.style.backgroundImage = `url(${THUMB(id)})`;
-  if (ready) { const ok = document.createElement('span'); ok.className = 'pk-ok'; ok.textContent = '✓'; ok.title = 'Ready'; im.appendChild(ok); }
   const n = document.createElement('span'); n.className = 'pk-n'; n.textContent = '#' + id;
   b.append(im, n); b.onclick = () => onPick(id); return b;
 }
@@ -838,15 +837,14 @@ function collection(onPick) {
     const t = $('pkTools'); t.hidden = false;
     t.innerHTML = `<input id="pkFind" type="search" enterkeyhint="search" autocomplete="off" value="${esc(q)}" aria-label="Search traits">
       <select id="pkSort" aria-label="Sort">${SORTS.map(([v, n]) => `<option value="${v}"${f.sort === v ? ' selected' : ''}>${n}</option>`).join('')}</select>
-      <label class="pk-ready"><input type="checkbox" id="pkRdy"${f.ready ? ' checked' : ''}> Ready only</label><span class="pk-cnt" id="pkCnt"></span>`;
+      <span class="pk-cnt" id="pkCnt"></span>`;
     let timer = 0;
     const fill = () => { const q2 = $('pkFind').value.trim(); let list = searchIds(m, q2); if (f.ready) list = list.filter(id => readyId(m, id));
       list = sortIds(list, f.sort, m); const { rank } = rarityOf(m);
-      $('pkCnt').textContent = q2.length < 2 ? 'Type at least two letters.' : list.length ? `${list.length.toLocaleString()} ${list.length === 1 ? 'Nibble' : 'Nibbles'} with "${q2}" · ✓ = ready to use` : `No Nibble has a trait like "${q2}".`;
+      $('pkCnt').textContent = q2.length < 2 ? 'Type at least two letters.' : list.length ? `${list.length.toLocaleString()} ${list.length === 1 ? 'Nibble' : 'Nibbles'} with "${q2}"` : `No Nibble has a trait like "${q2}".`;
       fillGrid(list, open, m, f.sort === 'num' ? id => '#' + id : id => `#${id} · rank ${rank[id]}`); };
     $('pkFind').oninput = () => { clearTimeout(timer); timer = setTimeout(fill, 250); };
     $('pkSort').onchange = e => { f.sort = e.target.value; fill(); };
-    $('pkRdy').onchange = e => { f.ready = e.target.checked; fill(); };
     fill();
   };
   const kindView = async (k, f) => {
@@ -862,18 +860,17 @@ function collection(onPick) {
         return `<select data-t="${name}" aria-label="${name}"><option value="">${name}: any</option>${opts.map(([v, n]) => `<option value="${v}"${f[name] === v ? ' selected' : ''}>${esc(strip(m.v[j][v]))} (${n})</option>`).join('')}</select>`; }).join('') +
       `<select id="pkSort" aria-label="Sort">${SORTS.map(([v, n]) => `<option value="${v}"${(f.sort || 'num') === v ? ' selected' : ''}>${n}</option>`).join('')}</select>` +
       `<input id="pkFind" type="search" enterkeyhint="search" autocomplete="off" value="${esc(f.q || '')}" placeholder="Search traits" aria-label="Search traits">` +
-      `<label class="pk-ready"><input type="checkbox" id="pkRdy"${f.ready ? ' checked' : ''}> Ready only</label><span class="pk-cnt" id="pkCnt"></span>`;
+      `<span class="pk-cnt" id="pkCnt"></span>`;
     let timer = 0;
     $('pkSort').onchange = e => { f.sort = e.target.value; fill(); };
     $('pkFind').oninput = e => { f.q = e.target.value.trim(); clearTimeout(timer); timer = setTimeout(fill, 250); };
     t.querySelectorAll('select[data-t]').forEach(sel => sel.onchange = () => { const v = sel.value; if (v === '') delete f[sel.dataset.t]; else f[sel.dataset.t] = +v; fill(); });
-    $('pkRdy').onchange = e => { f.ready = e.target.checked; fill(); };
     const fill = () => {
       const kitOK = !!KIT_REF[k], skinOf = id => m.v[m.k.indexOf('Skin')][m.t[id - 1][m.k.indexOf('Skin')]], isReady = id => !!NIBBLES[id] || !!KIT_GROUP[k + ':' + skinOf(id)] || (kitOK && !SPECIAL_SKINS.has(skinOf(id)) && !KIT_SKIP.has(k + ':' + skinOf(id)));
       const found = f.q && f.q.length > 1 ? new Set(searchIds(m, f.q)) : null;
       let list = mine.filter(id => (!f.ready || isReady(id)) && (!found || found.has(id)) && show.every(name => f[name] == null || m.t[id - 1][m.k.indexOf(name)] === f[name]));
       const how = f.sort || 'num', { rank } = rarityOf(m); list = sortIds(list, how, m);
-      $('pkCnt').textContent = `${list.length.toLocaleString()} ${list.length === 1 ? 'Nibble' : 'Nibbles'} · ✓ = ready to use`;
+      $('pkCnt').textContent = `${list.length.toLocaleString()} ${list.length === 1 ? 'Nibble' : 'Nibbles'}`;
       fillGrid(list, open, m, how === 'num' ? id => '#' + id : id => `#${id} · rank ${rank[id]}`);
     };
     fill();
