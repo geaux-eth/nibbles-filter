@@ -769,27 +769,27 @@ const pickNibble = (cur, onPick) => collection(onPick);
 // ---------- the whole collection: browse all 8,888 by kind, token number or trait
 const THUMB = id => `thumbs/${id}.webp`;
 let TRAITS_M = null;
-async function traitIndex() { if (!TRAITS) await traitsOf(1); return TRAITS_M = await TRAITS; }
+async function traitIndex() { if (!TRAITS) await traitsOf(1);
+  if (!RANKS) RANKS = await fetch('data/rarity.json?v=' + ART_V).then(r => r.ok ? r.json() : null).catch(() => null);
+  return TRAITS_M = await TRAITS; }
 function pkTile(id, onPick, ready = !!NIBBLES[id]) {
   const b = document.createElement('button'); b.type = 'button'; b.className = 'pk-t' + (id === S.id ? ' on' : '');
   const im = document.createElement('span'); im.className = 'pk-img'; im.style.backgroundImage = `url(${THUMB(id)})`;
   const n = document.createElement('span'); n.className = 'pk-n'; n.textContent = '#' + id;
   b.append(im, n); b.onclick = () => onPick(id); return b;
 }
-// rarity: every trait's share of the 8,888 (rarer traits count for more), added up; rank 1 is the rarest Nibble
-let RARITY = null;
+// rarity: OpenSea's ranks (OpenRarity: each trait's information content, with missing traits and trait count counted
+// as traits; Nibbles with one-of-a-kind traits first), worked out once from the on-chain metadata into data/rarity.json
+let RARITY = null, RANKS = null;
 function rarityOf(m) {
   if (RARITY) return RARITY;
-  const N = m.t.length, cnt = m.k.map(() => new Map()), score = new Float64Array(N + 1);
-  m.t.forEach(row => row && row.forEach((v, j) => { if (v >= 0) cnt[j].set(v, (cnt[j].get(v) || 0) + 1); }));
-  m.t.forEach((row, i) => { let sc = 0; if (row) row.forEach((v, j) => { if (v >= 0 && m.k[j] !== 'Character') sc += Math.log(N / cnt[j].get(v)); }); score[i + 1] = sc; });
-  const order = Array.from({ length:N }, (_, i) => i + 1).sort((a, b) => score[b] - score[a] || a - b), rank = new Int32Array(N + 1);
-  order.forEach((id, r) => { rank[id] = r + 1; });
-  return RARITY = { rank, order };
+  const N = m.t.length, rank = new Int32Array(N + 1);
+  for (let id = 1; id <= N; id++) rank[id] = RANKS ? RANKS[id - 1] : id;
+  return RANKS ? (RARITY = { rank }) : { rank };
 }
 const SORTS = [['num', 'Token number'], ['rare', 'Rarest first'], ['common', 'Most common first']];
 function sortIds(list, how, m) { if (how === 'num') return list.slice().sort((a, b) => a - b); const { rank } = rarityOf(m);
-  return list.slice().sort((a, b) => how === 'rare' ? rank[a] - rank[b] : rank[b] - rank[a]); }
+  return list.slice().sort((a, b) => how === 'rare' ? rank[a] - rank[b] || a - b : rank[b] - rank[a] || a - b); }
 // can this Nibble talk now (built in, a group kit, or its kind's kit)?
 function readyId(m, id) {
   const row = m.t[id - 1], val = name => { const j = m.k.indexOf(name); return row && row[j] >= 0 ? m.v[j][row[j]] : null; };
