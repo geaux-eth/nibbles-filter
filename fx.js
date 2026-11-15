@@ -134,8 +134,11 @@ export function prepareFx(base, traits = {}, hand = null) {
     return { x, y, r, col, img:sprite(d, m.map(v => v), bx), box:bx, ph:k * 1.7 }; }) });
   if (hand && hand.heart) {
     const red = new Uint8Array(N * N); for (let y = 520; y < N; y++) for (let x = 0; x < N; x++) { const i = y * N + x, r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2]; if (A(i) > 200 && r > 165 && g < 95 && b < 105) red[i] = 1; }
-    const ps = parts(red, 400).sort((a, b) => b.n - a.n);
-    if (ps.length) { const p = ps[0], m = new Uint8Array(N * N); for (const i of p.px) m[i] = 1;
+    const ps = parts(red, 60).sort((a, b) => b.n - a.n);
+    if (ps.length) {   // the heart shows in pieces between the ribs: the biggest red piece and every red piece close to it
+      const [a0, b0, a1, b1] = ps[0].box, close = ps.filter(q => q.box[0] < a1 + 70 && q.box[2] > a0 - 70 && q.box[1] < b1 + 90 && q.box[3] > b0 - 90);
+      const p = { px:close.flatMap(q => q.px), box:[Math.min(...close.map(q => q.box[0])), Math.min(...close.map(q => q.box[1])), Math.max(...close.map(q => q.box[2])), Math.max(...close.map(q => q.box[3]))] };
+      const m = new Uint8Array(N * N); for (const i of p.px) m[i] = 1;
       const g3 = grow(m, 4); for (let i = 0; i < N * N; i++) if (g3[i] && !m[i] && A(i) > 60 && lum(d, i) < 110) m[i] = 1;   // its ink outline
       const [x0, y0, x1, y1] = p.box, pad = 22, bx = [Math.max(0, x0 - pad), Math.max(0, y0 - pad), Math.min(N - 1, x1 + pad), Math.min(N - 1, y1 + pad)];
       // the ribs in front of it: the pale bones and the ink lines around them (the swelling heart goes behind these)
