@@ -390,30 +390,38 @@ export async function build(orig, sheets, onStep = () => {}) {
     x.full = placed(x.p, x.T); x.small = pixels(x.full, W, W); x.cov = coverOf(x);
   }
   const od = pixels(orig, W, W), osil = silOf(od, W);
+  // an optional hand-set mouth area (sheets.clip, [x0, y0, x1, y1] in the 1000px art): only this area may change.
+  // For specials where the panels also move something else (a hand, a fan) or the mouth is most of the face.
+  const clipM = sheets.clip ? (() => { const m = new Uint8Array(MW), [a, b, c, d] = sheets.clip.map(v => Math.round(v * W / N));
+    for (let y = Math.max(0, b); y < Math.min(W, d); y++) for (let x = Math.max(0, a); x < Math.min(W, c); x++) m[y * W + x] = 1; return m; })() : null;
+  const msil = clipM ? and(osil, clipM) : osil;
   onStep('Finding the mouth…'); await tick();
   const s1 = all.filter(x => x.sheet === 1), s2 = all.filter(x => x.sheet === 2), ref = s1[0], talk = [...s1.slice(1), ...s2];
   // the mouth is what changes in most of sheet 1's panels. First a rough find from the panels that lined up best
   // (Gemini often draws a row a little bigger or nudges the head), then every panel is lined up again on the face
   // around it, and the mouth is found again.
   const findCore = (xs, need, base) => { const h = new Uint8Array(MW); for (const x of xs) { const D = pdiff(x, base); for (let i = 0; i < MW; i++) h[i] += D[i]; }
-    return mainCore(and(open_(Uint8Array.from(h, v => v >= need ? 1 : 0), 1), osil)); };
+    return mainCore(and(open_(Uint8Array.from(h, v => v >= need ? 1 : 0), 1), msil)); };
   const ranked = [...talk].sort((a, b) => b.iou - a.iou), top = ranked.filter(x => x.iou >= ranked[0].iou - 0.02).slice(0, 4);
   const rough = findCore(top.length >= 2 ? top : ranked.slice(0, 2), top.length >= 3 ? 2 : 1, ref), win = winOf(rough, 30);
   if (win) { onStep('Lining up the face…'); await tick(); for (const x of [ref, ...talk]) x.fit = refine(x, od, win); }
-  if (ref.iou < 0.8 || (win && ref.fit < 0.45)) P('Sheet 1\'s first panel (the rest mouth) doesn\'t line up with your picture.', 1, true);
+  // with a hand-set mouth area the face fit decides; the whole outline may differ more (a chair or arm cropped differently)
+  const iouMin = sheets.clip ? 0.74 : 0.8;
+  if (ref.iou < iouMin || (win && ref.fit < 0.45)) P('Sheet 1\'s first panel (the rest mouth) doesn\'t line up with your picture.', 1, true);
   const D1 = s1.slice(1).map(x => pdiff(x, ref)), heat = new Uint8Array(MW);
   for (const D of D1) for (let i = 0; i < MW; i++) heat[i] += D[i];
-  const core = mainCore(and(open_(Uint8Array.from(heat, v => v >= 3 ? 1 : 0), 1), osil), 70, rough);
+  const core = mainCore(and(open_(Uint8Array.from(heat, v => v >= 3 ? 1 : 0), 1), msil), 70, rough);
   if (count(core) < 30) P('The mouth couldn\'t be found: sheet 1\'s panels don\'t change around the mouth.', 1, true);
   const M = {};
   s1.slice(1).forEach((x, k) => { M[x.name] = nearCore(D1[k], core); });
   for (const x of s2) M[x.name] = nearCore(pdiff(x, ref), core);
   // a talking panel is bad if it doesn't line up on the face or doesn't change the mouth
   const bad = new Set();
-  for (const x of talk) if (x.iou < 0.8 || (win && x.fit < 0.45) || count(M[x.name]) < 40) bad.add(x.name);
+  for (const x of talk) if (x.iou < iouMin || (win && x.fit < 0.45) || count(M[x.name]) < 40) bad.add(x.name);
   let zone = new Uint8Array(MW);
   for (const k in M) if (!bad.has(k)) zone = or(zone, M[k]);
   zone = dilate(zone, 3);
+  if (clipM) zone = and(zone, clipM);
   const silN = count(osil), zN = count(zone);
   if (sheets.debug) Object.assign(sheets.debug, { heat, core, zone, D1, osil, M, rough, win });
   if (zN > silN * 0.35) P('Too much of the face changes between the mouth panels (Gemini redrew more than the mouth).', 1, true);
