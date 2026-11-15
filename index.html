@@ -836,7 +836,7 @@ function collection(onPick) {
     const m = await traitIndex(); if (!m) { setStatus('x', 'The collection list didn\'t load. Try again.', 'err'); return; }
     const t = $('pkTools'); t.hidden = false;
     t.innerHTML = `<input id="pkFind" type="search" enterkeyhint="search" autocomplete="off" value="${esc(q)}" aria-label="Search traits">
-      <select id="pkSort" aria-label="Sort">${SORTS.map(([v, n]) => `<option value="${v}"${f.sort === v ? ' selected' : ''}>${n}</option>`).join('')}</select>
+      <select id="pkSort" aria-label="Sort">${SORTS.map(([v, n]) => `<option value="${v}"${f.sort === v ? ' selected' : ''}>Sort by: ${n}</option>`).join('')}</select>
       <span class="pk-cnt" id="pkCnt"></span>`;
     let timer = 0;
     const fill = () => { const q2 = $('pkFind').value.trim(); let list = searchIds(m, q2); if (f.ready) list = list.filter(id => readyId(m, id));
@@ -858,7 +858,7 @@ function collection(onPick) {
         for (const id of mine) { const v = m.t[id - 1][j]; if (v >= 0) cnt.set(v, (cnt.get(v) || 0) + 1); }
         const opts = [...cnt].sort((a, b) => strip(m.v[j][a[0]]).localeCompare(strip(m.v[j][b[0]])));
         return `<select data-t="${name}" aria-label="${name}"><option value="">${name}: any</option>${opts.map(([v, n]) => `<option value="${v}"${f[name] === v ? ' selected' : ''}>${esc(strip(m.v[j][v]))} (${n})</option>`).join('')}</select>`; }).join('') +
-      `<select id="pkSort" aria-label="Sort">${SORTS.map(([v, n]) => `<option value="${v}"${(f.sort || 'num') === v ? ' selected' : ''}>${n}</option>`).join('')}</select>` +
+      `<select id="pkSort" aria-label="Sort">${SORTS.map(([v, n]) => `<option value="${v}"${(f.sort || 'num') === v ? ' selected' : ''}>Sort by: ${n}</option>`).join('')}</select>` +
       `<input id="pkFind" type="search" enterkeyhint="search" autocomplete="off" value="${esc(f.q || '')}" placeholder="Search traits" aria-label="Search traits">` +
       `<span class="pk-cnt" id="pkCnt"></span>`;
     let timer = 0;
