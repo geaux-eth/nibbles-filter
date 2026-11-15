@@ -362,7 +362,9 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
   let eyes = [null, null, null, null, null], eb = [0, 0, 0, 0];
   if (blink && ref.eyes && ref.eyes[4]) {
     eb = [N, N, 0, 0];
-    eyes = [null, null, null, ...[3, 4].map(k => { const E = ref._E[k]; unfleck(E); const  c = cv(), g = c.getContext('2d'), id = g.createImageData(N, N), o = id.data;
+    // the frown and raised-brow layers (when the kit has them) are recoloured the same way
+    const has = k => { const E = ref._E[k]; if (!E) return false; for (let i = 3; i < E.length; i += 4) if (E[i] > 20) return true; return false; };
+    eyes = [null, ...[1, 2, 3, 4].map(k => { if (k < 3 && !has(k)) return null; const E = ref._E[k]; unfleck(E); const  c = cv(), g = c.getContext('2d'), id = g.createImageData(N, N), o = id.data;
       for (let p = 0; p < N * N; p++) { const i = p * 4; if (E[i + 3] < 8) continue; let m = mapped(E, i);
         // a lid colour this Nibble doesn't have: the skin just under its eyes, shaded like the kit's
         if (lidC && lidLum && E[i + 3] > 120 && lum(E, i) >= 75 && (isSkin(E, i) || !inPal(ownP, m[0], m[1], m[2]))) { const sc = Math.max(0.55, Math.min(1.04, lum(E, i) / lidLum)); m = lidC.map(v => Math.max(0, Math.min(255, Math.round(v * sc)))); }   // a lid shade this Nibble doesn't have: its lid colour too
@@ -376,11 +378,12 @@ export function fromKit(Timg, ref, { blink = true, dbg = null } = {}) {
     // the half-closed layer shows the reference's own eyes under the lid: when this Nibble's eyes are different
     // (big, hearts, dollar signs...), it goes straight from open to closed instead
     else { let d = 0, n = 0; for (let p = 0; p < N * N; p++) { if (!EZ[p]) continue; const i = p * 4; n++; if (Math.abs(T[i + 3] - R[i + 3]) > 60 || dist(T, i, R, i) > 90) d++; }
-      if (n && d > n * 0.2) eyes[3] = eyes[4]; }
+      if (n && d > n * 0.2) { eyes[3] = eyes[4]; eyes[1] = eyes[2] = null; } }   // (and no frown or raised brows: they'd show the reference's eyes)
   }
   // the face: everything the talking mouths and the blink touch, plus where this Nibble differs from the reference
   // (its own eyes, mouth, laser beams...). A trait loop is cut away here, so the face always shows through it.
   const face2 = new Uint8Array(N * N);
+  for (const k of [1, 2]) if (eyes[k] && ref._E[k]) { const E = ref._E[k]; for (let p = 0; p < N * N; p++) if (E[p * 4 + 3] > 20) face2[p] = 1; }
   let zb = 0; for (let p = 0; p < N * N; p++) if (Zd[p]) zb = Math.max(zb, (p / N) | 0);   // the bottom of the mouth area: nothing below it is face
   for (let p = 0; p < N * N; p++) { const i = p * 4; if (Zd[p] || EZ[p] || ((p / N) < zb + 20 && T[i + 3] > 128 && (R[i + 3] < 128 || dist(T, i, R, i) > 90))) face2[p] = 1; }
   const faceMask = soft(fillHoles(grow(blobs(face2, 60), 4)), 14);   // a wide soft edge, so the still face melts into the moving body

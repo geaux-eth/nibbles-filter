@@ -472,6 +472,33 @@ export async function build(orig, sheets, onStep = () => {}) {
     grades:all.map(x => ({ sheet:x.sheet, name:x.name, iou:+x.iou.toFixed(3), fit:x.fit != null ? +x.fit.toFixed(3) : null })) };
 }
 
+// just the eye looks, for a picture whose mouth is already known (the kits): panels = [open, angry, surprised, half-closed, closed]
+// lined up on the picture; returns the layers in the filter's slots (1 angry, 2 surprised, 3 half, 4 closed; null = not usable)
+export async function buildEyes(orig, panels, mouthMask = null) {
+  const od = pixels(orig, W, W), osil = silOf(od, W);
+  const e = panels.map((p, i) => { const a = align(p, orig), x = { p, T:a.T, iou:a.iou, i }; x.full = placed(p, x.T); x.small = pixels(x.full, W, W); x.cov = coverOf(x); return x; });
+  const notMouth = mouthMask ? inv(dilate(mouthMask, 8)) : Uint8Array.from({ length:MW }, () => 1);
+  const white = new Uint8Array(MW);
+  for (let i = 0; i < MW; i++) { const j = i * 4; if (od[j + 3] > 200 && od[j] > 185 && od[j + 1] > 185 && od[j + 2] > 175 && Math.max(od[j], od[j + 1], od[j + 2]) - Math.min(od[j], od[j + 1], od[j + 2]) < 40) white[i] = 1; }
+  const whiteG = dilate(open_(white, 1), 4); for (let i = 0; i < MW; i++) if (whiteG[i]) notMouth[i] = 1;
+  const sb = bboxOf(osil, W), head = [sb[0], sb[1], sb[2], Math.round(sb[1] + (sb[3] - sb[1]) * 0.6)], hm = new Uint8Array(MW);
+  for (let y = head[1]; y <= head[3]; y++) for (let x = head[0]; x <= head[2]; x++) hm[y * W + x] = 1;
+  for (const x of e) x.fit = refine(x, od, head, 0.06);
+  const need = 2;
+  const eyeCore = () => { const eh = new Uint8Array(MW), DE = e.slice(1).map(x => pdiff(x, e[0])); for (const D of DE) for (let i = 0; i < MW; i++) eh[i] += D[i];
+    return { DE, ecore:mainCore(and(and(and(open_(Uint8Array.from(eh, v => v >= need ? 1 : 0), 1), osil), notMouth), hm), 150) }; };
+  let { DE, ecore } = eyeCore();
+  const ewin = winOf(ecore, 30);
+  if (ewin && count(ecore) >= 30) { for (const x of e) x.fit = refine(x, od, ewin); ({ DE, ecore } = eyeCore()); }
+  if (count(ecore) < 30) return { ok:false, why:'no eye area found', grades:e.map(x => ({ iou:x.iou, fit:x.fit })) };
+  const EM = DE.map(D => and(nearCore(D, ecore, 36), notMouth));
+  const ebad = e.slice(1).map((x, k) => x.iou < 0.8 || (x.fit != null && x.fit < 0.4) || count(EM[k]) < 30);
+  const eall = fillHoles(close_(EM.filter((m, k) => !ebad[k]).reduce(or, new Uint8Array(MW)), 6)), ezone = and(dilate(eall, 7), notMouth);
+  const ering = and(and(dilate(ezone, 8), inv(ezone)), osil), ea = softMask(ezone, 4);
+  const layers = e.slice(1).map((x, k) => ebad[k] ? null : compose(orig, x.full, ea, gains(od, x.small, ering), true));
+  return { ok:true, slots:[null, ...layers], eyeBox:boxOf(ezone), grades:e.map((x, k) => ({ iou:+x.iou.toFixed(3), fit:x.fit != null ? +x.fit.toFixed(3) : null, bad:k ? ebad[k - 1] : false })) };
+}
+
 // pictures to upload: the base whole, each mouth as just its changed box (re-assembled in the filter), each eye layer as its box
 export async function exportFiles(res, origCanvas) {
   const webp = await new Promise(r => cv(2, 2).toBlob(b => r(b && b.type === 'image/webp'), 'image/webp', 0.9));
