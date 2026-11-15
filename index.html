@@ -1036,7 +1036,11 @@ $('bgFace').onclick = () => pickBackground(S.bg, name => { if (!$('bgSel').query
 // ---------------------------------------------------------------------------
 const ART = {}, READY = {};   // every Nibble's art, loaded once
 let FXM = null;   // fx.js, loaded the first time a Nibble with a moving trait comes up
+const ART_KEEP = 5, ART_USED = [];   // only the last few Nibbles stay in memory (phones run out with more)
 function fetchNibble(id) {
+  const u = ART_USED.indexOf(String(id)); if (u >= 0) ART_USED.splice(u, 1); ART_USED.push(String(id));
+  while (ART_USED.length > ART_KEEP) { const cast = typeof VM !== 'undefined' && VM && VM.cast ? Object.values(VM.cast).map(String) : [], old = ART_USED.find(k => k !== String(S.id) && k !== '4075' && !cast.includes(k));   // 4075 lays out the club entrance
+    if (!old) break; ART_USED.splice(ART_USED.indexOf(old), 1); delete ART[old]; delete READY[old]; }
   if (ART[id]) return ART[id];
   const cfg = NIBBLES[id];
   return ART[id] = (async () => {
@@ -1116,7 +1120,7 @@ async function loadNibble(id) {
     S.mouth = { cur:0, prev:0, t:0 }; S.eye = { cur:0, prev:0, t:0 };
   } catch (e) { delete ART[id]; setStatus('camStatus', 'Could not load that Nibble.', 'err'); }
 }
-loadNibble(4075).then(() => { for (const id of Object.keys(NIBBLES)) if (+id) fetchNibble(+id); }); showNibbleThumb(4075);
+loadNibble(4075); showNibbleThumb(4075);   // others load when picked (each Nibble's art is ~60 MB decoded: loading them all at once crashed phones)
 
 // ---------------------------------------------------------------------------
 // Camera + face tracking (MediaPipe Face Landmarker, on-device)
