@@ -180,7 +180,7 @@ header .credit b{font-weight:400}
 .pk-tools input,.pk-tools select{min-width:0;height:34px;border:2px solid var(--ink);border-radius:10px;background:#fff;font:600 14px/1 var(--body);padding:0 8px;color:var(--ink)}
 .pk-tools input{flex:1 1 150px}.pk-tools input[type=checkbox]{flex:none;width:20px;height:20px;padding:0;accent-color:var(--red)}.pk-tools select{flex:1 1 120px;max-width:calc(50% - 3px)}
 .pk-tools .pk-go{height:34px;border:2px solid var(--ink);border-radius:10px;background:var(--red);color:#fff;font:400 15px/1 var(--display);padding:0 12px;cursor:pointer}
-.pk-tools .pk-cnt{flex:1 0 100%;font:600 12.5px/1.2 var(--body);color:#555}
+.pk-tools .pk-cnt{flex:1 0 100%;font:600 12.5px/1.2 var(--body);color:#555}.pk-tools .pk-cnt[hidden]{display:none}
 .pk-tabs{flex:1 0 100%;display:flex;gap:6px}.pk-tabs .chipb{flex:1 1 auto;font-size:14px;padding:7px 8px 5px;white-space:nowrap}
 @media (max-width:440px){ .pk-tabs{display:grid;grid-template-columns:1fr 1fr} .pk-tabs .chipb{font-size:13px;padding:7px 6px 5px} }
 .pk-tools .pk-ready{display:flex;align-items:center;gap:5px;font:600 13px/1 var(--body)}
@@ -870,7 +870,8 @@ function collection(onPick) {
       const found = f.q && f.q.length > 1 ? new Set(searchIds(m, f.q)) : null;
       let list = mine.filter(id => (!f.ready || isReady(id)) && (!found || found.has(id)) && show.every(name => f[name] == null || m.t[id - 1][m.k.indexOf(name)] === f[name]));
       const how = f.sort || 'num', { rank } = rarityOf(m); list = sortIds(list, how, m);
-      $('pkCnt').textContent = `${list.length.toLocaleString()} ${list.length === 1 ? 'Nibble' : 'Nibbles'}`;
+      const cnt = $('pkCnt'); cnt.hidden = list.length === mine.length;   // a count only once something narrows the list
+      cnt.textContent = `${list.length.toLocaleString()} ${list.length === 1 ? 'Nibble' : 'Nibbles'}`;
       fillGrid(list, open, m, how === 'num' ? id => '#' + id : id => `#${id} · rank ${rank[id]}`);
     };
     fill();
