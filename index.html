@@ -239,12 +239,12 @@ header .credit b{font-weight:400}
 .ed-inner{position:relative;padding-right:24px}
 .ed-rul{position:relative;height:20px;border-bottom:1.5px solid #ccc;touch-action:none;cursor:pointer}
 .ed-rul i{position:absolute;top:0;height:7px;border-left:1.5px solid #999;font:600 9px/1 var(--body);font-style:normal;padding:8px 0 0 2px;white-space:nowrap}
-.ed-strip{position:relative;height:46px;overflow:hidden;background:#222;border-bottom:1.5px solid #ccc;touch-action:none;cursor:pointer}
+.ed-strip{position:relative;height:46px;overflow:hidden;background:#222;border-bottom:1.5px solid #ccc;touch-action:pan-x;cursor:pointer}
 .ed-strip canvas{position:absolute;top:1px;height:44px;opacity:.9}
 .ed-lane{position:relative;height:56px;border-bottom:1.5px solid #ddd}
 .ed-lane.on{background:rgba(255,210,63,.18)}
-.ed-blk{position:absolute;top:8px;height:40px;border:2.5px solid var(--ink);border-radius:9px;touch-action:none;cursor:grab;box-sizing:border-box}
-.ed-blk.sel{border-color:var(--ink);box-shadow:0 0 0 3px var(--gold);z-index:2}
+.ed-blk{position:absolute;top:8px;height:40px;border:2.5px solid var(--ink);border-radius:9px;touch-action:pan-x;cursor:grab;box-sizing:border-box}
+.ed-blk.sel{touch-action:none;border-color:var(--ink);box-shadow:0 0 0 3px var(--gold);z-index:2}
 .ed-blk.now{filter:brightness(1.12);outline:2px dashed var(--ink);outline-offset:1px}
 .ed-h{position:absolute;top:-3px;bottom:-3px;width:18px;background:var(--gold);border:2.5px solid var(--ink);font:900 16px/34px var(--body);font-style:normal;text-align:center;cursor:ew-resize;touch-action:none}
 .ed-hl{left:-11px;border-radius:8px 0 0 8px}.ed-hr{right:-11px;border-radius:0 8px 8px 0}
@@ -348,6 +348,16 @@ header .credit b{font-weight:400}
         <option value="757">Ghost #757</option>
         <option value="929">Beaver #929</option>
         <option value="67">Gnome #67</option>
+        <option value="7389">Gecko #7389</option>
+        <option value="872">Gecko #872</option>
+        <option value="6785">Gecko #6785</option>
+        <option value="2849">Gecko #2849</option>
+        <option value="6105">Gecko #6105</option>
+        <option value="687">Cock #687</option>
+        <option value="4369">Cock #4369</option>
+        <option value="1791">Gecko #1791</option>
+        <option value="6931">Gecko #6931</option>
+        <option value="1823">Gecko #1823</option>
         <option value="4635">Wolf #4635</option>
         <option value="4567">Beaver #4567</option>
         <option value="546">Cock #546</option>
@@ -390,7 +400,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261115-0545';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261115-0900';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -455,6 +465,16 @@ const NIBBLES = {
   8426: { bg:'#739ed3', fullFace:true, layout:{"at":[625,533,1.35],"mb":[488,586,800,764],"eb":[450,302,780,620]} },
   4635: { bg:'#566386', fullFace:true, layout:{"at":[559,669,1.35],"mb":[320,440,798,898],"eb":[0,0,0,0]} },
   4567: { bg:'#fb9ea9', fullFace:true, layout:{"at":[529,446,1.35],"mb":[550,470,704,618],"eb":[324,274,734,606]} },
+  7389: { bg:'#9ee8ff', fullFace:true, layout:{"at":[536,627,1.35],"mb":[270,520,802,734],"eb":[344,194,812,571]} },
+  872: { bg:'#ffc185', fullFace:true, layout:{"at":[515,660,1.35],"mb":[272,492,758,828],"eb":[0,0,0,0]} },
+  6785: { bg:'#ffb8db', fullFace:true, layout:{"at":[551,642,1.35],"mb":[320,546,782,738],"eb":[344,194,812,571]} },
+  2849: { bg:'#9ee8ff', fullFace:true, layout:{"at":[509,637,1.35],"mb":[260,474,758,800],"eb":[0,0,0,0]} },
+  6105: { bg:'#8aecd3', fullFace:true, layout:{"at":[562,643,1.35],"mb":[340,546,784,740],"eb":[344,194,812,571]} },
+  687: { bg:'#8aecd3', fullFace:true, layout:{"at":[609,709,1.35],"mb":[404,596,814,822],"eb":[318,312,756,637]} },
+  4369: { bg:'#9ee8ff', fullFace:true, layout:{"at":[549,744,1.35],"mb":[376,622,722,866],"eb":[318,312,756,637]} },
+  1791: { bg:'#ffc185', fullFace:true, layout:{"at":[583,640,1.35],"mb":[330,524,836,756],"eb":[0,0,0,0]} },
+  6931: { bg:'#ffe46b', fullFace:true, layout:{"at":[611,666,1.35],"mb":[426,568,796,764],"eb":[344,194,812,571]} },
+  1823: { bg:'#9ee8ff', fullFace:true, layout:{"at":[543,643,1.35],"mb":[314,532,772,754],"eb":[344,194,812,571]} },
 };
 const IMG_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest', Cockfight:'cleeroy' };
 // backdrops that hang a sign: it goes in open space the Nibble can never reach, and the text keeps clear of it too
@@ -679,6 +699,16 @@ addEventListener('resize', fitStage);
 setShape('Square');
 // Each control shows a picture of its current choice; the name sits underneath.
 const FACE_AT = { k500:[573,533,1.35], k4946:[609,582,1.35], k2757:[612,590,1.35], k5842:[611,581,1.35], 757:[608,610,1.35], 929:[516,455,1.35], 67:[564,554,1.35], 1680:[559,536,1.35], 310:[560,589,1.35], 6965:[564,519,1.35], 1992:[602,582,1.35], 5502:[566,458,1.35], 4075:[534,551,1.35], 1486:[600,560,1.35], 4248:[499,469,1.35], 3133:[560,494,1.35], 271:[560,494,1.35], 7996:[600,520,1.35], 8549:[507,533,1.35], 3385:[585,560,1.35], 8212:[496,520,1.35], 3154:[496,520,1.35] };   // face centre + zoom in the 1000px art
+FACE_AT[7389] = [536, 627, 1.35];
+FACE_AT[872] = [515, 660, 1.35];
+FACE_AT[6785] = [551, 642, 1.35];
+FACE_AT[2849] = [509, 637, 1.35];
+FACE_AT[6105] = [562, 643, 1.35];
+FACE_AT[687] = [609, 709, 1.35];
+FACE_AT[4369] = [549, 744, 1.35];
+FACE_AT[1791] = [583, 640, 1.35];
+FACE_AT[6931] = [611, 666, 1.35];
+FACE_AT[1823] = [543, 643, 1.35];
 FACE_AT[4635] = [559, 669, 1.35];
 FACE_AT[4567] = [529, 446, 1.35];
 FACE_AT[546] = [640, 664, 1.35];
@@ -738,13 +768,52 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('pk').h
 const pickNibble = (cur, onPick) => collection(onPick);
 // ---------- the whole collection: browse all 8,888 by kind, token number or trait
 const THUMB = id => `thumbs/${id}.webp`;
-async function traitIndex() { if (!TRAITS) await traitsOf(1); return await TRAITS; }
+let TRAITS_M = null;
+async function traitIndex() { if (!TRAITS) await traitsOf(1); return TRAITS_M = await TRAITS; }
 function pkTile(id, onPick, ready = !!NIBBLES[id]) {
   const b = document.createElement('button'); b.type = 'button'; b.className = 'pk-t' + (id === S.id ? ' on' : '');
   const im = document.createElement('span'); im.className = 'pk-img'; im.style.backgroundImage = `url(${THUMB(id)})`;
   if (ready) { const ok = document.createElement('span'); ok.className = 'pk-ok'; ok.textContent = '✓'; ok.title = 'Ready'; im.appendChild(ok); }
   const n = document.createElement('span'); n.className = 'pk-n'; n.textContent = '#' + id;
   b.append(im, n); b.onclick = () => onPick(id); return b;
+}
+// rarity: every trait's share of the 8,888 (rarer traits count for more), added up; rank 1 is the rarest Nibble
+let RARITY = null;
+function rarityOf(m) {
+  if (RARITY) return RARITY;
+  const N = m.t.length, cnt = m.k.map(() => new Map()), score = new Float64Array(N + 1);
+  m.t.forEach(row => row && row.forEach((v, j) => { if (v >= 0) cnt[j].set(v, (cnt[j].get(v) || 0) + 1); }));
+  m.t.forEach((row, i) => { let sc = 0; if (row) row.forEach((v, j) => { if (v >= 0 && m.k[j] !== 'Character') sc += Math.log(N / cnt[j].get(v)); }); score[i + 1] = sc; });
+  const order = Array.from({ length:N }, (_, i) => i + 1).sort((a, b) => score[b] - score[a] || a - b), rank = new Int32Array(N + 1);
+  order.forEach((id, r) => { rank[id] = r + 1; });
+  return RARITY = { rank, order };
+}
+const SORTS = [['num', 'Token number'], ['rare', 'Rarest first'], ['common', 'Most common first']];
+function sortIds(list, how, m) { if (how === 'num') return list.slice().sort((a, b) => a - b); const { rank } = rarityOf(m);
+  return list.slice().sort((a, b) => how === 'rare' ? rank[a] - rank[b] : rank[b] - rank[a]); }
+// can this Nibble talk now (built in, a group kit, or its kind's kit)?
+function readyId(m, id) {
+  const row = m.t[id - 1], val = name => { const j = m.k.indexOf(name); return row && row[j] >= 0 ? m.v[j][row[j]] : null; };
+  const k = val('Character'), skin = val('Skin');
+  return !!NIBBLES[id] || !!KIT_GROUP[k + ':' + skin] || (!!KIT_REF[k] && !SPECIAL_SKINS.has(skin) && !KIT_SKIP.has(k + ':' + skin));
+}
+// trait search: every word typed must match one of the Nibble's traits (any kind, any trait, including skin and background)
+function searchIds(m, q) {
+  const words = q.toLowerCase().split(/\s+/).filter(w => w.length > 1); if (!words.length) return [];
+  const hit = m.v.map(vals => vals.map(v => String(v).toLowerCase()));
+  const out = []; m.t.forEach((row, i) => { if (!row) return; const vals = row.map((v, j) => v >= 0 ? hit[j][v] : '');
+    if (words.every(w => vals.some(v => v.includes(w)) || String(i + 1) === w)) out.push(i + 1); });
+  return out;
+}
+// a grid of Nibbles that loads 60 at a time as it scrolls
+function fillGrid(list, open, m, label = id => '#' + id) {
+  const g = $('pkGrid'); g.innerHTML = ''; g.scrollTop = 0;
+  const sent = document.createElement('div'); sent.style.cssText = 'grid-column:1/-1;height:1px';
+  let at = 0; const more = () => { const end = Math.min(list.length, at + 60);
+    for (; at < end; at++) { const t = pkTile(list[at], open, readyId(m, list[at])); t.querySelector('.pk-n').textContent = label(list[at]); g.appendChild(t); }
+    if (at < list.length) g.appendChild(sent); else sent.remove(); };
+  const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) more(); }, { root:g, rootMargin:'400px' }); io.observe(sent);
+  more();
 }
 function collection(onPick) {
   const kinds = KINDS;
@@ -758,6 +827,27 @@ function collection(onPick) {
     t.innerHTML = '<input id="pkNum" type="number" inputmode="numeric" min="1" max="8888" placeholder="Token number (1 to 8888)"><button class="pk-go" id="pkGo" type="button">Go</button>';
     const go = () => { const id = +$('pkNum').value; if (id >= 1 && id <= 8888) open(id); else setStatus('x', 'Enter a token number from 1 to 8888.', 'err'); };
     $('pkGo').onclick = go; $('pkNum').onkeydown = e => { if (e.key === 'Enter') go(); };
+    t.insertAdjacentHTML('beforeend', '<input id="pkFind" type="search" enterkeyhint="search" autocomplete="off" placeholder="Search traits: laser, propeller, gold…" aria-label="Search traits">');
+    const find = () => { const q = $('pkFind').value.trim(); if (q.length > 1) searchView(q, { sort:'num' }); };
+    $('pkFind').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); find(); } };
+  };
+  // every Nibble whose traits match the search, across all kinds
+  const searchView = async (q, f) => {
+    pkOpen('Search', [], home);
+    const m = await traitIndex(); if (!m) { setStatus('x', 'The collection list didn\'t load. Try again.', 'err'); return; }
+    const t = $('pkTools'); t.hidden = false;
+    t.innerHTML = `<input id="pkFind" type="search" enterkeyhint="search" autocomplete="off" value="${esc(q)}" aria-label="Search traits">
+      <select id="pkSort" aria-label="Sort">${SORTS.map(([v, n]) => `<option value="${v}"${f.sort === v ? ' selected' : ''}>${n}</option>`).join('')}</select>
+      <label class="pk-ready"><input type="checkbox" id="pkRdy"${f.ready ? ' checked' : ''}> Ready only</label><span class="pk-cnt" id="pkCnt"></span>`;
+    let timer = 0;
+    const fill = () => { const q2 = $('pkFind').value.trim(); let list = searchIds(m, q2); if (f.ready) list = list.filter(id => readyId(m, id));
+      list = sortIds(list, f.sort, m); const { rank } = rarityOf(m);
+      $('pkCnt').textContent = q2.length < 2 ? 'Type at least two letters.' : list.length ? `${list.length.toLocaleString()} ${list.length === 1 ? 'Nibble' : 'Nibbles'} with "${q2}" · ✓ = ready to use` : `No Nibble has a trait like "${q2}".`;
+      fillGrid(list, open, m, f.sort === 'num' ? id => '#' + id : id => `#${id} · rank ${rank[id]}`); };
+    $('pkFind').oninput = () => { clearTimeout(timer); timer = setTimeout(fill, 250); };
+    $('pkSort').onchange = e => { f.sort = e.target.value; fill(); };
+    $('pkRdy').onchange = e => { f.ready = e.target.checked; fill(); };
+    fill();
   };
   const kindView = async (k, f) => {
     pkOpen(k === 'Wolf' ? 'Wolves' : k + 's', [], home);
@@ -770,27 +860,30 @@ function collection(onPick) {
         for (const id of mine) { const v = m.t[id - 1][j]; if (v >= 0) cnt.set(v, (cnt.get(v) || 0) + 1); }
         const opts = [...cnt].sort((a, b) => strip(m.v[j][a[0]]).localeCompare(strip(m.v[j][b[0]])));
         return `<select data-t="${name}" aria-label="${name}"><option value="">${name}: any</option>${opts.map(([v, n]) => `<option value="${v}"${f[name] === v ? ' selected' : ''}>${esc(strip(m.v[j][v]))} (${n})</option>`).join('')}</select>`; }).join('') +
+      `<select id="pkSort" aria-label="Sort">${SORTS.map(([v, n]) => `<option value="${v}"${(f.sort || 'num') === v ? ' selected' : ''}>${n}</option>`).join('')}</select>` +
+      `<input id="pkFind" type="search" enterkeyhint="search" autocomplete="off" value="${esc(f.q || '')}" placeholder="Search traits" aria-label="Search traits">` +
       `<label class="pk-ready"><input type="checkbox" id="pkRdy"${f.ready ? ' checked' : ''}> Ready only</label><span class="pk-cnt" id="pkCnt"></span>`;
-    t.querySelectorAll('select').forEach(sel => sel.onchange = () => { const v = sel.value; if (v === '') delete f[sel.dataset.t]; else f[sel.dataset.t] = +v; fill(); });
+    let timer = 0;
+    $('pkSort').onchange = e => { f.sort = e.target.value; fill(); };
+    $('pkFind').oninput = e => { f.q = e.target.value.trim(); clearTimeout(timer); timer = setTimeout(fill, 250); };
+    t.querySelectorAll('select[data-t]').forEach(sel => sel.onchange = () => { const v = sel.value; if (v === '') delete f[sel.dataset.t]; else f[sel.dataset.t] = +v; fill(); });
     $('pkRdy').onchange = e => { f.ready = e.target.checked; fill(); };
     const fill = () => {
-      const g = $('pkGrid'); g.innerHTML = ''; g.scrollTop = 0;
       const kitOK = !!KIT_REF[k], skinOf = id => m.v[m.k.indexOf('Skin')][m.t[id - 1][m.k.indexOf('Skin')]], isReady = id => !!NIBBLES[id] || !!KIT_GROUP[k + ':' + skinOf(id)] || (kitOK && !SPECIAL_SKINS.has(skinOf(id)) && !KIT_SKIP.has(k + ':' + skinOf(id)));
-      const list = mine.filter(id => (!f.ready || isReady(id)) && show.every(name => f[name] == null || m.t[id - 1][m.k.indexOf(name)] === f[name]));
+      const found = f.q && f.q.length > 1 ? new Set(searchIds(m, f.q)) : null;
+      let list = mine.filter(id => (!f.ready || isReady(id)) && (!found || found.has(id)) && show.every(name => f[name] == null || m.t[id - 1][m.k.indexOf(name)] === f[name]));
+      const how = f.sort || 'num', { rank } = rarityOf(m); list = sortIds(list, how, m);
       $('pkCnt').textContent = `${list.length.toLocaleString()} ${list.length === 1 ? 'Nibble' : 'Nibbles'} · ✓ = ready to use`;
-      let at = 0; const more = () => { const end = Math.min(list.length, at + 60); for (; at < end; at++) g.appendChild(pkTile(list[at], open, isReady(list[at]))); if (at < list.length) g.appendChild(sent); else sent.remove(); };
-      const sent = document.createElement('div'); sent.style.cssText = 'grid-column:1/-1;height:1px';
-      const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) more(); }, { root:g, rootMargin:'400px' }); io.observe(sent);
-      more();
+      fillGrid(list, open, m, how === 'num' ? id => '#' + id : id => `#${id} · rank ${rank[id]}`);
     };
     fill();
   };
   const tokenCard = async id => {
-    const t = await traitsOf(id), a = t ? t.a : {}, k = a.Character || 'Nibble';
+    const t = await traitsOf(id), a = t ? t.a : {}, k = a.Character || 'Nibble'; await traitIndex();
     pkOpen(`${k} #${id}`, [], home);
     const g = $('pkGrid'), c = document.createElement('div'); c.className = 'pk-card-n';
     c.innerHTML = `<img src="${nibblePic(id)}" alt="${esc(k)} #${id}">
-      <dl>${['Skin', 'Eyes', 'Mouth', 'Outfit', 'Accessory', 'Background'].filter(x => a[x]).map(x => `<dt>${x}</dt><dd>${esc(String(a[x]))}</dd>`).join('')}</dl>
+      <dl>${['Skin', 'Eyes', 'Mouth', 'Outfit', 'Accessory', 'Background'].filter(x => a[x]).map(x => `<dt>${x}</dt><dd>${esc(String(a[x]))}</dd>`).join('')}${TRAITS_M ? `<dt>Rarity</dt><dd>Rank ${rarityOf(TRAITS_M).rank[id].toLocaleString()} of 8,888</dd>` : ''}</dl>
       <p>This Nibble can't talk yet. Every ${esc(k)} is on the way; or make this one talk now with three pictures from Gemini.</p>
       ${onPick.noAdd ? '<p>You can make it talk with Add Nibble on the main screen, then cast it here.</p>' : '<button class="vm-go" type="button" id="pkMake">Make it talk now</button>'}`;
     g.appendChild(c);
@@ -942,6 +1035,7 @@ $('bgFace').onclick = () => pickBackground(S.bg, name => { if (!$('bgSel').query
 // Loading a Nibble (everything is bundled with the site)
 // ---------------------------------------------------------------------------
 const ART = {}, READY = {};   // every Nibble's art, loaded once
+let FXM = null;   // fx.js, loaded the first time a Nibble with a moving trait comes up
 function fetchNibble(id) {
   if (ART[id]) return ART[id];
   const cfg = NIBBLES[id];
@@ -967,6 +1061,20 @@ function fetchNibble(id) {
         eyes:await loadImg(`faces/8212/e0.webp?v=${ART_V}`), xf:lt.fire.xf };
     }
     if (lt.laser) art.laser = { img:await loadImg(artURL(id, 'lz')), ...lt.laser };   // laser beams: their own layer, made to pulse and stream
+    // the beams sit in front of everything: a talking frame whose mouth area reaches under a beam (a cheek, a snout) never covers it
+    if (art.laser && cfg.layout) art.mouths.forEach(c => c.getContext && c.getContext('2d').drawImage(art.laser.img, 0, 0, 1000, 1000));
+    // traits that move on their own (fx.js): bees, coins, light rays, steam, propellers, spinning eyes, robot lights, beating hearts
+    try {
+      const tr = /^\d+$/.test(String(id)) ? await traitsOf(+id) : null, FX = FXM || (FXM = await import('./fx.js?v=' + ART_V)), hand = FX.FX_HAND[id];
+      if (FX.wantsFx(tr ? tr.a : {}, hand)) {
+        const fx = FX.prepareFx(art.base, tr ? tr.a : {}, hand);
+        if (fx.erase) {   // the moving pieces leave the still frames, so they never show twice
+          const toC = im => { if (im.getContext && im.width === 1000) return im; const c = document.createElement('canvas'); c.width = c.height = 1000; c.getContext('2d').drawImage(im, 0, 0, 1000, 1000); return c; };
+          art.base = toC(art.base); FX.eraseFrom(art.base, fx.erase); art.mouths = art.mouths.map(m => { const c = toC(m); if (c !== art.base) FX.eraseFrom(c, fx.erase); return c; });
+        }
+        if (fx.list.length) art.fx = fx;
+      }
+    } catch (e) { console.warn('fx', e); }
     if (cfg.overlay) art.over = await Promise.all(Array.from({ length:10 }, (_, i) => loadImg(`faces/${id}/b${i}.webp?v=${ART_V}`)));
     // does the art's body run off its left / right edge? then it keeps going in wide frames
     const pc = document.createElement('canvas'); pc.width = 1000; pc.height = 1000; const pg = pc.getContext('2d', { willReadFrequently:true });
@@ -1474,6 +1582,23 @@ function drawLaser(t, x, y, size) {
   ctx.restore();
 }
 const LOOP_C = [0, 0].map(() => { const c = document.createElement('canvas'); c.width = c.height = 1000; return c; });
+// the picture's last row, gap-free: each column takes its lowest solid pixel near the bottom (a drawn body often
+// thins out or has little gaps right at the edge, which would show as streaks when the row is stretched down)
+const STRIPS = new WeakMap();
+function bottomStrip(img) {
+  let c = STRIPS.get(img); if (c) return c;
+  const t = document.createElement('canvas'); t.width = 1000; t.height = 40; const tg = t.getContext('2d', { willReadFrequently:true });
+  tg.drawImage(img, 0, 960, 1000, 40, 0, 0, 1000, 40); const d = tg.getImageData(0, 0, 1000, 40).data;
+  c = document.createElement('canvas'); c.width = 1000; c.height = 1; const cg = c.getContext('2d'), out = cg.createImageData(1000, 1), o = out.data;
+  const col = new Int32Array(1000).fill(-1);
+  for (let x = 0; x < 1000; x++) for (let y = 39; y >= 0; y--) { if (d[(y * 1000 + x) * 4 + 3] > 200) { if (y >= 28) col[x] = y; break; } }   // only the body that reaches the edge
+  let x0 = 0, x1 = 999; while (x0 < 1000 && col[x0] < 0) x0++; while (x1 >= 0 && col[x1] < 0) x1--;
+  for (let x = Math.max(0, x0); x <= x1; x++) {   // a gap between solid columns borrows its nearest solid neighbour
+    let sx = x; if (col[x] < 0) { let l = x, r = x; while (l > x0 && col[l] < 0) l--; while (r < x1 && col[r] < 0) r++; sx = x - l <= r - x ? l : r; }
+    const i = (col[sx] * 1000 + sx) * 4; o[x * 4] = d[i]; o[x * 4 + 1] = d[i + 1]; o[x * 4 + 2] = d[i + 2]; o[x * 4 + 3] = 255;
+  }
+  cg.putImageData(out, 0, 0); STRIPS.set(img, c); return c;
+}
 function drawLoopBody(t, x, y, size) {
   const tr = S.trait, fr = tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length], [lc, fc] = LOOP_C, lg = lc.getContext('2d'), fg = fc.getContext('2d');
   // the body whole, then the face faded onto it through the mask (cutting a hole and filling it would let the background show at the soft edge)
@@ -1530,9 +1655,12 @@ function drawNibble(t) {
   else if (NIBBLES[S.id].fullFace) {
     ctx.drawImage(A.mouths[S.mouth.cur], x, y, size, size);   // hard cut between drawn faces, like hand-drawn animation
   } else ctx.drawImage(A.base, x, y, size, size);
-  ctx.drawImage(A.base, 0, 997, 1000, 3, x, H - 1, size, size * 0.3);   // body continues below the frame edge
-  if (A.edgeL) { ctx.drawImage(A.base, 0, 0, 2, 1000, x - size*0.5 + 1, y, size*0.5, size); ctx.drawImage(A.base, 0, 997, 2, 3, x - size*0.5 + 1, H - 1, size*0.5, size*0.3); }
-  if (A.edgeR) { ctx.drawImage(A.base, 998, 0, 2, 1000, x + size - 1, y, size*0.5, size); ctx.drawImage(A.base, 998, 997, 2, 3, x + size - 1, H - 1, size*0.5, size*0.3); }
+  // the body continues below the frame edge (and past a cut-off side): stretched from the picture's own last rows. A moving body
+  // (fire, slime) stretches its current frame, so the part below never stands still while the flames above it move
+  const tr = S.trait, ext = tr && tr.holeImg ? tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length] : A.base, strip = bottomStrip(ext);
+  ctx.drawImage(strip, 0, 0, 1000, 1, x, H - 1, size, size * 0.3);
+  if (A.edgeL) { ctx.drawImage(ext, 0, 0, 2, 1000, x - size*0.5 + 1, y, size*0.5, size); ctx.drawImage(strip, 0, 0, 2, 1, x - size*0.5 + 1, H - 1, size*0.5, size*0.3); }
+  if (A.edgeR) { ctx.drawImage(ext, 998, 0, 2, 1000, x + size - 1, y, size*0.5, size); ctx.drawImage(strip, 998, 0, 2, 1, x + size - 1, H - 1, size*0.5, size*0.3); }
 
   const cfg = NIBBLES[S.id], under = S.trait && S.trait.under, looped = S.trait && S.trait.holeImg;
   if (under && !looped) drawTrait(t, x, y, size, live ? f : null);
@@ -1543,6 +1671,7 @@ function drawNibble(t) {
   if (!under && !looped) drawTrait(t, x, y, size, live ? f : null);
   drawFire(t, x, y, size);
   drawLaser(t, x, y, size);
+  if (A.fx && FXM) FXM.drawFx(ctx, A.fx, t, x, y, size);
   drawHalo(t, x, y, size, live ? f : null);
   drawJiggle(t, x, y, size, live ? f : null);
   ctx.restore();
@@ -2373,12 +2502,12 @@ function vmEditor() {
   vmShow('Who talks when', `
     <video class="ed-vid" id="edVid" playsinline preload="auto"></video>
     <div class="ed-bar"><button class="ed-pp" id="edPP" type="button" aria-label="Play">▶</button><span class="ed-time" id="edTime">0:00.0</span>
-      <span style="flex:1"></span><button class="chipb seg" id="edZo" type="button" aria-label="Zoom out">−</button><button class="chipb seg" id="edZi" type="button" aria-label="Zoom in">+</button></div>
+      <span style="flex:1"></span><button class="chipb seg" id="edStart" type="button" aria-label="Go to the start">⏮</button><button class="chipb seg" id="edEnd" type="button" aria-label="Go to the end">⏭</button><button class="chipb seg" id="edZo" type="button" aria-label="Zoom out">−</button><button class="chipb seg" id="edZi" type="button" aria-label="Zoom in">+</button></div>
     <div class="ed-tl"><div class="ed-heads" id="edHeads"></div><div class="ed-scroll" id="edScroll"><div class="ed-inner" id="edInner"></div></div></div>
     <div class="ed-tools">
       <button class="chipb seg" id="edSplit" type="button">✂︎ Split</button><button class="chipb seg" id="edAdd" type="button">＋ Line</button>
       <button class="chipb seg" id="edDel" type="button">🗑 Delete</button><button class="chipb seg" id="edVoice" type="button">🎙️ Add speaker</button><button class="chipb seg" id="edRm" type="button">✕ Remove speaker</button><button class="chipb seg" id="edBg" type="button">🖼 Background</button></div>
-    <p class="note" id="edHint">Tap a line to pick it. Drag it to move it, up or down to give it to someone else, or drag its yellow ends to trim it. <b>Background</b> sets the scene for the picked line (a dashed square: the everyone background). Tap a speaker's Nibble to pick them; <b>Remove</b> gives their lines to the main speaker.</p>
+    <p class="note" id="edHint">Swipe the timeline to scroll it, or jump with ⏮ ⏭. Tap a line to pick it. Drag it to move it, up or down to give it to someone else, or drag its yellow ends to trim it. <b>Background</b> sets the scene for the picked line (a dashed square: the everyone background). Tap a speaker's Nibble to pick them; <b>Remove</b> gives their lines to the main speaker.</p>
     <button class="vm-go" id="edMake" type="button">Make my video</button>
     <button class="chipb seg" id="edBack" type="button">Back</button>`);
   const v = $('edVid'); v.src = VM.url; ED.v = v;
@@ -2386,6 +2515,8 @@ function vmEditor() {
   v.onplay = () => { $('edPP').textContent = '❚❚'; ED.raf = requestAnimationFrame(edTick); };
   v.onpause = () => { $('edPP').textContent = '▶'; edTick(); };
   v.onseeked = () => edTick();
+  const jump = t => { v.currentTime = t; const sc = $('edScroll'); sc.scrollTo({ left:t <= 0 ? 0 : sc.scrollWidth, behavior:'smooth' }); edTick(); };
+  $('edStart').onclick = () => jump(0); $('edEnd').onclick = () => jump(Math.max(0, VM.dur - 0.05));
   $('edZi').onclick = () => { ED.pps = Math.min(160, ED.pps * 1.5); edDraw(); };
   $('edZo').onclick = () => { ED.pps = Math.max(8, ED.pps / 1.5); edDraw(); };
   $('edSplit').onclick = edSplit; $('edAdd').onclick = edAdd; $('edDel').onclick = edDel;
@@ -2429,9 +2560,14 @@ function edDraw() {
       const im = document.createElement('canvas'); im.width = b.c.width; im.height = b.c.height; im.getContext('2d').drawImage(b.c, 0, 0); im.style.left = x + 'px'; im.style.width = tw + 'px'; st.appendChild(im); } }
   inner.appendChild(st);
   const seekAt = e => { const r = inner.getBoundingClientRect(), t = Math.max(0, Math.min(VM.dur, (e.clientX - r.left) / pps)); ED.v.currentTime = t; edTick(); };
-  for (const el of [rul, st]) el.addEventListener('pointerdown', e => { e.preventDefault(); seekAt(e); el.setPointerCapture(e.pointerId);
+  // the ruler scrubs. On a phone the filmstrip and the lines swipe the timeline sideways (a tap still moves the playhead);
+  // with a mouse the filmstrip scrubs too
+  for (const el of [rul, st]) el.addEventListener('pointerdown', e => {
+    if (el === st) st.pt = e.pointerType; if (el === st && e.pointerType !== 'mouse') return;
+    e.preventDefault(); seekAt(e); el.setPointerCapture(e.pointerId);
     const mv = ev => seekAt(ev), up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); };
     el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); });
+  st.addEventListener('click', e => { if (st.pt !== 'mouse') seekAt(e); });
   // a row per speaker
   P.forEach((p, i) => {
     const h = document.createElement('button'); h.type = 'button'; h.className = 'ed-head' + (ED.lane === i ? ' on' : ''); h.style.setProperty('--c', LANE_COL[i % LANE_COL.length]);
@@ -2439,7 +2575,7 @@ function edDraw() {
     h.append(c, nm); h.onclick = () => { if (ED.lane === i) pickNibble(VM.cast[i], Object.assign(id => { VM.cast[i] = id; edDraw(); }, { noAdd:true })); else { ED.lane = i; edDraw(); } };
     heads.appendChild(h);
     const lane = document.createElement('div'); lane.className = 'ed-lane' + (ED.lane === i ? ' on' : ''); lane.style.width = W + 'px'; lane.dataset.lane = i;
-    lane.addEventListener('pointerdown', e => { if (e.target !== lane) return; ED.lane = i; ED.sel = null; seekAt(e); edDraw(); });
+    lane.addEventListener('click', e => { if (e.target !== lane) return; ED.lane = i; ED.sel = null; seekAt(e); edDraw(); });   // a tap (a swipe scrolls)
     inner.appendChild(lane);
   });
   // the lines
@@ -2460,6 +2596,14 @@ function edDraw() {
 }
 // dragging a line: its yellow ends trim it, its middle moves it (up or down a row gives it to that speaker)
 function edGrab(e, l, el) {
+  // on a phone a line that isn't picked yet only gets picked by a tap: a swipe across it scrolls the timeline
+  if (ED.sel !== l && e.pointerType !== 'mouse') {
+    const x0 = e.clientX, y0 = e.clientY;
+    const up = ev => { el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel);
+      if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 10) { ED.sel = l; ED.lane = l.who; ED.v.currentTime = l.t0; edDraw(); } };
+    const cancel = () => { el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel); };
+    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', cancel); return;
+  }
   e.preventDefault(); e.stopPropagation();
   const mode = e.target.classList.contains('ed-hl') ? 'l' : e.target.classList.contains('ed-hr') ? 'r' : 'm';
   if (ED.sel !== l && mode === 'm') { ED.sel = l; ED.lane = l.who; }
