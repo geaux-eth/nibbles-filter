@@ -400,7 +400,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261115-1230';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261115-1345';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -902,7 +902,7 @@ const kitFor = t => { const a = t && t.a; if (groupOf(a)) return groupOf(a).ref;
 const NO_BLINK = /fire|ignis|laser|knocked|dizzy|slot|3d|glasses|monocle|robot|anatomy|empty|whites|eyepatch|button|glowing|magic|three|awooga|burglar/i;
 const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || ''));
 const KIT_BUSY = {};
-window.__nf = { get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id), pickNibble:(c, f) => pickNibble(c, f), bgOptions:c => bgOptions(c), vmRandom:() => { vmRandom(); return VM.bg; } };   // for tests
+window.__nf = { setEye:k => { S.forceEye = k; }, get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id), pickNibble:(c, f) => pickNibble(c, f), bgOptions:c => bgOptions(c), vmRandom:() => { vmRandom(); return VM.bg; } };   // for tests
 async function kitPrepare(id) {
   if (NIBBLES[id]) return true;
   if (KIT_BUSY[id]) return KIT_BUSY[id];
@@ -1320,6 +1320,7 @@ function readFace(L, bs, f, store, now) {
   const blink = ((bs.eyeBlinkLeft || 0) + (bs.eyeBlinkRight || 0)) / 2;
   const brow = ((bs.browDownLeft || 0) + (bs.browDownRight || 0)) / 2;
   const browUp = bs.browInnerUp || 0;
+  const eyeWide = ((bs.eyeWideLeft || 0) + (bs.eyeWideRight || 0)) / 2;   // eyes opened big (shock): the lids pulled up
   const round = Math.max(bs.mouthFunnel || 0, bs.mouthPucker || 0);
   const smile = ((bs.mouthSmileLeft || 0) + (bs.mouthSmileRight || 0)) / 2;
   const press = ((bs.mouthPressLeft || 0) + (bs.mouthPressRight || 0)) / 2 + (bs.mouthRollLower || 0) * .6;
@@ -1344,6 +1345,7 @@ function readFace(L, bs, f, store, now) {
   if (f.blink > 0.55) f.blinkUntil = now + 170;         // play a full blink even if the tracker only caught one frame of it
   f.brow = lerp(f.brow, rel(brow, base('brow', brow, 0.3), 0.45), .5);
   f.browUp = lerp(f.browUp, rel(browUp, base('browUp', browUp, 0.3), 0.45), .5);
+  f.eyeWide = lerp(f.eyeWide || 0, rel(eyeWide, base('eyeWide', eyeWide, 0.3), 0.3), .5);
   f.roll = lerp(f.roll, roll, .5); f.yaw = lerp(f.yaw, clamp(yaw, -1, 1), .5);
   f.pitch = lerp(f.pitch, clamp((pr - base('pitch', pr, 0.5)) * 3, -1, 1), .4);
   HB = H;
@@ -1418,13 +1420,13 @@ function pickEyes(f, now) {
   if (f.blink > 0.7) want = 4;
   else if (f.blink > 0.45) want = 3;
   else if (f.brow > 0.5) want = 1;
-  else if (f.browUp > 0.55) want = 2;
+  else if (f.browUp > 0.55 || (f.eyeWide || 0) > 0.42) want = 2;   // brows up or eyes opened wide: surprised
   if (want !== eyeHold.want) { eyeHold.want = want; eyeHold.since = now; }
   const held = now - eyeHold.since;
   // blinks land right away; a squint, frown or raised brows has to be held a moment before the Nibble copies it
   if (want === 4) return 4;
   if (want === 3) return held > 260 ? 3 : (S.eye.cur === 4 ? 3 : 0);
-  if (want === 1 || want === 2) return held > 220 ? want : S.eye.cur === want ? want : 0;
+  if (want === 1 || want === 2) return held > (want === 2 ? 140 : 220) ? want : S.eye.cur === want ? want : 0;
   return 0;
 }
 // Switch with a short cross-fade so changes blend instead of popping.
@@ -1496,6 +1498,43 @@ function drawBackground() {
   if (NFT_ART[S.bg]) { ctx.drawImage(nftArt(S.bg, stage.width, stage.height), 0, 0); return; }
   ctx.fillStyle = NFT_COLORS[S.bg] || (S.id ? NIBBLES[S.id].bg : '#fff');
   ctx.fillRect(0, 0, stage.width, stage.height);
+}
+// does this Nibble have a drawn eye look in this slot (an empty layer is a 1×1 picture or a clear sheet)?
+function hasLook(A, k) {
+  if (A.look && A.look[k] != null) return A.look[k];
+  A.look = A.look || []; const im = A.eyes[k]; let ok = false;
+  if (im && (im.naturalWidth || im.width) > 1) { const c = document.createElement('canvas'); c.width = c.height = 100; const g = c.getContext('2d', { willReadFrequently:true });
+    g.drawImage(im, 0, 0, 100, 100); const d = g.getImageData(0, 0, 100, 100).data; for (let i = 3; i < d.length; i += 4) if (d[i] > 30) { ok = true; break; } }
+  return A.look[k] = ok;
+}
+// where the eyes are: the closed-eye layer's shapes (each eye its own box), in the 1000px art
+function eyeRects(A) {
+  if (A.eyeR !== undefined) return A.eyeR;
+  const src = hasLook(A, 4) ? A.eyes[4] : hasLook(A, 3) ? A.eyes[3] : null; if (!src) return A.eyeR = null;
+  const c = document.createElement('canvas'); c.width = c.height = 250; const g = c.getContext('2d', { willReadFrequently:true }); g.drawImage(src, 0, 0, 250, 250);
+  const d = g.getImageData(0, 0, 250, 250).data, colN = new Int32Array(250);
+  for (let y = 0; y < 250; y++) for (let x = 0; x < 250; x++) if (d[(y * 250 + x) * 4 + 3] > 60) colN[x]++;
+  const runs = []; let a = -1; for (let x = 0; x <= 250; x++) { const on = x < 250 && colN[x] > 1; if (on && a < 0) a = x; if (!on && a >= 0) { runs.push([a, x - 1]); a = -1; } }
+  const rects = runs.filter(([a0, a1]) => a1 - a0 >= 4).map(([a0, a1]) => { let y0 = 250, y1 = 0;
+    for (let y = 0; y < 250; y++) for (let x = a0; x <= a1; x++) if (d[(y * 250 + x) * 4 + 3] > 60) { if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    return [a0 * 4, y0 * 4, (a1 + 1) * 4, (y1 + 1) * 4]; }).sort((p, q) => (q[2] - q[0]) * (q[3] - q[1]) - (p[2] - p[0]) * (p[3] - p[1])).slice(0, 3);
+  return A.eyeR = rects.length ? rects : null;
+}
+// surprised without a drawn look: each eye is drawn again a quarter bigger, inside a soft oval, from the face shown now
+let popC = null;
+function popEyes(A, x, y, size) {
+  const R = eyeRects(A); if (!R) return; const k = size / 1000, face = NIBBLES[S.id].fullFace ? A.mouths[S.mouth.cur] : A.base;
+  if (!popC) popC = document.createElement('canvas');
+  for (const [x0, y0, x1, y1] of R) {
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rw = (x1 - x0) / 2 * 1.15, rh = (y1 - y0) / 2 * 1.15, sc = 1.28;
+    const W = Math.ceil(rw * 2 * sc + 8), H = Math.ceil(rh * 2 * sc + 8); popC.width = W; popC.height = H; const g = popC.getContext('2d');
+    // the eye area, a quarter bigger, faded out at its rim so it melts into the face
+    g.drawImage(face, cx - W / sc / 2, cy - H / sc / 2, W / sc, H / sc, 0, 0, W, H);
+    g.globalCompositeOperation = 'destination-in'; g.save(); g.translate(W / 2, H / 2); g.scale(rw * sc, rh * sc);
+    const gr = g.createRadialGradient(0, 0, 0, 0, 0, 1); gr.addColorStop(0, '#000'); gr.addColorStop(0.78, '#000'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(-1.1, -1.1, 2.2, 2.2); g.restore(); g.globalCompositeOperation = 'source-over';
+    ctx.drawImage(popC, x + (cx - W / 2) * k, y + (cy - H / 2) * k, W * k, H * k);
+  }
 }
 function drawLayer(list, slot, now, fade, x, y, size) {
   if (slot.cur > 0) ctx.drawImage(list[slot.cur], x, y, size, size);   // hard cut, never a see-through blend
@@ -1590,7 +1629,8 @@ const STRIPS = new WeakMap();
 function bottomStrip(img) {
   let c = STRIPS.get(img); if (c) return c;
   const t = document.createElement('canvas'); t.width = 1000; t.height = 40; const tg = t.getContext('2d', { willReadFrequently:true });
-  tg.drawImage(img, 0, 960, 1000, 40, 0, 0, 1000, 40); const d = tg.getImageData(0, 0, 1000, 40).data;
+  tg.drawImage(img, 0, 940, 1000, 40, 0, 0, 1000, 40);   // rows 940-979: above the ragged edge
+  const d = tg.getImageData(0, 0, 1000, 40).data;
   c = document.createElement('canvas'); c.width = 1000; c.height = 1; const cg = c.getContext('2d'), out = cg.createImageData(1000, 1), o = out.data;
   const col = new Int32Array(1000).fill(-1);
   for (let x = 0; x < 1000; x++) for (let y = 39; y >= 0; y--) { if (d[(y * 1000 + x) * 4 + 3] > 200) { if (y >= 28) col[x] = y; break; } }   // only the body that reaches the edge
@@ -1609,6 +1649,22 @@ function drawLoopBody(t, x, y, size) {
   if (S.eye.cur > 0 && S.art.eyes[S.eye.cur]) fg.drawImage(S.art.eyes[S.eye.cur], 0, 0, 1000, 1000);   // the blink goes in the same masked face, so it never spills past the flames
   fg.globalCompositeOperation = 'destination-in'; fg.drawImage(tr.holeImg, 0, 0, 1000, 1000); if (tr.innerImg) fg.drawImage(tr.innerImg, 0, 0, 1000, 1000);
   ctx.drawImage(lc, x, y, size, size); ctx.drawImage(fc, x, y, size, size);
+  // a tongue hanging out past the face reaches over the moving body (the face's outline would cut it off)
+  const tg = tongueOf(S.art.mouths[S.mouth.cur]); if (tg) ctx.drawImage(tg, x, y, size, size);
+}
+const TONGUES = new WeakMap();
+function tongueOf(img) {
+  if (TONGUES.has(img)) return TONGUES.get(img);
+  const c = document.createElement('canvas'); c.width = c.height = 1000; const g = c.getContext('2d', { willReadFrequently:true });
+  g.drawImage(img, 0, 0, 1000, 1000); const im = g.getImageData(0, 0, 1000, 1000), d = im.data, m = new Uint8Array(1000 * 1000);
+  for (let i = 0; i < m.length; i++) { const r = d[i * 4], gg = d[i * 4 + 1], b = d[i * 4 + 2]; if (d[i * 4 + 3] > 200 && r > 190 && b > 120 && gg < 150 && b > gg + 10) m[i] = 1; }   // pink
+  let n = 0; for (let i = 0; i < m.length; i++) n += m[i];
+  if (n < 300) { TONGUES.set(img, null); return null; }
+  // the pink and its ink outline (dark pixels right next to it)
+  const keep = new Uint8Array(m); for (let y = 2; y < 998; y++) for (let x = 2; x < 998; x++) { const i = y * 1000 + x; if (m[i]) continue;
+    if (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2] < 200 && (m[i - 3] || m[i + 3] || m[i - 3000] || m[i + 3000] || m[i - 2] || m[i + 2] || m[i - 2000] || m[i + 2000])) keep[i] = 1; }
+  for (let i = 0; i < m.length; i++) if (!keep[i]) d[i * 4 + 3] = 0;
+  g.putImageData(im, 0, 0); TONGUES.set(img, c); return c;
 }
 function drawTrait(t, x, y, size, f) {
   const tr = S.trait; if (!tr) return;
@@ -1641,7 +1697,7 @@ function drawNibble(t) {
     step(S.mouth, 0, t, 0);
     // idle blink every few seconds
     const ph = (t % 4200);
-    step(S.eye, ph < 70 ? 3 : ph < 170 ? 4 : ph < 240 ? 3 : 0, t, 0);
+    step(S.eye, S.forceEye != null ? S.forceEye : ph < 70 ? 3 : ph < 170 ? 4 : ph < 240 ? 3 : 0, t, 0);
   }
   const px = W/2, py = H;
   ctx.save();
@@ -1660,7 +1716,9 @@ function drawNibble(t) {
   // the body continues below the frame edge (and past a cut-off side): stretched from the picture's own last rows. A moving body
   // (fire, slime) stretches its current frame, so the part below never stands still while the flames above it move
   const tr = S.trait, ext = tr && tr.holeImg ? tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length] : A.base, strip = bottomStrip(ext);
-  ctx.drawImage(strip, 0, 0, 1000, 1, x, H - 1, size, size * 0.3);
+  // a moving body's own last rows are ragged (eaten-in edges, little gaps): its solid bottom row is laid over them
+  const lift = tr && tr.holeImg ? size * 0.022 : 0;
+  ctx.drawImage(strip, 0, 0, 1000, 1, x, Math.min(H - 1, y + size) - lift, size, size * 0.3 + lift);
   if (A.edgeL) { ctx.drawImage(ext, 0, 0, 2, 1000, x - size*0.5 + 1, y, size*0.5, size); ctx.drawImage(strip, 0, 0, 2, 1, x - size*0.5 + 1, H - 1, size*0.5, size*0.3); }
   if (A.edgeR) { ctx.drawImage(ext, 998, 0, 2, 1000, x + size - 1, y, size*0.5, size); ctx.drawImage(strip, 998, 0, 2, 1, x + size - 1, H - 1, size*0.5, size*0.3); }
 
@@ -1668,6 +1726,7 @@ function drawNibble(t) {
   if (under && !looped) drawTrait(t, x, y, size, live ? f : null);
   if (looped) {}   // the blink was drawn with the face (drawLoopBody)
   else if (cfg.eyesAlways) ctx.drawImage(A.eyes[cfg.noBlink ? 0 : S.eye.cur], x, y, size, size);   // eyes made of fire don't blink
+  else if (S.eye.cur === 2 && !hasLook(A, 2)) popEyes(A, x, y, size);   // no drawn surprised eyes: the Nibble's own eyes pop big
   else drawLayer(A.eyes, S.eye, t, FADE.eye, x, y, size);
   if (A.over) ctx.drawImage(A.over[S.mouth.cur], x, y, size, size);
   if (!under && !looped) drawTrait(t, x, y, size, live ? f : null);
@@ -2227,7 +2286,7 @@ function vmFaces(r, t, v, tracks) {
     used.add(best); best.lt = t; best.lx = fc.cx; best.ly = fc.cy; best.ls = fc.s;
     const f = best.f; readFace(fc.L, fc.bs, f, best.H, t * 1000);
     best.smp.push({ t, open:f.open, wide:f.wide, round:f.round, smile:f.smile, press:f.press, frown:f.frown, fv:f.fv, jaw:f.jaw, lowIn:f.lowIn, upIn:f.upIn,
-      blink:f.blink, bu:f.blinkUntil || 0, brow:f.brow, browUp:f.browUp, roll:f.roll, yaw:f.yaw, pitch:f.pitch,
+      blink:f.blink, bu:f.blinkUntil || 0, brow:f.brow, browUp:f.browUp, eyeWide:f.eyeWide || 0, roll:f.roll, yaw:f.yaw, pitch:f.pitch,
       mo:dist(fc.L[13], fc.L[14]) / (dist(fc.L[10], fc.L[152]) || 1e-6), cx:fc.cx,
       edge:fc.L.some(p => p.x < 0.01 || p.x > 0.99 || p.y < 0.01 || p.y > 0.99) });
     if (Math.abs(f.yaw) < 0.35) {
@@ -2725,7 +2784,7 @@ function vmFrame(now) {
     // a face running off the edge of the picture: its mouth shape can't be read, so the voice picks the shape
     if (x.edge) Object.assign(f, { round:0, wide:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0 }); }
   else {   // not seen right now: a resting face, the voice still moves the mouth, an easy blink now and then
-    Object.assign(f, { open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0, blink:0, brow:0, browUp:0 }); f.seen = true;
+    Object.assign(f, { open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0, blink:0, brow:0, browUp:0, eyeWide:0 }); f.seen = true;
     if (now > (VM.nb || 0)) { S.blinkUntil = now + 170; VM.nb = now + 2800 + Math.random() * 2600; }
   }
   drawBackground();
