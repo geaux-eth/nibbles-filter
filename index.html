@@ -411,7 +411,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261115-2300';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261116-0000';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -906,7 +906,7 @@ const KIT_NO_BLINK = new Set();
 const KIT_SKIP = new Set();   // kind:skin pairs whose results aren't good enough yet
 const SPECIAL_SKINS = new Set(['Red', 'Wrestler', 'Plush', 'Seawoman', 'Werewolf', 'Mage', 'Alien', 'Human', 'Metal', 'Dissection', 'Slime', 'Dragon', 'Fire', 'Mummy']);
 // special skins whose whole group shares a pose: one kit each, with a moving body loop played behind the face
-const KIT_GROUP = { 'Ghost:Fire':{ ref:'k2757', loop:'ghostfire', frames:48, fps:12 }, 'Ghost:Slime':{ ref:'k5842', loop:'ghostslime', frames:48, fps:12, wideFace:true, skinThrough:true }, 'Ghost:Mummy':{ ref:'k4946' }, 'Gecko:Dragon':{ ref:'k500', noBlink:/big|eyelashes/i } };
+const KIT_GROUP = { 'Ghost:Fire':{ ref:'k2757', loop:'ghostfire', frames:48, fps:12, drawnBlink:true }, 'Ghost:Slime':{ ref:'k5842', loop:'ghostslime', frames:48, fps:12, wideFace:true, skinThrough:true }, 'Ghost:Mummy':{ ref:'k4946' }, 'Gecko:Dragon':{ ref:'k500', noBlink:/big|eyelashes/i } };
 const groupOf = a => a && KIT_GROUP[a.Character + ':' + a.Skin];
 const kitFor = t => { const a = t && t.a; if (groupOf(a)) return groupOf(a).ref; return a && !SPECIAL_SKINS.has(a.Skin) && !KIT_SKIP.has(a.Character + ':' + a.Skin) ? KIT_REF[a.Character] || null : null; };
 // eyes that don't blink: fire, lasers, X / knocked out, spirals, slot machines, glasses and anything worn over the eyes
@@ -933,7 +933,7 @@ async function kitPrepare(id) {
       NIBBLES[id] = { bg:cut.bg, fullFace:true, files, layout:exp.layout, jiggle:exp.layout.jig, kit:ref };
       const grp = groupOf(a);
       if (grp && grp.loop) { files.hole = URL.createObjectURL(await new Promise(r => res.faceMask.toBlob(r, 'image/png')));
-        NIBBLES[id].trait = { frames:grp.frames, fps:grp.fps, from:grp.loop, hole:true, skinThrough:!!grp.skinThrough }; }
+        NIBBLES[id].trait = { frames:grp.frames, fps:grp.fps, from:grp.loop, hole:true, skinThrough:!!grp.skinThrough, drawnBlink:!!grp.drawnBlink }; }
       FACE_AT[id] = exp.layout.at; delete ART[id]; addOption(id, kind);
       setStatus('x', `${kind} #${id} is ready.`, '', 1500);
       return true;
@@ -1102,7 +1102,7 @@ function fetchNibble(id) {
       if (t.hole) { trait.holeImg = await loadImg(artURL(id, 'hole'));
         // where every loop frame covers the face: the still face stays inside it, so it never pokes past a moving outline
         trait.innerImg = await loadImg(`traits/${t.from || id}/inner.webp?v=${ART_V}`).catch(() => null);
-        if (t.skinThrough) loopFace(art, trait); }   // built now, while loading, so the face never stalls a video
+        if (t.skinThrough) loopFace(art, trait); if (t.drawnBlink) loopBlink(art); }   // built now, while loading, so the face never stalls a video
     }
     // where the character (and its floating extras) can ever be, in the 1000px art — the text keeps out of this
     const bc = document.createElement('canvas'); bc.width = bc.height = 250; const bg = bc.getContext('2d', { willReadFrequently:true });
@@ -1740,6 +1740,86 @@ function loopFace(A, tr) {
   }
   return A._lf = { tr, box:[x0, y0], mouths, eyes, brows };
 }
+// Fire ghosts: their talking faces come from #2757, whose closed eyes are flat bars (its eyes are half-shut to begin
+// with), laid on a square patch that shows on the flames. Instead each eye is painted out with the face's own colours
+// (blended from just above and below it) and a curved lid is drawn across it: shut "‿", or half-shut with the lid
+// across the middle. Built once per Nibble.
+function loopBlink(A) {
+  if (A._lb !== undefined) return A._lb;
+  A._lb = null; const foot = A.eyes && A.eyes[4]; if (!foot) return null;
+  const N = 1000, c = document.createElement('canvas'); c.width = c.height = N; const g = c.getContext('2d', { willReadFrequently:true });
+  g.drawImage(foot, 0, 0, N, N); const fd = g.getImageData(0, 0, N, N).data;
+  g.clearRect(0, 0, N, N); g.drawImage(A.mouths[0], 0, 0, N, N); const d = g.getImageData(0, 0, N, N).data;
+  // the eyes: the dark drawing inside the blink's patch, in pieces; pieces whose boxes overlap are one eye
+  const lum = i => d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11, dark = new Uint8Array(N * N);
+  // where to look: the blink patch's box, a little bigger (a kit's patch doesn't always cover this Nibble's eyes whole)
+  let fx0 = N, fy0 = N, fx1 = 0, fy1 = 0;
+  for (let i = 0; i < N * N; i++) if (fd[i * 4 + 3] > 128) { const x = i % N, y = (i / N) | 0; if (x < fx0) fx0 = x; if (x > fx1) fx1 = x; if (y < fy0) fy0 = y; if (y > fy1) fy1 = y; }
+  if (fx1 <= fx0) return null;
+  for (let y = Math.max(0, fy0 - 40); y <= Math.min(N - 1, fy1 + 40); y++) for (let x = Math.max(0, fx0 - 50); x <= Math.min(N - 1, fx1 + 50); x++) { const i = y * N + x; if (d[i * 4 + 3] > 200 && Math.max(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]) < 100) dark[i] = 1; }   // ink (the flames' red-orange outline isn't)
+  const seen = new Uint8Array(N * N), q = new Int32Array(N * N); let boxes = [];
+  for (let s0 = 0; s0 < N * N; s0++) { if (!dark[s0] || seen[s0]) continue; let h = 0, t = 0, x0 = N, y0 = N, x1 = 0, y1 = 0; q[t++] = s0; seen[s0] = 1;
+    while (h < t) { const p = q[h++], x = p % N, y = (p / N) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      for (const j of [p - 1, p + 1, p - N, p + N]) if (j >= 0 && j < N * N && dark[j] && !seen[j]) { seen[j] = 1; q[t++] = j; } }
+    if (t > 30) boxes.push([x0, y0, x1, y1]); }
+  for (let merged = true; merged;) { merged = false;
+    for (let i = 0; i < boxes.length && !merged; i++) for (let j = i + 1; j < boxes.length; j++) { const a = boxes[i], b = boxes[j];
+      const inside = (u, v) => (v[0] + v[2]) / 2 >= u[0] && (v[0] + v[2]) / 2 <= u[2] && (v[1] + v[3]) / 2 >= u[1] && (v[1] + v[3]) / 2 <= u[3];   // a pupil in its eye
+      if (inside(a, b) || inside(b, a)) { boxes[i] = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]; boxes.splice(j, 1); merged = true; break; } } }
+  boxes = boxes.filter(b => b[2] - b[0] >= 35 && b[3] - b[1] >= 35 && (b[1] + b[3]) / 2 >= fy0 && (b[1] + b[3]) / 2 <= fy1).sort((a, b) => (b[2] - b[0]) * (b[3] - b[1]) - (a[2] - a[0]) * (a[3] - a[1])).slice(0, 2);
+  if (!boxes.length) return null;
+  // the eyes' insides: the spaces the lines close in (the whites, an iris, a heart). The nose's inside is the one lowest
+  // in the middle; the rest are the left eye's or the right eye's, by side. (Eyes and nose often touch, as one line.)
+  const reg = []; let noseBox = null;
+  for (const [x0, y0, x1, y1] of boxes) {
+    for (let y = y0 + 1; y < y1; y++) for (let x = x0 + 1; x < x1; x++) { const s1 = y * N + x; if (dark[s1] || seen[s1]) continue;
+      let h = 0, t = 0, edge = false, rx0 = N, ry0 = N, rx1 = 0, ry1 = 0; q[t++] = s1; seen[s1] = 1;
+      while (h < t) { const p = q[h++], px = p % N, py = (p / N) | 0; if (px <= x0 || px >= x1 || py <= y0 || py >= y1) { edge = true; continue; }
+        if (px < rx0) rx0 = px; if (px > rx1) rx1 = px; if (py < ry0) ry0 = py; if (py > ry1) ry1 = py;
+        for (const j of [p - 1, p + 1, p - N, p + N]) if (!dark[j] && !seen[j]) { seen[j] = 1; q[t++] = j; } }
+      if (!edge && t > 150) reg.push([rx0, ry0, rx1, ry1]); } }
+  if (reg.length >= 2) {
+    const mx = (Math.min(...reg.map(r => r[0])) + Math.max(...reg.map(r => r[2]))) / 2, span = Math.max(...reg.map(r => r[2])) - Math.min(...reg.map(r => r[0]));
+    const low = reg.reduce((a, r) => r[3] > a[3] ? r : a), nose = Math.abs((low[0] + low[2]) / 2 - mx) < span * 0.15 ? low : null;
+    const side = [[], []]; for (const r of reg) if (r !== nose) side[(r[0] + r[2]) / 2 < mx ? 0 : 1].push(r);
+    const eyeBox = g2 => [Math.min(...g2.map(r => r[0])) - 9, Math.min(...g2.map(r => r[1])) - 9, Math.max(...g2.map(r => r[2])) + 9, Math.max(...g2.map(r => r[3])) + 9];
+    if (side[0].length && side[1].length) { boxes = side.map(eyeBox); if (nose) noseBox = [nose[0] - 13, nose[1] - 13, nose[2] + 13, nose[3] + 13];
+      if (boxes[1][0] - boxes[0][2] < 24) { const m = (boxes[0][2] + boxes[1][0]) / 2; boxes[0][2] = m + 3; boxes[1][0] = m - 3; } }
+  }
+  // the face's colour where an eye was: the plain face around it, smoothly blurred in (a weighted blur that skips lines)
+  const ell = boxes.map(([bx0, by0, bx1, by1]) => ({ cx:(bx0 + bx1) / 2, cy:(by0 + by1) / 2, rx:(bx1 - bx0) / 2 + 7, ry:(by1 - by0) / 2 + 7 }));
+  const inEye = (x, y) => ell.some(e => ((x - e.cx) / e.rx) ** 4 + ((y - e.cy) / e.ry) ** 4 <= 1.3);   // a rounded box: eyes fill their corners
+  const rx0 = Math.max(0, Math.floor(Math.min(...ell.map(e => e.cx - e.rx))) - 60), rx1 = Math.min(N - 1, Math.ceil(Math.max(...ell.map(e => e.cx + e.rx))) + 60);
+  const ry0 = Math.max(0, Math.floor(Math.min(...ell.map(e => e.cy - e.ry))) - 60), ry1 = Math.min(N - 1, Math.ceil(Math.max(...ell.map(e => e.cy + e.ry))) + 60);
+  const RW = rx1 - rx0 + 1, RH = ry1 - ry0 + 1, P = [0, 1, 2, 3].map(() => new Float32Array(RW * RH));
+  for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) { const i = (ry0 + y) * N + rx0 + x, p = y * RW + x;
+    if (d[i * 4 + 3] > 200 && lum(i) > 140 && !inEye(rx0 + x, ry0 + y)) { P[3][p] = 1; for (let ch = 0; ch < 3; ch++) P[ch][p] = d[i * 4 + ch]; } }
+  const box = (A2, r) => { const T = new Float32Array(RW * RH);
+    for (let y = 0; y < RH; y++) { let acc = 0; for (let x = -r; x < RW; x++) { if (x + r < RW) acc += A2[y * RW + x + r]; if (x - r - 1 >= 0) acc -= A2[y * RW + x - r - 1]; if (x >= 0) T[y * RW + x] = acc; } }
+    for (let x = 0; x < RW; x++) { let acc = 0; for (let y = -r; y < RH; y++) { if (y + r < RH) acc += T[(y + r) * RW + x]; if (y - r - 1 >= 0) acc -= T[(y - r - 1) * RW + x]; if (y >= 0) A2[y * RW + x] = acc; } } };
+  const B = P.map(A2 => A2.slice());   // a wide blur too, for the middle of a big eye far from any plain face
+  for (let pass = 0; pass < 3; pass++) { for (const A2 of P) box(A2, 10); for (const A2 of B) box(A2, 30); }
+  const make = half => {
+    const o = document.createElement('canvas'); o.width = o.height = N; const og = o.getContext('2d'), im = og.createImageData(N, N);
+    for (const e of ell) {
+      const cut = half ? e.cy + e.ry * 0.05 : e.cy + e.ry;
+      for (let y = Math.floor(e.cy - e.ry); y <= Math.min(Math.ceil(e.cy + e.ry), cut); y++) for (let x = Math.floor(e.cx - e.rx); x <= Math.ceil(e.cx + e.rx); x++) {
+        const q2 = ((x - e.cx) / e.rx) ** 4 + ((y - e.cy) / e.ry) ** 4; if (q2 > 1 || x < rx0 || y < ry0 || x > rx1 || y > ry1) continue;
+        if (noseBox && ((x - (noseBox[0] + noseBox[2]) / 2) / ((noseBox[2] - noseBox[0]) / 2)) ** 2 + ((y - (noseBox[1] + noseBox[3]) / 2) / ((noseBox[3] - noseBox[1]) / 2)) ** 2 <= 1) continue;   // the nose stays
+        const p = (y - ry0) * RW + x - rx0, S2 = P[3][p] > 200 ? P : B, wgt = S2[3][p]; if (wgt < 1e-3) continue; const i = (y * N + x) * 4;
+        for (let ch = 0; ch < 3; ch++) im.data[i + ch] = S2[ch][p] / wgt;
+        im.data[i + 3] = Math.round(255 * clamp((1 - q2) * Math.min(e.rx, e.ry) / 4, 0, 1)); } }
+    og.putImageData(im, 0, 0);
+    og.strokeStyle = '#1b1414'; og.lineCap = 'round';
+    for (const [bx0, by0, bx1, by1] of boxes) {
+      const w = bx1 - bx0, h = by1 - by0, cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2;
+      og.lineWidth = clamp(Math.min(w, h) * 0.075, 6, 12); og.beginPath();
+      if (half) { og.moveTo(bx0 + 2, cy); og.quadraticCurveTo(cx, cy + h * 0.12, bx1 - 2, cy); }
+      else { og.moveTo(bx0 + w * 0.08, cy); og.quadraticCurveTo(cx, cy + h * 0.42, bx1 - w * 0.08, cy); }
+      og.stroke(); }
+    return o; };
+  return A._lb = { 3:make(true), 4:make(false) };
+}
 function drawLoopBody(t, x, y, size) {
   const tr = S.trait, fr = tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length], [lc, fc] = LOOP_C, lg = lc.getContext('2d'), fg = fc.getContext('2d');
   // the body whole, then the face faded onto it through the mask (cutting a hole and filling it would let the background show at the soft edge)
@@ -1755,7 +1835,9 @@ function drawLoopBody(t, x, y, size) {
     return;
   }
   fg.globalCompositeOperation = 'source-over'; fg.clearRect(0, 0, 1000, 1000); fg.drawImage(S.art.mouths[S.mouth.cur], 0, 0, 1000, 1000);
-  if (S.eye.cur > 0 && S.art.eyes[S.eye.cur]) fg.drawImage(S.art.eyes[S.eye.cur], 0, 0, 1000, 1000);   // the blink goes in the same masked face, so it never spills past the flames
+  const lb = tr.drawnBlink && (S.eye.cur === 3 || S.eye.cur === 4) && loopBlink(S.art);
+  if (lb) fg.drawImage(lb[S.eye.cur], 0, 0, 1000, 1000);
+  else if (S.eye.cur > 0 && S.art.eyes[S.eye.cur]) fg.drawImage(S.art.eyes[S.eye.cur], 0, 0, 1000, 1000);   // the blink goes in the same masked face, so it never spills past the flames
   fg.globalCompositeOperation = 'destination-in'; fg.drawImage(tr.holeImg, 0, 0, 1000, 1000); if (tr.innerImg) fg.drawImage(tr.innerImg, 0, 0, 1000, 1000);
   ctx.drawImage(lc, x, y, size, size); ctx.drawImage(fc, x, y, size, size);
   // a tongue hanging out past the face reaches over the moving body (the face's outline would cut it off)
