@@ -214,6 +214,13 @@ header .credit b{font-weight:400}
 .vm-person .lbl{font-size:13px;text-align:left}
 .vm-rm{width:34px;height:34px;border-radius:50%;border:2.5px solid #1a1a1a;background:#fff;color:#1a1a1a;font-size:15px;font-weight:700;line-height:1;cursor:pointer;padding:0}
 .vm-tag{display:grid;gap:5px;justify-items:start;min-width:0}.vm-tag .chipb{font-size:11px;padding:6px 8px 4px}
+.vm-ctl{display:flex;gap:6px;align-items:center;flex-wrap:nowrap;max-width:100%}
+.vm-same{height:30px;width:auto;flex:0 1 auto;max-width:160px;min-width:0;padding:0 24px 0 10px;border:2px solid var(--ink);border-radius:999px;background:var(--paper) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23161616' stroke-width='2' fill='none'/%3E%3C/svg%3E") no-repeat right 9px center;-webkit-appearance:none;appearance:none;font:400 11px/1 var(--display);letter-spacing:.02em;color:var(--ink);text-overflow:ellipsis}
+.vm-same.on{background-color:var(--gold);box-shadow:2px 2px 0 var(--ink)}
+.vm-nibw{position:relative;display:block;width:62px;height:62px}
+.vm-flip{position:absolute;right:-8px;bottom:-6px;width:30px;height:30px;border-radius:50%;border:2.5px solid var(--ink);background:var(--paper);color:var(--ink);font:700 16px/1 var(--body);padding:0;cursor:pointer;box-shadow:1.5px 1.5px 0 var(--ink)}
+.vm-flip.on{background:var(--gold)}
+.vm-opts .vm-txt{grid-column:span 2}
 .vm-row{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 8px}
 .vm-h{margin:8px 0 6px;font:400 12px/1.2 var(--display);letter-spacing:.05em;text-transform:uppercase}.vm-h span{text-transform:none;font:600 12px/1.2 var(--body);letter-spacing:0;opacity:.65}
 .vm-lines{display:grid;gap:6px;margin:0 0 10px;max-height:240px;overflow:auto;padding:2px}
@@ -411,7 +418,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261116-0000';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261116-1400';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -913,7 +920,10 @@ const kitFor = t => { const a = t && t.a; if (groupOf(a)) return groupOf(a).ref;
 const NO_BLINK = /fire|ignis|laser|knocked|dizzy|slot|3d|glasses|monocle|robot|anatomy|empty|whites|eyepatch|button|glowing|magic|three|awooga|burglar/i;
 const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || ''));
 const KIT_BUSY = {};
-window.__nf = { setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = k; }, get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id), pickNibble:(c, f) => pickNibble(c, f), bgOptions:c => bgOptions(c), vmRandom:() => { vmRandom(); return VM.bg; } };   // for tests
+window.__nf = { setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = k; }, setPose:p => { S.forcePose = p; }, setShape:n => setShape(n),
+  loadEnv:async url => { VM.env = await vmEnvelope(await (await fetch(url)).blob()); return !!VM.env; },
+  mouthAt:(t, f) => { const now = performance.now(); V.on = true; vmVoice(now, t); const face = Object.assign({ open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0 }, f || {});
+    return { v:V.voiced, lv:+V.level.toFixed(2), sh:V.sh && (V.sh.nasal ? 'nasal' : V.sh.fric ? 'fric' : V.sh.back ? 'back' : 'm' + V.sh.m), dip:V.dip, m:pickMouth(face, now) }; }, get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id), pickNibble:(c, f) => pickNibble(c, f), bgOptions:c => bgOptions(c), vmRandom:() => { vmRandom(); return VM.bg; } };   // for tests
 async function kitPrepare(id) {
   if (NIBBLES[id]) return true;
   if (KIT_BUSY[id]) return KIT_BUSY[id];
@@ -1092,8 +1102,18 @@ function fetchNibble(id) {
     // does the art's body run off its left / right edge? then it keeps going in wide frames
     const pc = document.createElement('canvas'); pc.width = 1000; pc.height = 1000; const pg = pc.getContext('2d', { willReadFrequently:true });
     pg.drawImage(imgs[0], 0, 0, 1000, 1000);
+    // (a laser beam reaching the edge isn't body: it carries on along its own line instead, see laserExt)
+    if (art.laser) { pg.globalCompositeOperation = 'destination-out'; pg.drawImage(art.laser.img, 0, 0, 1000, 1000); pg.globalCompositeOperation = 'source-over'; }
     const colOpaque = x => { const d = pg.getImageData(x, 0, 1, 1000).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) n++; return n; };
     art.edgeL = colOpaque(1) > 40; art.edgeR = colOpaque(998) > 40;
+    if (art.laser) { art.laser.ext = laserExt(art.laser.img);
+      // the body's edge columns without the beam in them (a beam row borrows the body pixel just above or below it)
+      const ec = document.createElement('canvas'); ec.width = 4; ec.height = 1000; const eg = ec.getContext('2d');
+      [0, 1, 998, 999].forEach((cx, k) => { const col = pg.getImageData(cx, 0, 1, 1000), d = col.data;
+        for (let y = 0; y < 1000; y++) if (d[y * 4 + 3] < 200) { let a = y - 1; while (a >= 0 && d[a * 4 + 3] < 200) a--; let b = y + 1; while (b < 1000 && d[b * 4 + 3] < 200) b++;
+          const src = a >= 0 && (b >= 1000 || y - a <= b - y) ? a : b < 1000 ? b : -1; if (src >= 0 && Math.min(Math.abs(y - a), Math.abs(b - y)) < 140) for (let c = 0; c < 4; c++) d[y * 4 + c] = d[src * 4 + c]; }
+        eg.putImageData(col, k, 0); });
+      art.edgeCols = ec; }
     let trait = null;
     if (cfg.trait) {
       const t = cfg.trait;
@@ -1283,7 +1303,8 @@ const VM_LEAD = 0.1;
 function vmVoice(now, t) {
   const T = VM.env.vt, n = T.e.length, k = Math.max(0, Math.min(n - 1, Math.round(t * 100))), e = T.e[k];
   let pk = 0; for (let j = Math.max(0, k - 12); j <= Math.min(n - 1, k + 12); j++) if (T.e[j] > pk) pk = T.e[j];
-  V.rms = e; V.trusted = true; V.hiss = 0; V.whistle = false; V.voiced = e > T.thr;
+  const nv = VM.env.nov, j = Math.floor(t * 50);
+  V.rms = e; V.trusted = true; V.hiss = 0; V.whistle = false; V.voiced = e > T.thr && !(nv && nv[j]) && (!VM.talk || !!VM.talk[Math.floor(t / 0.05)]);
   if (V.voiced) {
     V.lastVoice = now; V.level = clamp((e - T.thr) / (T.loud - T.thr), 0, 1);
     const i0 = Math.max(0, Math.min(T.x.length - 2048, Math.round(t * T.sr) - 1024));
@@ -1499,7 +1520,7 @@ let signAt = null;
 function refChar() {
   const A = READY[4075], W = stage.width, H = stage.height; if (!A || !A.outline) return null;
   const size = S.shape === 'Square' && W > H * 1.05 ? H * 0.82 : Math.min(W, H);
-  return { x:(W - size) / 2, y:H - size, size, W, H, b:A.bounds, o:A.outline, id:'ref' };
+  return { x:(W - size) / 2, y:H - size + size * SINK, size, W, H, b:A.bounds, o:A.outline, id:'ref' };
 }
 function signRect() {
   const ent = entrance(); if (ent) return ent.sr;
@@ -1624,6 +1645,20 @@ function drawFire(t, x, y, size) {
   g.setTransform(sx, 0, 0, sy, tx, ty); g.drawImage(F.frames[Math.floor(t / 125) % 6], 0, 0); g.drawImage(F.eyes, 0, 0);
   g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'destination-in'; g.drawImage(F.clip, 0, 0, 1000, 1000);
   ctx.drawImage(fireC, x, y, size, size);
+}
+// laser eyes run off the edge of the picture: past that edge the beam carries on along its own line (each column of
+// the beam near the edge, copied outward and shifted by the beam's slope), so a tilted head never bends it toward the side
+function laserExt(img) {
+  const N = 1000, E = 900, c = document.createElement('canvas'); c.width = c.height = N; const g = c.getContext('2d', { willReadFrequently:true });
+  g.drawImage(img, 0, 0, N, N); const d = g.getImageData(0, 0, N, N).data, out = [];
+  const rows = x => { let a = -1, b = -1, n = 0, sy = 0; for (let y = 0; y < N; y++) if (d[(y * N + x) * 4 + 3] > 40) { if (a < 0) a = y; b = y; n++; sy += y; } return n > 6 ? { a, b, c:sy / n } : null; };
+  for (const side of [0, 1]) {
+    const x0 = side ? N - 4 : 3, x1 = side ? N - 60 : 60, r0 = rows(x0), r1 = rows(x1); if (!r0 || !r1) continue;
+    const slope = (r0.c - r1.c) / (x0 - x1), dir = side ? 1 : -1, e = document.createElement('canvas'); e.width = E; e.height = N + 2 * E; const eg = e.getContext('2d');
+    for (let k = 1; k <= E; k++) { const x = x0 + dir * k, dx = side ? x - N : x + E; eg.drawImage(c, x0, r0.a - 2, 1, r0.b - r0.a + 5, dx, E + r0.a - 2 + slope * (x - x0), 1, r0.b - r0.a + 5); }
+    out.push({ c:e, x:side ? N : -E, y:-E });
+  }
+  return out;
 }
 // laser eyes: the beams glow brighter and dimmer in a fast flicker, and bands of light stream out along them
 let laserC = null;
@@ -1882,14 +1917,17 @@ function drawTrait(t, x, y, size, f) {
   ctx.restore();
 }
 
+// head tilt: the Nibble leans with your head, but only a little (a big lean lifts a shoulder off the bottom of the frame)
+const TILT = 0.16, SINK = 0.06;
 function drawNibble(t) {
   const A = S.art; if (!A) return;
   const W = stage.width, H = stage.height;
   // Square on a wide screen (desktop): the Nibble stands a little smaller so there's room above its head for text
-  let size = S.shape === 'Square' && W > H * 1.05 ? H * 0.82 : Math.min(W, H);
+  let size = (S.shape === 'Square' && W > H * 1.05 ? H * 0.82 : Math.min(W, H)) * (S.fit || 1);
   const f = S.face, live = S.tracking && f.seen;
-  const roll = live ? f.roll : Math.sin(t/1400) * 0.03;
-  const yaw = live ? f.yaw : 0, pitch = live ? f.pitch : 0;
+  const fp = S.forcePose;   // (tests)
+  const roll = live ? f.roll : fp ? fp.roll : Math.sin(t/1400) * 0.03;
+  const yaw = live ? f.yaw : fp ? fp.yaw || 0 : 0, pitch = live ? f.pitch : fp ? fp.pitch || 0 : 0;
   const breathe = Math.sin(t/650) * 0.006;
   if (live) {
     readVoice(t);
@@ -1908,12 +1946,14 @@ function drawNibble(t) {
   const px = W/2, py = H;
   ctx.save();
   ctx.translate(px + yaw * size * 0.03, py + pitch * size * 0.015);
-  ctx.rotate(clamp(roll, -.4, .4) * 0.35);
+  ctx.rotate(clamp(roll, -.4, .4) * TILT);
   ctx.scale(1 - Math.abs(yaw) * 0.04, 1 + breathe);
   ctx.translate(-px, -py);
   // art whose body is cut off at its left/right edge sits against that side of the frame, so the cut never shows
   const pad = size * 0.06;   // a little past the frame edge, so head turns and tilts don't reveal it
-  const x = A.edgeL && !A.edgeR ? -pad : A.edgeR && !A.edgeL ? W - size + pad : (W - size)/2, y = H - size;
+  // and it sits a little low, so a tilt only ever swings in more of its own picture: the bottom edge (and the plain rows
+  // a body is stretched from) stays below the frame, never a gap or streaks under a lifted shoulder
+  const x = A.edgeL && !A.edgeR ? -pad : A.edgeR && !A.edgeL ? W - size + pad : (W - size)/2, y = H - size + size * SINK;
   S.charAt = { x, y, size, W, H, b:A.bounds, o:A.outline, id:S.id };
   if (S.trait && S.trait.holeImg) drawLoopBody(t, x, y, size);   // a moving body (fire, slime) with the talking face set into it
   else if (NIBBLES[S.id].fullFace) {
@@ -1924,9 +1964,11 @@ function drawNibble(t) {
   const tr = S.trait, ext = tr && tr.holeImg ? tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length] : A.base, strip = bottomStrip(ext);
   // a moving body's own last rows are ragged (eaten-in edges, little gaps): its solid bottom row is laid over them
   const lift = tr && tr.holeImg ? size * 0.022 : 0;
-  ctx.drawImage(strip, 0, 0, 1000, 1, x, Math.min(H - 1, y + size) - lift, size, size * 0.3 + lift);
-  if (A.edgeL) { ctx.drawImage(ext, 0, 0, 2, 1000, x - size*0.5 + 1, y, size*0.5, size); ctx.drawImage(strip, 0, 0, 2, 1, x - size*0.5 + 1, H - 1, size*0.5, size*0.3); }
-  if (A.edgeR) { ctx.drawImage(ext, 998, 0, 2, 1000, x + size - 1, y, size*0.5, size); ctx.drawImage(strip, 998, 0, 2, 1, x + size - 1, H - 1, size*0.5, size*0.3); }
+  ctx.drawImage(strip, 0, 0, 1000, 1, x, y + size - lift, size, size * 0.3 + lift);
+  const ec = A.edgeCols && ext === A.base ? A.edgeCols : null;   // a laser Nibble's sides are stretched without the beam
+  if (A.edgeL) { ctx.drawImage(ec || ext, 0, 0, 2, 1000, x - size*0.5 + 1, y, size*0.5, size); ctx.drawImage(strip, 0, 0, 2, 1, x - size*0.5 + 1, y + size - 1, size*0.5, size*0.3); }
+  if (A.edgeR) { ctx.drawImage(ec || ext, ec ? 2 : 998, 0, 2, 1000, x + size - 1, y, size*0.5, size); ctx.drawImage(strip, 998, 0, 2, 1, x + size - 1, y + size - 1, size*0.5, size*0.3); }
+  if (A.laser && A.laser.ext) { const k = size / 1000; for (const e of A.laser.ext) ctx.drawImage(e.c, x + e.x * k, y + e.y * k, e.c.width * k, e.c.height * k); }
 
   const cfg = NIBBLES[S.id], under = S.trait && S.trait.under, looped = S.trait && S.trait.holeImg;
   if (under && !looped) drawTrait(t, x, y, size, live ? f : null);
@@ -2018,7 +2060,7 @@ function freeRegions(C = S.charAt) {
   if (regionCache[ck]) { freeRegions.raw = regionCache[ck].raw; return regionCache[ck]; }
   const k = C.size / 1000, px = W / 2, py = H;
   let ex0 = Infinity, ey0 = Infinity, ex1 = -Infinity, hx0 = Infinity, hx1 = -Infinity; const hy = H * 0.5;
-  for (const r of [-0.14, 0, 0.14]) for (const dx of [-0.03, 0.03]) for (const dy of [-0.015, 0.015]) for (const [ax, ay] of C.o) {
+  for (const r of [-0.4 * TILT, 0, 0.4 * TILT]) for (const dx of [-0.03, 0.03]) for (const dy of [-0.015, 0.015]) for (const [ax, ay] of C.o) {
     const u = C.x + ax * k - px, v = (C.y + ay * k - py) * 1.006, xr = u * Math.cos(r) - v * Math.sin(r), yr = u * Math.sin(r) + v * Math.cos(r);
     const fx = px + dx * C.size + xr, fy = py + dy * C.size + yr;
     if (fy > H) continue;
@@ -2089,10 +2131,14 @@ function drawText() {
     pick = txtCache.fits.reduce((a, c) => dist(c.r) < dist(a.r) ? c : a, txtCache.fits[0]);
     ctx.font = `${f[3]} ${pick.L.fs}px ${f[2]}, 'Arial Black', sans-serif`;
   }
-  const { r:[rx0, ry0, rx1, ry1], L } = pick, { fs, lines, padX, padY, capH, lineH, bw, bh } = L, box = TX.box, mg = m * 0.02;
+  const { r:[rx0, ry0, rx1, ry1], L } = pick, { bw, bh } = L, mg = m * 0.02;
   const ax = TX.placed ? TX.x * W : (rx0 + rx1) / 2, ay = TX.placed ? TX.y * H : (ry0 + ry1) / 2;
   const cx = clamp(ax, rx0 + bw / 2 + mg, Math.max(rx0 + bw / 2 + mg, rx1 - bw / 2 - mg));
   const cy = clamp(ay, ry0 + bh / 2 + mg, Math.max(ry0 + bh / 2 + mg, ry1 - bh / 2 - mg));
+  paintText(L, cx, cy);
+}
+function paintText(L, cx, cy) {
+  const { fs, lines, padY, capH, lineH, bw, bh } = L, box = TX.box;
   const bx = cx - bw / 2, by = cy - bh / 2, sh = fs * 0.09, light = lum(TX.color) > 0.5;
   TX.rect = [bx, by, bw, bh, cx, cy];
   ctx.save();
@@ -2117,6 +2163,20 @@ function drawText() {
   ctx.restore();
 }
 
+// a made video's words: in the text style picked on the main screen, across the top (or the bottom) of the whole video
+function vmText() {
+  const text = VM.text; if (!text) return;
+  const W = stage.width, H = stage.height, m = Math.min(W, H), f = fontOf(); ensureFont(f);
+  const keep = TX.text; TX.text = text;
+  const top = VM.textAt !== 'bottom', nibTop = H - Math.min(W, H) * (S.fit || 1) * (1 - SINK);
+  const region = top ? [0, 0, W, Math.max(H * 0.2, nibTop + m * 0.04)] : [0, H * 0.78, W, H];
+  const key = [text, TX.font, TX.size, TX.box, W, H, region.map(Math.round).join(), document.fonts.status].join('/');
+  // video words start big (a title, not a caption) and shrink only to fit
+  if (!vmText.c || vmText.c.key !== key) { const sz = TX.size; TX.size = 'L'; vmText.c = { key, L:layoutText(region, f, m) }; TX.size = sz; }
+  const L = vmText.c.L; ctx.font = `${f[3]} ${L.fs}px ${f[2]}, 'Arial Black', sans-serif`;
+  paintText(L, W / 2, (region[1] + region[3]) / 2);
+  TX.text = keep;
+}
 // controls
 const txtIn = $('txtIn');
 // the page itself never scrolls; if the phone tries to nudge it while the keyboard opens or closes, put it straight back
@@ -2330,7 +2390,7 @@ async function recordAudioTracks() {
 // it cuts to whoever is talking, the first speaker faces the usual way and everyone who answers is flipped to
 // face them, and when nobody talks it rests on the main character. All on the device; nothing is uploaded.
 // ---------------------------------------------------------------------------
-var VM = { lm:null, url:null, dur:0, people:[], timeline:[], cast:{}, mirror:{}, main:0, bg:'Random', music:'', shape:'Square', rendering:false, cancel:false }; window.__vm = VM;
+var VM = { lm:null, url:null, dur:0, people:[], timeline:[], cast:{}, mirror:{}, main:0, bg:'Random', music:'', shape:null, flip:null, same:{}, text:'', textAt:'top', rendering:false, cancel:false }; window.__vm = VM;
 const vmBody = () => $('vmBody');
 function vmShow(title, html, info) { $('vm').hidden = false; $('vmTitle').textContent = title; vmBody().innerHTML = html || '';
   // the how-to for this step lives behind the "i" button, not on the page
@@ -2378,8 +2438,36 @@ async function vmEnvelope(file) {
     const fl = pc(0.05), thr = Math.max(0.004, fl * 2, fl + (pc(0.95) - fl) * 0.1);
     const vo = sorted.filter(x => x > thr), loud = Math.max(thr * 1.5, vo[Math.floor(vo.length * 0.9)] || thr * 3);
     out.vt = { x:full, sr, e, thr, loud };
+    out.nov = await vmSoundKinds(b);
     return out;
   } catch (e) { return null; }
+}
+// What the sound is, about once a second: someone's voice (talking or singing), or only music or a sound effect. Run once
+// over the clip with Google's YAMNet sound classifier (MediaPipe's audio tasks). Returns, 50 times a second, 1 where there's
+// clearly no voice (a second or more of it, so a voice under loud music is given the benefit of the doubt), else 0. If the
+// classifier can't load (offline, an old phone), null: then every sound counts as a voice, as before.
+const VOX = { speech:/^(Speech|Child speech, kid speaking|Conversation|Narration, monologue|Shout|Yell|Whispering|Babbling|Laughter|Giggle|Chuckle, chortle|Screaming)$/,
+  sing:/^(Singing|Choir|Chant|Child singing|Synthetic singing|Rapping|Humming|Yodeling|A capella|Vocal music|Male singing|Female singing)$/,
+  genre:/^(Gospel music|Christian music|Soul music|Hip hop music|Rhythm and blues|Pop music|Music of Africa|Reggae|Opera|Beatboxing)$/ };
+async function vmSoundKinds(b) {
+  try {
+    const audio = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-audio@${MP_VERSION}/audio_bundle.mjs`);
+    const files = await audio.FilesetResolver.forAudioTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-audio@${MP_VERSION}/wasm`);
+    const cl = await audio.AudioClassifier.createFromOptions(files, { baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/audio_classifier/yamnet/float32/1/yamnet.tflite' }, maxResults:-1 });
+    const oc = new OfflineAudioContext(1, Math.ceil(b.duration * 16000), 16000), src = oc.createBufferSource(); src.buffer = b; src.connect(oc.destination); src.start();
+    const mono = (await oc.startRendering()).getChannelData(0), res = cl.classify(mono, 16000); try { cl.close(); } catch (e) {}
+    if (!res || !res.length) return null;
+    const n = Math.ceil(b.duration * 50), out = new Uint8Array(n), win = [];
+    res.forEach((r, k) => {
+      const cats = (r.classifications && r.classifications[0] && r.classifications[0].categories) || [];
+      let v = 0; for (const c of cats) { const nm = c.categoryName || c.displayName || ''; if (VOX.speech.test(nm) || VOX.sing.test(nm)) v = Math.max(v, c.score); else if (VOX.genre.test(nm)) v = Math.max(v, c.score * 0.5); }
+      const t0 = r.timestampMs != null ? r.timestampMs / 1000 : k * 0.975; win.push({ t0, none:v < 0.011 });   // instruments alone score ~0.005; a voice under a band 0.012 and up
+      if (window.__soundDbg) window.__soundDbg.push([+t0.toFixed(2), +v.toFixed(3), cats.slice(0, 4).map(c => (c.categoryName || '').slice(0, 14) + ':' + c.score.toFixed(2)).join(' ')]);
+    });
+    win.forEach((w, k) => { w.t1 = k + 1 < win.length ? win[k + 1].t0 : w.t0 + 0.975; });
+    win.forEach((w, k) => { if (w.none && ((win[k - 1] && win[k - 1].none) || (win[k + 1] && win[k + 1].none))) for (let j = Math.floor(w.t0 * 50); j < Math.min(n, Math.ceil(w.t1 * 50)); j++) out[j] = 1; });
+    return out;
+  } catch (e) { console.warn('sound kinds', e); return null; }
 }
 // a face's shape, to tell people apart across camera cuts (judged only on faces turned toward the camera)
 function vmShapeOf(L) {
@@ -2394,7 +2482,7 @@ function vmColourOf(v, box) {
   return [r / 64, gg / 64, b / 64];
 }
 async function vmAnalyse(file) {
-  VM.cancel = false;
+  VM.cancel = false; VM.flip = null; VM.same = {}; VM.lines = []; VM.talk = null;
   vmShow('Finding everyone…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Loading the face tracker…</p>`);
   try {
     if (VM.url) URL.revokeObjectURL(VM.url);
@@ -2507,7 +2595,7 @@ function vmFaces(r, t, v, tracks) {
     const f = best.f; readFace(fc.L, fc.bs, f, best.H, t * 1000);
     best.smp.push({ t, open:f.open, wide:f.wide, round:f.round, smile:f.smile, press:f.press, frown:f.frown, fv:f.fv, jaw:f.jaw, lowIn:f.lowIn, upIn:f.upIn,
       blink:f.blink, bu:f.blinkUntil || 0, brow:f.brow, browUp:f.browUp, eyeWide:f.eyeWide || 0, roll:f.roll, yaw:f.yaw, pitch:f.pitch,
-      mo:dist(fc.L[13], fc.L[14]) / (dist(fc.L[10], fc.L[152]) || 1e-6), cx:fc.cx,
+      mo:dist(fc.L[13], fc.L[14]) / (dist(fc.L[10], fc.L[152]) || 1e-6), cx:fc.cx, s:+fc.s.toFixed(3),
       edge:fc.L.some(p => p.x < 0.01 || p.x > 0.99 || p.y < 0.01 || p.y > 0.99) });
     if (Math.abs(f.yaw) < 0.35) {
       const sh = vmShapeOf(fc.L); sh.forEach((x, i) => best.shape[i] += x); best.nshape++;
@@ -2573,7 +2661,7 @@ function vmTimeline() {
   for (const p of P) { const v = []; for (let t = 0; t < VM.dur; t += 0.2) { const a = activity(p, t); if (a >= 0) v.push(a); } v.sort((x, y) => x - y); p.busy = Math.max(0.6, v[Math.floor(v.length * 0.9)] || 0); }
   const raw = [];
   for (let k = 0; k < n; k++) {
-    const t = k * dt, speech = !env || loud(t) > floor * 2.5;
+    const t = k * dt, speech = !env || (loud(t) > floor * 2.5 && !(env.nov && env.nov[Math.floor(t * 50)]));   // music or a sound effect alone isn't talking
     let who = -1, ba = 0.45, seen = false, top = 0;
     // talking = lips moving at least about half as much as that face does when it talks
     if (speech) P.forEach((p, i) => { const a = activity(p, t); if (a < 0) return; seen = true; const rel = a / p.busy; top = Math.max(top, rel); if (rel > ba && a > 0.15) { ba = rel; who = i; } });
@@ -2620,6 +2708,9 @@ function vmTimeline() {
   }
   lines.forEach((l, i) => { if (l.who < 0) l.who = i ? lines[i - 1].who : -1; });
   const firstKnown = lines.find(l => l.who >= 0); lines.forEach(l => { if (l.who < 0) l.who = firstKnown ? firstKnown.who : VM.main; });
+  // one speaker's lines a breath apart are one line; a blip on its own (a clap, a note) isn't a line
+  for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 0.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
+  for (let i = lines.length - 1; i >= 0; i--) if (lines[i].t1 - lines[i].t0 < 0.2) lines.splice(i, 1);
   VM.lines = lines; vmLinesToTimeline();
 }
 // the cut list from the lines: each line shows its speaker; a pause under a second stays on whoever just spoke,
@@ -2665,6 +2756,12 @@ function vmLinesToTimeline() {
     tl[k] = on ? on.who : hold ? last : VM.main; bgs[k] = on ? on.bg || null : hold ? lastBg : null;
   }
   VM.timeline = tl; VM.tlBg = bgs; VM.first = L.length ? L[0].who : VM.main;
+  // the mouth only talks inside a line (a line taken out in the editor, over music say, keeps the mouth shut there)
+  // (a gap under a second and a half between lines is a breath, not a stop: the voice there still moves it)
+  const talk = L.length ? new Uint8Array(n) : null;
+  if (talk) L.forEach((l, i) => { const nx = L.slice(i + 1).find(o => o.t0 >= l.t1), end = nx && nx.t0 - l.t1 < 1.5 ? nx.t0 : l.t1;
+    for (let k = Math.max(0, Math.floor((l.t0 - 0.1) / dt)); k < Math.min(n, Math.ceil((end + 0.1) / dt)); k++) talk[k] = 1; });
+  VM.talk = talk;
 }
 const NIB_NAMES = () => Array.from($('nibbleSel').options).map(o => [+o.value, o.textContent]);
 function nibThumb(el, id) {
@@ -2674,15 +2771,26 @@ function nibThumb(el, id) {
 }
 function vmRandom() {
   const ids = NIB_NAMES().map(x => x[0]).sort(() => Math.random() - 0.5);
-  VM.people.forEach((p, i) => VM.cast[i] = ids[i % ids.length]);
+  VM.people.forEach((p, i) => VM.cast[i] = ids[i % ids.length]); vmLink();
   const bgs = bgList().filter(n => bgCat(n) !== 'user'); VM.bg = bgs[Math.floor(Math.random() * bgs.length)];
 }
+// "Same as…": a person linked to another (the tracker split one person in two) plays the same Nibble, facing the same way
+const vmRoot = i => { let j = i, n = 0; while (VM.same && VM.same[j] != null && n++ < 9) j = VM.same[j]; return j; };
+function vmLink() { for (const k of Object.keys(VM.same || {})) { const r = vmRoot(+k); VM.cast[k] = VM.cast[r]; VM.flip[k] = !!VM.flip[r]; } }
+// which way each Nibble faces: as drawn, except a two-person video starts as a conversation (the second one turned round)
+function vmFacing() {
+  if (VM.flip) return; VM.flip = {};
+  const P = VM.people; if (P.length === 2) { const other = VM.first === 1 ? 0 : 1; VM.flip[other] = true; }
+}
+const flipThumb = (el, i) => { el.style.transform = VM.flip && VM.flip[i] ? 'scaleX(-1)' : ''; };
 // take a speaker out (a face the tracker found twice, a voice that isn't there): their lines go to the main speaker
 function vmRemovePerson(i) {
   const P = VM.people; if (P.length < 2 || !P[i]) return;
   const fix = w => w === i ? -1 : w > i ? w - 1 : w;
   P.splice(i, 1); if (VM.ps) VM.ps.splice(i, 1);
-  const cast = {}; for (const k of Object.keys(VM.cast)) { const n = +k; if (n < i) cast[n] = VM.cast[k]; else if (n > i) cast[n - 1] = VM.cast[k]; } VM.cast = cast;
+  const shift = o => { const r = {}; for (const k of Object.keys(o || {})) { const n = +k; if (n < i) r[n] = o[k]; else if (n > i) r[n - 1] = o[k]; } return r; };
+  VM.cast = shift(VM.cast); VM.flip = shift(VM.flip); VM.same = shift(VM.same);
+  for (const k of Object.keys(VM.same)) { const j = fix(VM.same[k]); if (j < 0) delete VM.same[k]; else VM.same[k] = j; }
   let main = fix(VM.main);
   if (main < 0) {   // the main speaker went: the on-screen person who talks most takes over
     const talk = P.map((p, j) => (VM.lines || []).filter(l => fix(l.who) === j).reduce((a, l) => a + l.t1 - l.t0, 0));
@@ -2692,6 +2800,8 @@ function vmRemovePerson(i) {
   (VM.lines || []).forEach(l => { const w = fix(l.who); l.who = w < 0 ? VM.main : w; });
   if (VM.lines) vmLinesToTimeline(); else VM.timeline = (VM.timeline || []).map(w => { const x = fix(w); return x < 0 ? VM.main : x; });
 }
+const pLabel = i => { const p = VM.people[i]; return p.off ? 'Voice off camera' : i === VM.main ? 'Main' : 'Person ' + (i + 1); };
+const VID_SHAPE_TXT = { 'Square':'Square 1:1', 'Vertical':'Tall 9:16', 'Wide':'Wide 16:9' };
 function vmCastStep() {
   const P = VM.people;
   if (!P.length) {
@@ -2706,7 +2816,8 @@ function vmCastStep() {
   }
   P.forEach((p, i) => { if (!VM.cast[i] || !NIBBLES[VM.cast[i]]) VM.cast[i] = NIB_NAMES()[i % NIB_NAMES().length][0]; });
   if (!VM.bgSet) { vmRandom(); VM.bgSet = true; }
-  VM.shape = S.shape || 'Square';
+  if (!VM.shape) VM.shape = S.shape || 'Square';
+  vmFacing();
   const opt = (list, cur) => list.map(([v, t]) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${t}</option>`).join('');
   const nOn = P.filter(p => !p.off).length, off = P.some(p => p.off);
   vmShow((nOn === 1 ? 'Found 1 person' : `Found ${nOn} people`) + (off ? ' + a voice' : ''), `
@@ -2716,11 +2827,13 @@ function vmCastStep() {
     <div class="vm-opts">
       <label>Background<select id="vmBg">${bgOptions(VM.bg)}</select></label>
       <label>Music<select id="vmMusic">${opt([['', 'No music'], ...TRACKS.map(t => [t[0], t[1]])], VM.music)}</select></label>
-      <label>Shape<select id="vmShape">${opt(Object.keys(ASPECTS).map(k => [k, RATIO_TXT[k]]), VM.shape)}</select></label>
+      <label>Shape<select id="vmShape">${opt(Object.keys(ASPECTS).map(k => [k, VID_SHAPE_TXT[k]]), VM.shape)}</select></label>
+      <label class="vm-txt">Text on the video<input id="vmText" type="text" maxlength="60" placeholder="e.g. Happy Birthday Mom!" value="${esc(VM.text || '')}"></label>
+      <label>Where<select id="vmTextAt">${opt([['top', 'Top'], ['bottom', 'Bottom']], VM.textAt)}</select></label>
     </div>
     <button class="vm-go" id="vmEdit" type="button">Next: who talks when</button>
     <button class="chipb seg" id="vmMake" type="button">Skip and make it now</button>`,
-    `<p>Tap a Nibble to change who plays that person.</p><p>Same person showing up twice? Tap <b>Same person as ↑</b>.</p><p><b>Next</b> lets you fix who talks when and watch it as you go. <b>Skip</b> makes it right away.</p>`);
+    `<p>Tap a Nibble to change who plays that person.</p><p>Same person showing up twice? Pick them in <b>Same as…</b> and they'll be one Nibble.</p><p>The <b>⇆</b> on a Nibble turns it round to face the other way.</p><p><b>Text on the video</b> shows your words over the whole video, in the text style you picked on the main screen.</p><p><b>Next</b> lets you fix who talks when and watch it as you go. <b>Skip</b> makes it right away.</p>`);
   const box = $('vmCast');
   P.forEach((p, i) => {
     const d = document.createElement('div'); d.className = 'vm-person';
@@ -2729,19 +2842,28 @@ function vmCastStep() {
       fg.fillStyle = '#fff3c4'; fg.fillRect(0, 0, 120, 120); fg.font = '58px system-ui, sans-serif'; fg.textAlign = 'center'; fg.textBaseline = 'middle'; fg.fillText(p.off ? '🎙️' : '🙂', 60, 64); }
     face.className = 'vm-face';
     const nib = document.createElement('button'); nib.type = 'button'; nib.className = 'vm-nib'; nib.setAttribute('aria-label', 'Nibble for person ' + (i + 1));
-    const circ = document.createElement('span'); circ.className = 'circ'; nibThumb(circ, VM.cast[i]);
-    nib.onclick = () => pickNibble(VM.cast[i], Object.assign(id => { VM.cast[i] = id; nibThumb(circ, id); }, { noAdd:true }));
+    const circ = document.createElement('span'); circ.className = 'circ'; nibThumb(circ, VM.cast[i]); flipThumb(circ, i);
+    // picking a Nibble for someone makes them their own person again; anyone linked to them follows
+    nib.onclick = () => pickNibble(VM.cast[i], Object.assign(id => { VM.cast[i] = id; delete VM.same[i]; vmLink(); vmCastStep(); }, { noAdd:true }));
     nib.append(circ);
     const tag = document.createElement('div'); tag.className = 'vm-tag';
-    const lb = document.createElement('span'); lb.className = 'lbl'; lb.textContent = p.off ? 'Voice off camera' : i === VM.main ? 'Main' : 'Person ' + (i + 1); tag.appendChild(lb);
-    if (i > 0 && !p.off) {   // the tracker can split one person in two (a jump cut, a hand over the face): one tap joins them
-      const same = document.createElement('button'); same.type = 'button'; same.className = 'chipb seg' + (+VM.cast[i] === +VM.cast[i - 1] ? ' on' : '');
-      same.textContent = 'Same person as ↑';
-      same.onclick = () => { VM.cast[i] = VM.cast[i - 1]; vmCastStep(); }; tag.appendChild(same);
+    const lb = document.createElement('span'); lb.className = 'lbl'; lb.textContent = pLabel(i); tag.appendChild(lb);
+    const ctl = document.createElement('div'); ctl.className = 'vm-ctl';
+    const others = P.map((q, j) => j).filter(j => j !== i && vmRoot(j) !== i);
+    if (others.length) {   // the tracker can split one person in two (a jump cut, a hand over the face): link them to anyone
+      const sel = document.createElement('select'); sel.className = 'vm-same' + (VM.same[i] != null ? ' on' : ''); sel.setAttribute('aria-label', 'Same person as');
+      sel.innerHTML = `<option value="">${VM.same[i] != null ? 'Own Nibble' : 'Same as…'}</option>` + others.map(j => `<option value="${j}"${VM.same[i] === j ? ' selected' : ''}>Same as ${pLabel(j)}</option>`).join('');
+      sel.onchange = () => { if (sel.value === '') delete VM.same[i]; else { VM.same[i] = +sel.value; for (const k of Object.keys(VM.same)) if (VM.same[k] === i) VM.same[k] = +sel.value; } vmLink(); vmCastStep(); };
+      ctl.appendChild(sel);
     }
+    // ⇆ sits on the Nibble's circle: turns it round to face the other way
+    const fl = document.createElement('button'); fl.type = 'button'; fl.className = 'vm-flip' + (VM.flip[i] ? ' on' : ''); fl.textContent = '⇆'; fl.setAttribute('aria-label', 'Face the other way');
+    fl.onclick = () => { const r = vmRoot(i); VM.flip[r] = !VM.flip[r]; vmLink(); vmCastStep(); };
+    const nw = document.createElement('span'); nw.className = 'vm-nibw'; nw.append(nib, fl);
+    if (ctl.childNodes.length) tag.appendChild(ctl);
     if (P.length > 1) { const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'vm-rm'; rm.textContent = '✕'; rm.setAttribute('aria-label', 'Remove ' + lb.textContent);
-      rm.onclick = () => { vmRemovePerson(i); vmCastStep(); }; d.append(face, document.createTextNode('→'), nib, tag, rm); }
-    else d.append(face, document.createTextNode('→'), nib, tag);
+      rm.onclick = () => { vmRemovePerson(i); vmCastStep(); }; d.append(face, document.createTextNode('→'), nw, tag, rm); }
+    else d.append(face, document.createTextNode('→'), nw, tag);
     box.appendChild(d);
   });
   $('vmRand').onclick = () => { vmRandom(); vmCastStep(); };
@@ -2764,6 +2886,8 @@ function vmCastStep() {
   $('vmBg').onchange = e => VM.bg = e.target.value;
   $('vmMusic').onchange = e => VM.music = e.target.value;
   $('vmShape').onchange = e => VM.shape = e.target.value;
+  $('vmText').oninput = e => VM.text = e.target.value.trim().replace(/\s+/g, ' ');
+  $('vmTextAt').onchange = e => VM.textAt = e.target.value;
   $('vmMake').onclick = vmRender;
   $('vmEdit').onclick = vmEditor;
 }
@@ -2830,7 +2954,7 @@ async function edPreviewOn() {
   VM.previewing = true; VM.arts = VM.arts || {}; VM.cur = -1;
   V.on = false;   // silent until ▶ hooks up the clip's sound
   for (const name of new Set([VM.bg, ...(VM.lines || []).map(l => l.bg || VM.bg)])) if (IMG_BGS[name]) { S.bg = name; bonkdBg(name); if (ENTRANCE[name]) entrance(); }
-  S.bg = VM.bg; setShape(VM.shape);
+  S.bg = VM.bg; setShape(VM.shape); vmFit();
   await edEnsureArts();
   if (!VM.previewing) return;
   VM.v = ED.v;
@@ -2841,9 +2965,11 @@ async function edEnsureArts() {
   const want = [...new Set(P.map((p, i) => +VM.cast[i]))].filter(id => !VM.arts[id]);
   if (want.length) { const w = $('edView'); if (w) w.classList.add('wait');
     for (const id of want) { try { VM.arts[id] = await fetchNibble(id); } catch (e) {} } }
-  VM.mirror = {}; P.forEach((p, i) => VM.mirror[i] = +VM.cast[i] !== +VM.cast[VM.first]);
+  vmFacing(); VM.mirror = {}; P.forEach((p, i) => VM.mirror[i] = !!VM.flip[i]);
   VM.cur = -1; const w = $('edView'); if (w) w.classList.remove('wait');
 }
+// words across the top of a square or wide video: the Nibble stands a little smaller, so they don't sit on its head
+function vmFit() { S.fit = VM.text && VM.textAt !== 'bottom' && VM.shape !== 'Vertical' ? 0.84 : 1; }
 function edAudio() {
   const v = ED.v; if (!v || !VM.previewing) return;
   try { const ac = audioCtx(); mixBus();
@@ -2855,7 +2981,7 @@ function edPreviewOff() {
   if (!VM.previewing) return; VM.previewing = false; VM.v = null;
   const k = VM.keep; if (!k) return;
   Object.assign(V, k.v); V.noWhistle = false; S.id = k.id; S.art = k.art; S.trait = k.trait; S.bg = k.bg; S.face = k.face; S.mouth = k.mouth; S.eye = k.eye; S.tracking = false;
-  setShape(k.shape); MH.length = 0; openLvl = 0;
+  setShape(k.shape); MH.length = 0; openLvl = 0; S.fit = 1;
 }
 // the main screen, copied small into the editor
 function edPaint() {
@@ -2903,8 +3029,8 @@ function edDraw() {
   // a row per speaker
   P.forEach((p, i) => {
     const h = document.createElement('button'); h.type = 'button'; h.className = 'ed-head' + (ED.lane === i ? ' on' : ''); h.style.setProperty('--c', LANE_COL[i % LANE_COL.length]);
-    const c = document.createElement('span'); c.className = 'circ'; nibThumb(c, VM.cast[i]); const nm = document.createElement('span'); nm.className = 'lbl'; nm.textContent = pName(i);
-    h.append(c, nm); h.onclick = () => { if (ED.lane === i) pickNibble(VM.cast[i], Object.assign(id => { VM.cast[i] = id; edDraw(); edEnsureArts(); }, { noAdd:true })); else { ED.lane = i; edDraw(); } };
+    const c = document.createElement('span'); c.className = 'circ'; nibThumb(c, VM.cast[i]); flipThumb(c, i); const nm = document.createElement('span'); nm.className = 'lbl'; nm.textContent = pName(i);
+    h.append(c, nm); h.onclick = () => { if (ED.lane === i) pickNibble(VM.cast[i], Object.assign(id => { VM.cast[i] = id; delete VM.same[i]; vmLink(); edDraw(); edEnsureArts(); }, { noAdd:true })); else { ED.lane = i; edDraw(); } };
     heads.appendChild(h);
     const lane = document.createElement('div'); lane.className = 'ed-lane' + (ED.lane === i ? ' on' : ''); lane.style.width = W + 'px'; lane.dataset.lane = i;
     lane.addEventListener('click', e => { if (e.target !== lane) return; ED.lane = i; ED.sel = null; seekAt(e); edDraw(); });   // a tap (a swipe scrolls)
@@ -2990,7 +3116,7 @@ async function vmRender() {
     stopMusic(); drawTracks();
     const arts = {}; for (const id of new Set(Object.values(VM.cast))) arts[id] = await fetchNibble(+id);
     VM.arts = arts;
-    VM.mirror = {}; P.forEach((p, i) => VM.mirror[i] = +VM.cast[i] !== +VM.cast[VM.first]);   // the same Nibble as the first speaker is the same person: never flipped
+    vmFacing(); VM.mirror = {}; P.forEach((p, i) => VM.mirror[i] = !!VM.flip[i]);   // which way each faces: picked on the cast screen
     VM.keep = { id:S.id, art:S.art, trait:S.trait, bg:S.bg, shape:S.shape || 'Square', face:S.face, mouth:S.mouth, eye:S.eye,
       v:{ an:V.an, buf:V.buf, spec:V.spec, hz:V.hz, floor:V.floor, peak:V.peak, loud:V.loud, trusted:V.trusted, on:V.on, lastVoice:V.lastVoice } };
     VM.ps = P.map(() => ({ mouth:{ cur:0, prev:0, t:0 }, eye:{ cur:0, prev:0, t:0 }, face:{ roll:0, yaw:0, pitch:0, seen:false, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 } }));
@@ -3000,7 +3126,7 @@ async function vmRender() {
     }
     await Promise.all(pics.filter(Boolean).map(i => i.complete && i.naturalWidth ? 0 : new Promise(r => { i.addEventListener('load', r, { once:true }); i.addEventListener('error', r, { once:true }); setTimeout(r, 5000); })));
     S.bg = VM.bg;
-    VM.rendering = true; setShape(VM.shape);
+    VM.rendering = true; setShape(VM.shape); vmFit();
     const v = document.createElement('video'); v.src = VM.url; v.playsInline = true; v.preload = 'auto'; VM.v = v;
     await new Promise((res, rej) => { v.oncanplay = res; v.onerror = rej; v.load(); });
     const ac = audioCtx(); mixBus();
@@ -3045,7 +3171,7 @@ function vmRestore() {
   if (!VM.rendering) return; VM.rendering = false; $('vm').classList.remove('rendering');
   const k = VM.keep; if (!k) return;
   Object.assign(V, k.v); V.noWhistle = false; S.id = k.id; S.art = k.art; S.trait = k.trait; S.bg = k.bg; S.face = k.face; S.mouth = k.mouth; S.eye = k.eye; S.tracking = false;
-  setShape(k.shape); MH.length = 0; openLvl = 0;
+  setShape(k.shape); MH.length = 0; openLvl = 0; S.fit = 1;
 }
 // one frame of the Nibbled video: who's on screen now, their face, their mouth (from the clip's sound), flipped if they answer
 function vmFrame(now) {
@@ -3061,8 +3187,9 @@ function vmFrame(now) {
   if (S.bg !== bgNow) S.bg = bgNow;   // every line can have its own background
   const x = vmSample(p, t + VM_LEAD), f = VM.ps[p].face; S.face = f; S.tracking = true;
   if (x) { Object.assign(f, x); f.seen = true; if (x.bu > t * 1000) S.blinkUntil = now + (x.bu - t * 1000);
-    // a face running off the edge of the picture: its mouth shape can't be read, so the voice picks the shape
-    if (x.edge) Object.assign(f, { round:0, wide:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0 }); }
+    // a face running off the edge of the picture, or a small one far back (a choir), can't be read for its mouth's shape
+    // (lips that look pressed on a blur would shut the mouth while they sing): the voice picks the shape
+    if (x.edge || x.s < 0.13) Object.assign(f, { round:0, wide:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0 }); }
   else {   // not seen right now: a resting face, the voice still moves the mouth, an easy blink now and then
     Object.assign(f, { open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0, blink:0, brow:0, browUp:0, eyeWide:0 }); f.seen = true;
     if (now > (VM.nb || 0)) { S.blinkUntil = now + 170; VM.nb = now + 2800 + Math.random() * 2600; }
@@ -3070,6 +3197,7 @@ function vmFrame(now) {
   drawBackground();
   ctx.save(); if (VM.mirror[p]) { ctx.translate(stage.width, 0); ctx.scale(-1, 1); }
   drawNibble(now); ctx.restore();
+  vmText();
   const pr = $('vmProg'); if (pr) pr.style.width = (100 * t / VM.dur).toFixed(1) + '%';
   // the end: phones don't always send the video's "ended" event, so the last frame (or a stall right at the end) finishes it too
   if (v.ended || t >= VM.dur - 0.06) { vmStop(false); return; }

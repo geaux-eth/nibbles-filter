@@ -94,8 +94,44 @@ export function prepareFx(base, traits = {}, hand = null) {
       if (dist > 110 && ((r > 232 && g > 226 && b > 170) || (r > 235 && g > 200 && b < 120))) { m[i] = 1; n++; } }
     if (n > 3000) fx.push({ type:'rays', o:[ox, oy], mask:sprite(d, m, [0, 0, N - 1, 639]), glow:null });
   }
-  // steam: little angry puffs out of each ear, in turn
-  if (/Steam/i.test(acc) && STEAM[kind]) fx.push({ type:'steam', ears:STEAM[kind], puffs:[], next:0, side:0 });
+  // steam: the picture's own steam clouds (off-white, by the ears, open to the background) puff in and out and blow off
+  // copies of themselves that drift away and fade; its little bubbles float off and come back
+  if (/Steam/i.test(acc)) {
+    const ears = STEAM[kind] || [[220, 300], [760, 280]], light = new Uint8Array(N * N);
+    // the background: see-through, or (a picture that keeps its backdrop) the colour in its top corners
+    const bgc = [0, N - 1].map(x => [d[x * 4], d[x * 4 + 1], d[x * 4 + 2], A(x)]), isBg = i => A(i) < 40 || bgc.some(c => c[3] > 200 && Math.abs(d[i * 4] - c[0]) + Math.abs(d[i * 4 + 1] - c[1]) + Math.abs(d[i * 4 + 2] - c[2]) < 40);
+    for (let i = 0; i < N * N; i++) { const r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2]; if (A(i) > 200 && lum(d, i) > 200 && Math.max(r, g, b) - Math.min(r, g, b) < 45) light[i] = 1; }
+    const clouds = [], bubbles = [];
+    for (const p of parts(light, 25)) {
+      if (p.n > 30000) continue;
+      let cx = 0, cy = 0; for (const i of p.px) { cx += i % N; cy += (i / N) | 0; } cx /= p.n; cy /= p.n;
+      if (!ears.some(([ex, ey]) => Math.hypot(cx - ex, cy - ey) < 240)) continue;
+      // its outline: the ink around it; steam sits against the background (an eye's white is closed in by the face)
+      // distance out from the steam (in a box around it): its ink outline is within ~12px, the background just past that
+      const P = 20, X0 = Math.max(0, p.box[0] - P), Y0 = Math.max(0, p.box[1] - P), X1 = Math.min(N - 1, p.box[2] + P), Y1 = Math.min(N - 1, p.box[3] + P), BW = X1 - X0 + 1, BH = Y1 - Y0 + 1;
+      const dist = new Uint8Array(BW * BH).fill(255), q = []; for (const i of p.px) { const k = (((i / N) | 0) - Y0) * BW + i % N - X0; dist[k] = 0; q.push(k); }
+      for (let h = 0; h < q.length; h++) { const k = q[h], x = k % BW, y = (k / BW) | 0, dv = dist[k] + 1; if (dv > 18) continue;
+        for (const j of [x > 0 ? k - 1 : -1, x < BW - 1 ? k + 1 : -1, y > 0 ? k - BW : -1, y < BH - 1 ? k + BW : -1]) if (j >= 0 && dist[j] > dv) {
+          dist[j] = dv; q.push(j); } }
+      const m = new Uint8Array(N * N); for (const i of p.px) m[i] = 1; let ring = 0, open = 0;
+      for (let k = 0; k < BW * BH; k++) { if (!dist[k] || dist[k] > 18) continue; const i = (((k / BW) | 0) + Y0) * N + k % BW + X0;
+        if (dist[k] >= 12) { ring++; if (isBg(i)) open++; } if (dist[k] <= 12 && !isBg(i) && lum(d, i) < 120) m[i] = 1; }
+      if (!ring || open / ring < 0.22) continue;
+      let bx0 = N, by0 = N, bx1 = 0, by1 = 0; for (let y = Y0; y <= Y1; y++) for (let x = X0; x <= X1; x++) if (m[y * N + x]) { if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y; }
+      const box = [bx0, by0, bx1, by1], img = sprite(d, m, box);
+      if (Math.max(p.box[2] - p.box[0], p.box[3] - p.box[1]) < 70) { for (let i = 0; i < N * N; i++) if (m[i]) erase[i] = 1; bubbles.push({ img, box, c:[cx, cy], ph:Math.random() }); continue; }
+      // where it leaves the head: its point nearest the middle of the face; it blows outward from there
+      let best = 1e9, pv = [cx, cy]; for (const i of p.px) { const x = i % N, y = (i / N) | 0, dd = Math.hypot(x - 500, y - 520); if (dd < best) { best = dd; pv = [x, y]; } }
+      const dl = Math.hypot(cx - pv[0], cy - pv[1]) || 1;
+      // what blows off is the cloud's white alone, softened (an inked copy fading out looks like glass, not steam)
+      const lm = new Uint8Array(N * N); for (const i of p.px) lm[i] = 1; const wisp = sprite(d, lm, box), wc = cv(wisp.width + 16, wisp.height + 16), wg = wc.getContext('2d');
+      wg.filter = 'blur(3px)'; wg.drawImage(wisp, 8, 8); wg.filter = 'none';
+      clouds.push({ img, wisp:wc, box, c:[cx, cy], pv, dir:[(cx - pv[0]) / dl, (cy - pv[1]) / dl - 0.25], ph:clouds.length * 1.7 });
+    }
+    for (const b of bubbles) { const near = clouds.reduce((a, c) => !a || Math.hypot(c.c[0] - b.c[0], c.c[1] - b.c[1]) < Math.hypot(a.c[0] - b.c[0], a.c[1] - b.c[1]) ? c : a, null);
+      const dx = near ? b.c[0] - near.pv[0] : b.c[0] - 500, dy = near ? b.c[1] - near.pv[1] : b.c[1] - 500, l = Math.hypot(dx, dy) || 1; b.dir = [dx / l, dy / l - 0.4]; }
+    if (clouds.length || bubbles.length) fx.push({ type:'steam', clouds, bubbles, puffs:[], next:0, side:0 });
+  }
   // propeller hat: the blades (blue, at the very top) spin
   if (/Propeller/i.test(acc)) {
     let yb = -1; for (let y = top; y < top + 200 && yb < 0; y++) for (let x = 0; x < N; x++) { const i = y * N + x, r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2]; if (A(i) > 200 && b > 140 && b > r + 50 && b > g + 10) { yb = y; break; } }
@@ -119,11 +155,42 @@ export function prepareFx(base, traits = {}, hand = null) {
     const w = new Uint8Array(N * N); for (let y = top; y < 720; y++) for (let x = 0; x < N; x++) { const i = y * N + x; if (A(i) > 200 && lum(d, i) > 205) w[i] = 1; }
     const ps = parts(w, 1500).filter(p => { const bw = p.box[2] - p.box[0], bh = p.box[3] - p.box[1]; return bw > 50 && bh > 50 && bw < 260 && bh < 260 && bw / bh > 0.7 && bw / bh < 1.4 && p.n < bw * bh * 0.75 && (p.box[1] + p.box[3]) / 2 < 600; })
       .sort((a, b) => b.n - a.n).slice(0, 2).filter((p, k, arr) => k === 0 || p.n > arr[0].n * 0.15);   // the two eyes
-    const spins = ps.map(p => { const [x0, y0, x1, y1] = p.box; return { c:[(x0 + x1) / 2, (y0 + y1) / 2], r:Math.max(x1 - x0, y1 - y0) / 2 + 2 }; });
-    if (spins.length) { for (const s of spins) { const r = Math.ceil(s.r), m = new Uint8Array(N * N), bx = [Math.round(s.c[0] - r), Math.round(s.c[1] - r), Math.round(s.c[0] + r), Math.round(s.c[1] + r)].map(v => Math.max(0, Math.min(N - 1, v)));
-        for (let y = bx[1]; y <= bx[3]; y++) for (let x = bx[0]; x <= bx[2]; x++) if (Math.hypot(x - s.c[0], y - s.c[1]) <= s.r) m[y * N + x] = 1;
-        s.img = sprite(d, m, bx); s.box = bx; }
-      fx.push({ type:'spin', spins }); }
+    // Each eye's inside gets a fresh spiral drawn in it every frame, turning, the same thickness and number of turns as the
+    // drawn one; the eye's own outline never moves, so nothing round spins inside an oval and leaves gaps. The inside: an
+    // ellipse fitted to the white swirl, grown out to the eye's outline, keeping only the eye's own white and ink inside it
+    // (an eye half hidden behind the face keeps the face in front of it).
+    const spins = [];
+    for (const p of ps) {
+      let mx = 0, my = 0; for (const i of p.px) { mx += i % N; my += (i / N) | 0; } mx /= p.n; my /= p.n;
+      let sxx = 0, syy = 0, sxy = 0; for (const i of p.px) { const dx = i % N - mx, dy = ((i / N) | 0) - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; } sxx /= p.n; syy /= p.n; sxy /= p.n;
+      const tr2 = (sxx + syy) / 2, df = Math.sqrt(Math.max(0, ((sxx - syy) / 2) ** 2 + sxy * sxy)), l1 = tr2 + df, l2 = Math.max(1, tr2 - df), ang = Math.atan2(l1 - sxx, sxy || 1e-6);
+      const A0 = 2 * Math.sqrt(l1), B0 = 2 * Math.sqrt(l2), ca = Math.cos(ang), sa = Math.sin(ang);
+      const white = i => A(i) > 200 && lum(d, i) > 205, inkAt = i => A(i) > 200 && Math.max(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]) < 90;
+      const at = (s2, th) => { const u = Math.cos(th) * A0 * s2, v = Math.sin(th) * B0 * s2, x = Math.round(mx + u * ca - v * sa), y = Math.round(my + u * sa + v * ca); return x < 0 || y < 0 || x >= N || y >= N ? -1 : y * N + x; };
+      // out from the middle until the ring is mostly not white any more: that's the eye's outline
+      let sc = 0.9; for (let s2 = 0.9; s2 < 1.6; s2 += 0.02) { let wn = 0, tn = 0; for (let k = 0; k < 90; k++) { const i = at(s2, k / 90 * 6.283); if (i < 0) continue; tn++; if (white(i)) wn++; } if (tn && wn / tn > 0.3) sc = s2; else break; }
+      const ea = A0 * (sc + 0.03), eb = B0 * (sc + 0.03), r = Math.ceil(Math.max(ea, eb)) + 2;
+      const x0 = Math.max(0, Math.floor(mx - r)), y0 = Math.max(0, Math.floor(my - r)), x1 = Math.min(N - 1, Math.ceil(mx + r)), y1 = Math.min(N - 1, Math.ceil(my + r)), w = x1 - x0 + 1, h = y1 - y0 + 1;
+      const inE = (x, y) => { const dx = x - mx, dy = y - my, u = dx * ca + dy * sa, v = -dx * sa + dy * ca; return (u / ea) ** 2 + (v / eb) ** 2 <= 1; };
+      let lm = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y + y0) * N + x + x0; if (inE(x + x0, y + y0) && (white(i) || inkAt(i))) lm[y * w + x] = 1; }
+      // close the hairline gaps (the soft grey edge between a line and the white) so no bit of the old spiral peeks through
+      const morph = (m2, grow2) => { const o = m2.slice(); for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const k = y * w + x; const nb = m2[k - 1] + m2[k + 1] + m2[k - w] + m2[k + w];
+        if (grow2 ? !m2[k] && nb && inE(x + x0, y + y0) : m2[k] && nb < 4) o[k] = grow2 ? 1 : 0; } return o; };
+      lm = morph(morph(morph(morph(lm, 1), 1), 0), 0);
+      const m = new Uint8Array(N * N); let n = 0, ink = 0, wr = 0, wg = 0, wb = 0, wn = 0;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (lm[y * w + x]) { const i = (y + y0) * N + x + x0; m[i] = 1; n++; if (inkAt(i)) ink++; else if (white(i)) { wr += d[i * 4]; wg += d[i * 4 + 1]; wb += d[i * 4 + 2]; wn++; } }
+      if (n < 1500 || !wn) continue;
+      // the drawn spiral's turns: ink lines crossed going out from the middle, averaged over four directions
+      let runs = 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { let inInk = false;
+        for (let k = 0; k < 200; k++) { const x = Math.round(mx + dx * k), y = Math.round(my + dy * k), i = y * N + x; if (x < 0 || y < 0 || x >= N || y >= N || !inE(x, y)) break;
+          const dk = inkAt(i); if (dk && !inInk) runs++; inInk = dk; } }
+      const turns = Math.max(1.5, Math.min(5, runs / 4 + 0.5));
+      let len = 0; { let px = 0, py = 0; for (let k = 1; k <= 400; k++) { const th = k / 400 * turns * 6.283, rr = k / 400, qx = rr * Math.cos(th) * ea, qy = rr * Math.sin(th) * eb; len += Math.hypot(qx - px, qy - py); px = qx; py = qy; } }
+      const lw = Math.max(4, Math.min(18, ink / Math.max(1, len)));
+      spins.push({ c:[mx, my], rx:ea, ry:eb, ang, turns, lw, white:`rgb(${Math.round(wr / wn)},${Math.round(wg / wn)},${Math.round(wb / wn)})`, mask:sprite(d.map((v, j) => j % 4 === 3 ? 255 : 0), m, [x0, y0, x1, y1]), box:[x0, y0, x1, y1] });
+    }
+    if (spins.length) fx.push({ type:'spin', spins });
   }
   // the built-in specials: robot lights blink, anatomy hearts beat
   if (hand && hand.lights) fx.push({ type:'lights', lights:hand.lights.map(([x, y, r, col], k) => {
@@ -198,25 +265,35 @@ export function drawFx(ctx, fx, t, x, y, size) {
       const sg = ctx.createRadialGradient(ox, oy, 0, ox, oy, 90 + 25 * flick); sg.addColorStop(0, `rgba(255,250,210,${0.75 * flick})`); sg.addColorStop(1, 'rgba(255,240,150,0)');
       ctx.globalAlpha = 1; ctx.fillStyle = sg; ctx.fillRect(ox - 130, oy - 130, 260, 260); ctx.restore();
     }
-    else if (f.type === 'steam') {   // a short burst of 2–3 puffs from one ear, then the other
-      if (t >= f.next) { const [ex, ey, dx, dy] = f.ears[f.side]; f.side = (f.side + 1) % f.ears.length;
-        for (let j = 0; j < 3; j++) f.puffs.push({ x:ex, y:ey, dx, dy, t0:t + j * 110, r:24 + Math.random() * 9, wob:Math.random() * 6 });
-        f.next = t + 650 + Math.random() * 250; }
-      f.puffs = f.puffs.filter(p => t - p.t0 < 900);
-      for (const p of f.puffs) { const a = (t - p.t0) / 900; if (a < 0) continue;
-        const dist = 30 + 170 * Math.sqrt(a), px = p.x + p.dx * dist + Math.sin(a * 6 + p.wob) * 6, py = p.y + p.dy * dist - a * 30, s = 0.35 + 0.85 * Math.min(1, a * 2.2);
-        ctx.save(); ctx.globalAlpha = a < 0.6 ? 1 : 1 - (a - 0.6) / 0.4; ctx.translate(px, py); ctx.scale(s, s);
-        const blobs = [[0, 0, p.r], [p.r * 0.9, -p.r * 0.3, p.r * 0.75], [-p.r * 0.8, -p.r * 0.2, p.r * 0.7], [p.r * 0.1, -p.r * 0.85, p.r * 0.65]];
-        ctx.beginPath(); for (const [bx, by, br] of blobs) { ctx.moveTo(bx + br, by); ctx.arc(bx, by, br, 0, 6.283); }
-        ctx.lineWidth = 9; ctx.strokeStyle = '#1c1c1c'; ctx.stroke(); ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.restore(); }
+    else if (f.type === 'steam') {
+      // every so often a cloud blows off a copy of itself: it leaves from behind the cloud, drifts out and up, grows and fades
+      const big = f.big || (f.big = f.clouds.filter(c => Math.max(c.box[2] - c.box[0], c.box[3] - c.box[1]) >= 110));   // (a little jet streak only swells)
+      if (big.length && t >= f.next) { const c = big[f.side % big.length]; f.side++; f.puffs.push({ c, t0:t, wob:Math.random() * 6 }); f.next = t + 420 + Math.random() * 260; }
+      f.puffs = f.puffs.filter(p => t - p.t0 < 1100);
+      for (const p of f.puffs) { const a = (t - p.t0) / 1100, c = p.c, [x0, y0] = c.box, dist = 20 + 150 * Math.sqrt(a), s = 0.45 + 0.4 * a;
+        ctx.save(); ctx.globalAlpha = a < 0.15 ? a / 0.15 : Math.max(0, 1 - (a - 0.15) / 0.85) ** 1.4;
+        ctx.translate(c.c[0] + c.dir[0] * dist + Math.sin(a * 7 + p.wob) * 5, c.c[1] + c.dir[1] * dist - a * 25); ctx.scale(s, s); ctx.drawImage(c.wisp, x0 - 8 - c.c[0], y0 - 8 - c.c[1]); ctx.restore(); }
+      for (const c of f.clouds) {   // the cloud itself swells and settles from where it leaves the head (never smaller than drawn, so it always covers itself)
+        const k = 1 + 0.07 * (0.5 + 0.5 * Math.sin(t / 1000 * 8.5 + c.ph)), [x0, y0] = c.box;
+        ctx.save(); ctx.translate(c.pv[0], c.pv[1]); ctx.rotate(0.035 * Math.sin(t / 1000 * 4.1 + c.ph)); ctx.scale(k, k); ctx.drawImage(c.img, x0 - c.pv[0], y0 - c.pv[1]); ctx.restore(); }
+      for (const b of f.bubbles) {   // bubbles float off and pop back where they were drawn
+        const a = (t / 1600 + b.ph) % 1, [x0, y0] = b.box;
+        ctx.save(); ctx.globalAlpha = a < 0.12 ? a / 0.12 : a > 0.75 ? Math.max(0, 1 - (a - 0.75) / 0.25) : 1;
+        ctx.translate(b.dir[0] * 45 * a, b.dir[1] * 45 * a); ctx.drawImage(b.img, x0, y0); ctx.restore(); }
     }
     else if (f.type === 'prop') {   // the blades turn: seen side-on, they narrow and widen and flip
       const [x0, y0, x1, y1] = f.box, s = Math.cos(t / 1000 * 2 * Math.PI * 2.2), w = x1 - x0 + 1;
       ctx.save(); ctx.translate(f.cx, 0); ctx.scale(Math.abs(s) < 0.08 ? 0.08 * Math.sign(s || 1) : s, 1); ctx.drawImage(f.img, x0 - f.cx, y0); ctx.restore();
     }
-    else if (f.type === 'spin') for (const s of f.spins) {   // round and round
-      const [x0, y0] = s.box; ctx.save(); ctx.beginPath(); ctx.arc(s.c[0], s.c[1], s.r, 0, 6.283); ctx.clip();
-      ctx.translate(s.c[0], s.c[1]); ctx.rotate(t / 1000 * 3.2); ctx.drawImage(s.img, x0 - s.c[0], y0 - s.c[1]); ctx.restore();
+    else if (f.type === 'spin') for (const s of f.spins) {   // round and round: the eye's white, a turning spiral, kept inside the eye
+      const [x0, y0, x1, y1] = s.box, w = x1 - x0 + 1, h = y1 - y0 + 1, c = s.can || (s.can = cv(w, h)), g = c.getContext('2d');
+      g.globalCompositeOperation = 'source-over'; g.fillStyle = s.white; g.fillRect(0, 0, w, h);
+      g.save(); g.translate(s.c[0] - x0, s.c[1] - y0); g.rotate(s.ang || 0); g.beginPath();
+      const ph = -t / 1000 * 3.2, steps = Math.ceil(s.turns * 90);
+      for (let k = 0; k <= steps; k++) { const r = k / steps * 1.12, th = k / steps * s.turns * 6.283 + ph; const px = r * Math.cos(th) * s.rx, py = r * Math.sin(th) * s.ry; k ? g.lineTo(px, py) : g.moveTo(px, py); }
+      g.lineWidth = s.lw; g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#1c1c1c'; g.stroke(); g.restore();
+      g.globalCompositeOperation = 'destination-in'; g.drawImage(s.mask, 0, 0);
+      ctx.drawImage(c, x0, y0);
     }
     else if (f.type === 'lights') for (const l of f.lights) {   // each light blinks on its own beat: brightens and glows, then rests
       const on = Math.max(0, Math.sin(t / 1000 * 3.1 + l.ph)) ** 3;
