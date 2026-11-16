@@ -956,6 +956,8 @@ async function kitPrepare(id) {
       const grp = groupOf(a);
       if (grp && grp.loop) { files.hole = URL.createObjectURL(await new Promise(r => res.faceMask.toBlob(r, 'image/png')));
         NIBBLES[id].trait = { frames:grp.frames, fps:grp.fps, from:grp.loop, hole:true, skinThrough:!!grp.skinThrough, drawnBlink:!!grp.drawnBlink }; }
+      // dark magic: #8549's moving magic (the one made for it by hand), fitted onto the collection picture's own magic
+      if (kind === 'Gnome' && /dark magic/i.test(String(a.Accessory || '')) && !NIBBLES[id].trait) NIBBLES[id].trait = { frames:20, fps:6.67, from:8549, box:[-24, -18, 1020, 1020], darkMagic:true };
       FACE_AT[id] = exp.layout.at; delete ART[id]; addOption(id, kind);
       setStatus('x', `${kind} #${id} is ready.`, '', 1500);
       return true;
@@ -1110,6 +1112,7 @@ function fetchNibble(id) {
         if (fx.list.length) art.fx = fx;
       }
     } catch (e) { console.warn('fx', e); }
+    if (cfg.trait && cfg.trait.darkMagic) unMagic(art);
     if (cfg.overlay) art.over = await Promise.all(Array.from({ length:10 }, (_, i) => loadImg(`faces/${id}/b${i}.webp?v=${ART_V}`)));
     // does the art's body run off its left / right edge? then it keeps going in wide frames
     const pc = document.createElement('canvas'); pc.width = 1000; pc.height = 1000; const pg = pc.getContext('2d', { willReadFrequently:true });
@@ -1657,6 +1660,35 @@ function drawFire(t, x, y, size) {
   g.setTransform(sx, 0, 0, sy, tx, ty); g.drawImage(F.frames[Math.floor(t / 125) % 6], 0, 0); g.drawImage(F.eyes, 0, 0);
   g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'destination-in'; g.drawImage(F.clip, 0, 0, 1000, 1000);
   ctx.drawImage(fireC, x, y, size, size);
+}
+// Dark magic on a collection gnome: its own still magic is painted out (filled from the colours around it) before #8549's
+// moving magic goes on top, so the still wisps never peek out from under the moving ones as a second outline.
+function unMagic(art) {
+  const N = 1000, c = document.createElement('canvas'); c.width = c.height = N; const g = c.getContext('2d', { willReadFrequently:true });
+  g.drawImage(art.base, 0, 0, N, N); const d = g.getImageData(0, 0, N, N).data, m = new Uint8Array(N * N);
+  for (let i = 0; i < N * N; i++) { const r = d[i * 4], gg = d[i * 4 + 1], b = d[i * 4 + 2]; if (d[i * 4 + 3] > 120 && r > 120 && b > r + 35 && b > gg + 60) m[i] = 1; }
+  // its ink outline: dark pixels within a few pixels of it
+  const near = new Uint8Array(N * N); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const i = y * N + x; if (!m[i]) continue;
+    for (let dy = -6; dy <= 6; dy += 2) for (let dx = -6; dx <= 6; dx += 2) { const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < N && yy < N) near[yy * N + xx] = 1; } }
+  // (not the hat's outline or the eyes': ink that also touches another colour than the magic stays)
+  const other = i => { const r = d[i * 4], gg = d[i * 4 + 1], b = d[i * 4 + 2]; return d[i * 4 + 3] > 120 && r + gg + b > 200 && !(r > 120 && b > r + 35 && b > gg + 60) && !(d[i * 4 + 3] < 250); };
+  for (let i = 0; i < N * N; i++) if (near[i] && !m[i] && d[i * 4 + 3] > 120 && d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2] < 200) {
+    const x = i % N, y = (i / N) | 0; let o = false;
+    for (let dy = -5; dy <= 5 && !o; dy++) for (let dx = -5; dx <= 5; dx++) { const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < N && yy < N && other(yy * N + xx) && !near[yy * N + xx]) { o = true; break; } }
+    if (!o) m[i] = 1; }
+  // fill: a weighted blur of the picture around it (wide where the hole is wide)
+  const P = [0, 1, 2, 3].map(() => new Float32Array(N * N));
+  for (let i = 0; i < N * N; i++) if (!m[i] && d[i * 4 + 3] > 200) { P[3][i] = 1; for (let ch = 0; ch < 3; ch++) P[ch][i] = d[i * 4 + ch]; }
+  const box = (A, r) => { const T = new Float32Array(N * N);
+    for (let y = 0; y < N; y++) { let acc = 0; for (let x = -r; x < N; x++) { if (x + r < N) acc += A[y * N + x + r]; if (x - r - 1 >= 0) acc -= A[y * N + x - r - 1]; if (x >= 0) T[y * N + x] = acc; } }
+    for (let x = 0; x < N; x++) { let acc = 0; for (let y = -r; y < N; y++) { if (y + r < N) acc += T[(y + r) * N + x]; if (y - r - 1 >= 0) acc -= T[(y - r - 1) * N + x]; if (y >= 0) A[y * N + x] = acc; } } };
+  const B = P.map(A => A.slice()); for (let k = 0; k < 2; k++) { for (const A of P) box(A, 8); for (const A of B) box(A, 30); }
+  const fill = new Uint8ClampedArray(N * N * 3);
+  for (let i = 0; i < N * N; i++) if (m[i]) { const S2 = P[3][i] > 30 ? P : B, w = S2[3][i]; if (w < 1e-3) continue; for (let ch = 0; ch < 3; ch++) fill[i * 3 + ch] = S2[ch][i] / w; }
+  const paint = im => { const o = document.createElement('canvas'); o.width = o.height = N; const og = o.getContext('2d', { willReadFrequently:true }); og.drawImage(im, 0, 0, N, N);
+    const id = og.getImageData(0, 0, N, N), q = id.data; for (let i = 0; i < N * N; i++) if (m[i]) { q[i * 4] = fill[i * 3]; q[i * 4 + 1] = fill[i * 3 + 1]; q[i * 4 + 2] = fill[i * 3 + 2]; q[i * 4 + 3] = 255; }
+    og.putImageData(id, 0, 0); return o; };
+  art.base = paint(art.base); art.mouths = art.mouths.map(paint);
 }
 // laser eyes run off the edge of the picture: past that edge the beam carries on along its own line (each column of
 // the beam near the edge, copied outward and shifted by the beam's slope), so a tilted head never bends it toward the side
