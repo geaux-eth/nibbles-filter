@@ -934,7 +934,7 @@ async function donorFor(id, a, B) {
   try { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(best); await im.decode(); return B.cutOriginal(im).canvas; } catch (e) { return null; }
 }
 // things in front of the mouth, kept whole on top of every talking mouth (kit.js)
-const FRONT_MOUTH = /mustache|straw|match|bubbles/i, FRONT_ACC = /dark magic/i;
+const FRONT_MOUTH = /mustache|straw|match|bubbles/i;   // (dark magic isn't: its still wisps are replaced by the moving ones)
 const KIT_BUSY = {};
 window.__nf = { setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = k; }, setPose:p => { S.forcePose = p; }, faceAt:id => FACE_AT[id], setShape:n => setShape(n),
   groupShot:async (ids, shape, gl, slots) => {   // (tests) one frame of a group layout
@@ -961,7 +961,7 @@ async function kitPrepare(id) {
       const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
       const cut = B.cutOriginal(im), { art } = await fetchNibble(ref), donor = await donorFor(id, a, B);
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop),
-        donor, front:FRONT_ACC.test(String(a.Accessory || '')) ? true : /mustache/i.test(String(a.Mouth || '')) ? 'mustache' : FRONT_MOUTH.test(String(a.Mouth || '')) });
+        donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : FRONT_MOUTH.test(String(a.Mouth || '')) });
       res.face = FACE_AT[ref];
       res.traits = B.findTraits(cut.canvas, res, kind, cut.bg, { halo:/halo/i.test(String(a.Accessory || '')), fire:/fire/i.test(String(a.Eyes || '')), laser:/laser/i.test(String(a.Eyes || '')) });
       const exp = await B.exportFiles(res, cut.canvas), files = {};

@@ -265,12 +265,20 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
   for (let p = 0; p < N * N; p++) { if (!Zd[p]) continue; const i = p * 4; if (R[i + 3] > 128 && (isSkin(R, i) || hits[p] >= 2)) face0[p] = 1; }
   const face = grow(face0, 3), face0core = new Uint8Array(N * N);
   for (let p = 0; p < N * N; p++) if (face0[p] && isSkin(R, p * 4)) face0core[p] = 1;   // where the reference shows skin, the kit's dark is the new mouth, not clothes
+  // this Nibble's clothes: its colours along the bottom of the picture; and its face's colours (around the eyes), which
+  // a colour that's both (fur all the way down) counts as
+  const tb = new Uint32Array(32768), tfc = new Uint32Array(32768);
+  for (let p = N * 900; p < N * N; p++) { const i = p * 4; if (T[i + 3] > 200) tb[bin(T[i], T[i + 1], T[i + 2])]++; }
+  { let ey0 = N, ey1 = 0; if (ref.eyes && ref.eyes[4]) { const E = data(ref.eyes[4]); for (let p = 0; p < N * N; p++) if (E[p * 4 + 3] > 20) { const y = (p / N) | 0; if (y < ey0) ey0 = y; if (y > ey1) ey1 = y; } }
+    if (ey1 > ey0) for (let p = ey0 * N; p < (ey1 + 1) * N; p++) { const i = p * 4; if (T[i + 3] > 200 && lum(T, i) >= 75) tfc[bin(T[i], T[i + 1], T[i + 2])]++; } }
+  const tBotP = palette(tb, 400, 1), tFaceP = palette(tfc, 300, 1);
   // where this Nibble's own mouth area differs from the reference (its own mouth trait): talking replaces it.
   // Only on the face: a different outfit or collar near the jaw stays this Nibble's own.
   const own = new Uint8Array(N * N);
   // (with a donor standing in, only the mouth zone itself: below it the difference is this Nibble's outfit, not its mouth)
   for (let p = 0; p < N * N; p++) { if (!Zd[p] || !face[p] || (donor && !Z[p])) continue; const i = p * 4, m = mapped(R, i);
     if (donor && lum(T, i) >= 200 && lum(R, i) < 300) continue;   // (the donor's collar or clothes where the reference shows fur)
+    if (tBotP && inPal(tBotP, T[i], T[i + 1], T[i + 2]) && !inPal(tFaceP, T[i], T[i + 1], T[i + 2])) continue;   // this Nibble's clothes (a collar where the reference shows chin fur): not its mouth
     if (Math.abs(T[i + 3] - R[i + 3]) > 60 || (m && Math.abs(m[0] - T[i]) + Math.abs(m[1] - T[i + 1]) + Math.abs(m[2] - T[i + 2]) > 70)) own[p] = 1; }
   const ownG = grow(own, 3);
   // a tongue or drool hanging out of this Nibble's mouth (Tongue Out, Drooling): gone while it talks
@@ -350,7 +358,8 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       if (Math.abs(D[i + 3] - R[i + 3]) > 30 || dist(D, i, R, i) > 30) use[p] = 1;
       // the sheet repainting the fur or clothes a slightly different shade (not a line, not the mouth's reds, pinks or
       // teeth) isn't a change: this Nibble keeps its own there (a black bear's shirt collar stays a collar)
-      if (use[p] && D[i + 3] > 200 && R[i + 3] > 200 && lum(D, i) > 120 && lum(R, i) > 120 && dist(D, i, R, i) < 90 && !mouthHue(D[i], D[i + 1], D[i + 2]) && !mouthHue(R[i], R[i + 1], R[i + 2]) && !isSkin(R, i)) use[p] = 0; }
+      // (fur included: a black bear's chin fur repainted a shade off must not paint an albino's white over its own shirt)
+      if (use[p] && D[i + 3] > 200 && R[i + 3] > 200 && dist(D, i, R, i) < (lum(R, i) < 200 ? 60 : 90) && lum(D, i) >= 75 && lum(R, i) >= 75 && !mouthHue(D[i], D[i + 1], D[i + 2]) && !mouthHue(R[i], R[i + 1], R[i + 2])) use[p] = 0; }
     // only solid changes count: scattered differences are Gemini redrawing the fur, and stay this Nibble's own
     const solid = fillHoles(grow(shrink(grow(blobs(use, 120), 3), 3), 0));
     const useG = grow(solid, 2); for (let p = 0; p < N * N; p++) { if (ownG[p] && face[p]) useG[p] = 1; useG[p] &= Zd[p]; }
