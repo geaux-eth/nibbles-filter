@@ -418,7 +418,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261116-1600';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261116-1800';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -919,6 +919,20 @@ const kitFor = t => { const a = t && t.a; if (groupOf(a)) return groupOf(a).ref;
 // eyes that don't blink: fire, lasers, X / knocked out, spirals, slot machines, glasses and anything worn over the eyes
 const NO_BLINK = /fire|ignis|laser|knocked|dizzy|slot|3d|glasses|monocle|robot|anatomy|empty|whites|eyepatch|button|glowing|magic|three|awooga|burglar/i;
 const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || ''));
+// A plain-mouthed Nibble of the same kind, skin and outfit (and accessory if one exists): what this Nibble looks like under
+// its own big mouth, for the talking mouths (kit.js). null when this Nibble's mouth is plain already or there's none.
+const PLAIN_MOUTH = ['Smile', 'Frown'];
+async function donorFor(id, a, B) {
+  if (PLAIN_MOUTH.includes(a.Mouth) || !TRAITS) return null;
+  const m = await TRAITS; if (!m) return null;
+  const col = n => m.k.indexOf(n), val = (row, n) => { const j = col(n); return row[j] >= 0 ? m.v[j][row[j]] : undefined; };
+  let best = 0, bs = -1;
+  m.t.forEach((row, k) => { const did = k + 1; if (did === id || val(row, 'Character') !== a.Character || val(row, 'Skin') !== a.Skin || val(row, 'Outfit') !== a.Outfit) return;
+    const mo = val(row, 'Mouth'); if (!PLAIN_MOUTH.includes(mo)) return;
+    const sc = (mo === 'Smile' ? 2 : 1) + (val(row, 'Accessory') === a.Accessory ? 4 : 0) + (val(row, 'Eyes') === a.Eyes ? 1 : 0); if (sc > bs) { bs = sc; best = did; } });
+  if (!best) return null;
+  try { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(best); await im.decode(); return B.cutOriginal(im).canvas; } catch (e) { return null; }
+}
 // things in front of the mouth, kept whole on top of every talking mouth (kit.js)
 const FRONT_MOUTH = /mustache|straw|match|bubbles/i, FRONT_ACC = /dark magic/i;
 const KIT_BUSY = {};
@@ -945,9 +959,9 @@ async function kitPrepare(id) {
     try {
       const [B, K] = await Promise.all([import('./builder.js?v=' + ART_V), import('./kit.js?v=' + ART_V)]);
       const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
-      const cut = B.cutOriginal(im), { art } = await fetchNibble(ref);
+      const cut = B.cutOriginal(im), { art } = await fetchNibble(ref), donor = await donorFor(id, a, B);
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop),
-        front:FRONT_ACC.test(String(a.Accessory || '')) ? true : /mustache/i.test(String(a.Mouth || '')) ? 'mustache' : FRONT_MOUTH.test(String(a.Mouth || '')) });
+        donor, front:FRONT_ACC.test(String(a.Accessory || '')) ? true : /mustache/i.test(String(a.Mouth || '')) ? 'mustache' : FRONT_MOUTH.test(String(a.Mouth || '')) });
       res.face = FACE_AT[ref];
       res.traits = B.findTraits(cut.canvas, res, kind, cut.bg, { halo:/halo/i.test(String(a.Accessory || '')), fire:/fire/i.test(String(a.Eyes || '')), laser:/laser/i.test(String(a.Eyes || '')) });
       const exp = await B.exportFiles(res, cut.canvas), files = {};
