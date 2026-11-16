@@ -148,7 +148,9 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     const lab = new Int32Array(N * N), q = new Int32Array(N * N), use = new Uint8Array(N * N); let id = 0;
     for (let s0 = 0; s0 < N * N; s0++) { if (!dm[s0] || lab[s0]) continue; id++; let h = 0, t = 0, inZ = 0; q[t++] = s0; lab[s0] = id;
       while (h < t) { const p = q[h++], x = p % N; if (Zd[p]) inZ++; for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && dm[j] && !lab[j]) { lab[j] = id; q[t++] = j; } }
-      if (inZ >= 20) for (let k = 0; k < t; k++) use[q[k]] = 1; }
+      // (mostly in the mouth area: a hood, a scarf or a cape that the donor doesn't wear is this Nibble's own, never swapped)
+      if (inZ >= 20) {
+        if (inZ >= t * 0.3) for (let k = 0; k < t; k++) use[q[k]] = 1; } }
     const g = grow(fillHoles(use), 3); donor.box = [N, N, 0, 0];
     for (let p = 0; p < N * N; p++) if (g[p] && zone[p]) { const i = p * 4, x = p % N, y = (p / N) | 0; const b = donor.box; if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; T[i] = Dn[i]; T[i + 1] = Dn[i + 1]; T[i + 2] = Dn[i + 2]; T[i + 3] = Dn[i + 3]; } }
   for (let p = 0; p < N * N; p++) if (Zd[p]) ring[p] = 0;
