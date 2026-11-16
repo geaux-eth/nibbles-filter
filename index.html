@@ -411,7 +411,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261115-1900';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261115-2300';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -906,14 +906,14 @@ const KIT_NO_BLINK = new Set();
 const KIT_SKIP = new Set();   // kind:skin pairs whose results aren't good enough yet
 const SPECIAL_SKINS = new Set(['Red', 'Wrestler', 'Plush', 'Seawoman', 'Werewolf', 'Mage', 'Alien', 'Human', 'Metal', 'Dissection', 'Slime', 'Dragon', 'Fire', 'Mummy']);
 // special skins whose whole group shares a pose: one kit each, with a moving body loop played behind the face
-const KIT_GROUP = { 'Ghost:Fire':{ ref:'k2757', loop:'ghostfire', frames:48, fps:12 }, 'Ghost:Slime':{ ref:'k5842', loop:'ghostslime', frames:48, fps:12, wideFace:true }, 'Ghost:Mummy':{ ref:'k4946' }, 'Gecko:Dragon':{ ref:'k500', noBlink:/big|eyelashes/i } };
+const KIT_GROUP = { 'Ghost:Fire':{ ref:'k2757', loop:'ghostfire', frames:48, fps:12 }, 'Ghost:Slime':{ ref:'k5842', loop:'ghostslime', frames:48, fps:12, wideFace:true, skinThrough:true }, 'Ghost:Mummy':{ ref:'k4946' }, 'Gecko:Dragon':{ ref:'k500', noBlink:/big|eyelashes/i } };
 const groupOf = a => a && KIT_GROUP[a.Character + ':' + a.Skin];
 const kitFor = t => { const a = t && t.a; if (groupOf(a)) return groupOf(a).ref; return a && !SPECIAL_SKINS.has(a.Skin) && !KIT_SKIP.has(a.Character + ':' + a.Skin) ? KIT_REF[a.Character] || null : null; };
 // eyes that don't blink: fire, lasers, X / knocked out, spirals, slot machines, glasses and anything worn over the eyes
 const NO_BLINK = /fire|ignis|laser|knocked|dizzy|slot|3d|glasses|monocle|robot|anatomy|empty|whites|eyepatch|button|glowing|magic|three|awooga|burglar/i;
 const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || ''));
 const KIT_BUSY = {};
-window.__nf = { setEye:k => { S.forceEye = k; }, get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id), pickNibble:(c, f) => pickNibble(c, f), bgOptions:c => bgOptions(c), vmRandom:() => { vmRandom(); return VM.bg; } };   // for tests
+window.__nf = { setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = k; }, get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id), pickNibble:(c, f) => pickNibble(c, f), bgOptions:c => bgOptions(c), vmRandom:() => { vmRandom(); return VM.bg; } };   // for tests
 async function kitPrepare(id) {
   if (NIBBLES[id]) return true;
   if (KIT_BUSY[id]) return KIT_BUSY[id];
@@ -933,7 +933,7 @@ async function kitPrepare(id) {
       NIBBLES[id] = { bg:cut.bg, fullFace:true, files, layout:exp.layout, jiggle:exp.layout.jig, kit:ref };
       const grp = groupOf(a);
       if (grp && grp.loop) { files.hole = URL.createObjectURL(await new Promise(r => res.faceMask.toBlob(r, 'image/png')));
-        NIBBLES[id].trait = { frames:grp.frames, fps:grp.fps, from:grp.loop, hole:true }; }
+        NIBBLES[id].trait = { frames:grp.frames, fps:grp.fps, from:grp.loop, hole:true, skinThrough:!!grp.skinThrough }; }
       FACE_AT[id] = exp.layout.at; delete ART[id]; addOption(id, kind);
       setStatus('x', `${kind} #${id} is ready.`, '', 1500);
       return true;
@@ -1101,7 +1101,8 @@ function fetchNibble(id) {
       trait = { ...t, frames };
       if (t.hole) { trait.holeImg = await loadImg(artURL(id, 'hole'));
         // where every loop frame covers the face: the still face stays inside it, so it never pokes past a moving outline
-        trait.innerImg = await loadImg(`traits/${t.from || id}/inner.webp?v=${ART_V}`).catch(() => null); }
+        trait.innerImg = await loadImg(`traits/${t.from || id}/inner.webp?v=${ART_V}`).catch(() => null);
+        if (t.skinThrough) loopFace(art, trait); }   // built now, while loading, so the face never stalls a video
     }
     // where the character (and its floating extras) can ever be, in the 1000px art — the text keeps out of this
     const bc = document.createElement('canvas'); bc.width = bc.height = 250; const bg = bc.getContext('2d', { willReadFrequently:true });
@@ -1241,6 +1242,8 @@ async function startVoice() {
 }
 function readVoice(now) {
   if (!V.on) return;
+  if ((VM.rendering || VM.previewing) && VM.v && VM.env && VM.env.vt) { vmVoice(now, VM.v.currentTime + VM_LEAD); return; }
+  V.dip = false;
   V.an.getFloatTimeDomainData(V.buf); let s = 0; for (const x of V.buf) s += x*x;
   V.rms = Math.sqrt(s / V.buf.length);
   V.floor.push(V.rms); if (V.floor.length > 180) V.floor.shift();
@@ -1272,6 +1275,21 @@ function readVoice(now) {
     V.level = Math.max(0, Math.min(1, (V.rms - fl * 2) / (V.loud * 0.6 + 1e-6)));
     V.sh = LIPS.shape(LIPS.analyse(V.buf, V.ac.sampleRate));
   } else { V.level = 0; V.sh = null; }
+}
+// Making a video: the voice at time t of the clip, read from the clip's sound track (VM.env.vt). The mouth is read a few
+// frames ahead (VM_LEAD), because a drawn mouth takes a moment to settle on a shape and should land on the syllable,
+// not after it. Between syllables (the sound dips well below the syllable's peak) the mouth closes, so it flaps in time.
+const VM_LEAD = 0.1;
+function vmVoice(now, t) {
+  const T = VM.env.vt, n = T.e.length, k = Math.max(0, Math.min(n - 1, Math.round(t * 100))), e = T.e[k];
+  let pk = 0; for (let j = Math.max(0, k - 12); j <= Math.min(n - 1, k + 12); j++) if (T.e[j] > pk) pk = T.e[j];
+  V.rms = e; V.trusted = true; V.hiss = 0; V.whistle = false; V.voiced = e > T.thr;
+  if (V.voiced) {
+    V.lastVoice = now; V.level = clamp((e - T.thr) / (T.loud - T.thr), 0, 1);
+    const i0 = Math.max(0, Math.min(T.x.length - 2048, Math.round(t * T.sr) - 1024));
+    V.sh = LIPS.shape(LIPS.analyse(T.x.subarray(i0, i0 + 2048), T.sr));
+    V.dip = e < pk * 0.45;
+  } else { V.level = 0; V.sh = null; V.dip = false; }
 }
 function cameraOff() {
   S.tracking = false; S.face.seen = false;
@@ -1389,6 +1407,7 @@ function pickMouth(f, now) {
     const open = Math.max(Math.min(lip, 0.7), sh ? sh.open : 0);   // the camera's lip gap tops out on ordinary words
     const big = (loud && open > 0.4) || V.level > 0.75;
     if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;              // lips pressed: M B P
+    if (V.dip && f.open < 0.6) return 1;                                           // (a video) between two syllables: shut
     if (sh && sh.nasal) return f.open > 0.5 ? 8 : 1;                               // M (shut) unless the lips are clearly apart (N)
     if ((f.lowIn > 0.45 && f.upIn < 0.35) || (sh && sh.fric && f.lowIn > 0.3)) return 7;   // F V
     if (sh && sh.fric) return f.wide > 0.2 || f.smile > 0.4 ? 4 : 2;              // S SH T: teeth only if the lips spread
@@ -1401,8 +1420,10 @@ function pickMouth(f, now) {
     return big ? 3 : 2;                                                            // AH when loud and wide, else the small open mouth
   }
 
-  // the voice just stopped: the mouth shuts with it (the camera runs a little behind and would hold it open)
-  if (V.on && V.trusted && !V.voiced && now - V.lastVoice > 70 && f.open < 0.5) {
+  // the voice just stopped: the mouth shuts with it (the camera runs a little behind and would hold it open).
+  // Making a video, the sound is known exactly: no voice, no talking mouth, whatever the face in the clip is doing.
+  const vidVoice = (VM.rendering || VM.previewing) && VM.env && VM.env.vt;
+  if (V.on && V.trusted && !V.voiced && now - V.lastVoice > 70 && (f.open < 0.5 || vidVoice)) {
     if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;
     if (round && f.round > 0.5) return 6;
     return f.frown > 0.55 ? 9 : 0;
@@ -1454,7 +1475,7 @@ function settleMouth(want, now) {
   if (best === m.cur) return;
   const closing = best === 0 || best === 1;
   if (closing && want === best && shown >= 45) { m.prev = m.cur; m.cur = best; m.t = now; return; }
-  if (bn / MH.length >= 0.5 && shown >= 100) { m.prev = m.cur; m.cur = best; m.t = now; }
+  if (bn / MH.length >= 0.5 && shown >= (VM.rendering || VM.previewing ? 70 : 100)) { m.prev = m.cur; m.cur = best; m.t = now; }
 }
 function step(slot, want, now, minHold) {
   if (want !== slot.cur && now - slot.t > minHold) { slot.prev = slot.cur; slot.cur = want; slot.t = now; }
@@ -1652,10 +1673,87 @@ function bottomStrip(img) {
   }
   cg.putImageData(out, 0, 0); STRIPS.set(img, c); return c;
 }
+// A slime body (spots, a sheen, moving): the face's own flat skin would sit on it as a pale patch with a blurry edge, so
+// only what's drawn on the face (its lines, eyes, nose, mouth) goes on, and the moving body's own skin shows between.
+// Each line is kept whole or left out (a line cut at the edge of the face would leave stray dashes), and a blink keeps
+// the brows. Built once per Nibble, cut to the face's box (phones only allow so much canvas memory).
+function loopFace(A, tr) {
+  if (A._lf && A._lf.tr === tr) return A._lf;
+  const N = 1000, c = document.createElement('canvas'); c.width = c.height = N; const g = c.getContext('2d', { willReadFrequently:true });
+  const read = im => { g.clearRect(0, 0, N, N); g.drawImage(im, 0, 0, N, N); return g.getImageData(0, 0, N, N).data; };
+  const hd = read(tr.holeImg), idd = tr.innerImg ? read(tr.innerImg) : null, M = new Uint8Array(N * N), Mf = new Uint8Array(N * N);
+  let x0 = N, y0 = N, x1 = 0, y1 = 0;
+  for (let i = 0; i < N * N; i++) { const m = hd[i * 4 + 3] * (idd ? idd[i * 4 + 3] / 255 : 1); Mf[i] = m; if (m > 127) M[i] = 1;
+    if (m > 5) { const x = i % N, y = (i / N) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
+  x0 = Math.max(0, x0 - 40); y0 = Math.max(0, y0 - 40); x1 = Math.min(N - 1, x1 + 40); y1 = Math.min(N - 1, y1 + 40);
+  const w = x1 - x0 + 1, h = y1 - y0 + 1, at = (x, y) => (y0 + y) * N + x0 + x;
+  // the skin: the commonest colour on the resting face
+  const d0 = read(A.mouths[0]), hist = new Map();
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = at(x, y); if (!M[i] || d0[i * 4 + 3] < 200) continue; const k = (d0[i * 4] >> 3) << 10 | (d0[i * 4 + 1] >> 3) << 5 | d0[i * 4 + 2] >> 3; hist.set(k, (hist.get(k) || 0) + 1); }
+  let bk = 0, bn = -1; for (const [k, n] of hist) if (n > bn) { bn = n; bk = k; }
+  const K = [((bk >> 10) & 31) * 8 + 4, ((bk >> 5) & 31) * 8 + 4, (bk & 31) * 8 + 4];
+  // how much a pixel is drawing rather than skin (0 = skin)
+  const feat = d => { const a = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = at(x, y), o = i * 4; if (d[o + 3] < 10) continue;
+      const dist = Math.hypot(d[o] - K[0], d[o + 1] - K[1], d[o + 2] - K[2]); a[y * w + x] = clamp((dist - 30) / 32, 0, 1) * d[o + 3] / 255; }
+    return a; };
+  // whole lines only: a small drawn piece stays whole if most of it is on the face and goes if not (no stray dashes);
+  // a big one (the eyes joined to the outline) is faded at the face's edge as before. keep: 1 whole, 2 faded at the edge.
+  const pieces = (a, want, whole) => { const lab = new Int32Array(w * h), q = new Int32Array(w * h), keep = new Uint8Array(w * h); let id = 0;
+    for (let s0 = 0; s0 < w * h; s0++) { if (a[s0] <= 0.5 || lab[s0]) continue; id++; let hh = 0, tt = 0, inside = 0; q[tt++] = s0; lab[s0] = id;
+      while (hh < tt) { const p = q[hh++], x = p % w, y = (p / w) | 0; if (M[at(x, y)]) inside++;
+        if (x > 0 && a[p - 1] > 0.5 && !lab[p - 1]) { lab[p - 1] = id; q[tt++] = p - 1; } if (x < w - 1 && a[p + 1] > 0.5 && !lab[p + 1]) { lab[p + 1] = id; q[tt++] = p + 1; }
+        if (y > 0 && a[p - w] > 0.5 && !lab[p - w]) { lab[p - w] = id; q[tt++] = p - w; } if (y < h - 1 && a[p + w] > 0.5 && !lab[p + w]) { lab[p + w] = id; q[tt++] = p + w; } }
+      const mode = whole ? (want(q, tt) ? 1 : 0) : want && !want(q, tt) ? 0 : inside >= tt * 0.6 ? 1 : tt > 2500 ? 2 : 0;
+      if (mode) for (let k = 0; k < tt; k++) keep[q[k]] = mode; }
+    pieces.lab = lab;
+    for (let r = 0; r < 2; r++) { const k2 = keep.slice(); for (let p = 0; p < w * h; p++) if (!k2[p] && a[p] > 0) { const x = p % w;
+      const n = (x > 0 && k2[p - 1]) || (x < w - 1 && k2[p + 1]) || k2[p - w] || k2[p + w]; if (n) keep[p] = n; } }
+    return keep; };
+  const paint = (d, a, keep) => { const o = document.createElement('canvas'); o.width = w; o.height = h; const og = o.getContext('2d'), im = og.createImageData(w, h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const p = y * w + x; if (!keep[p]) continue; const i = at(x, y) * 4, q = p * 4;
+      im.data[q] = d[i]; im.data[q + 1] = d[i + 1]; im.data[q + 2] = d[i + 2]; im.data[q + 3] = Math.round(a[p] * (keep[p] === 2 ? Mf[i / 4] : 255)); }
+    og.putImageData(im, 0, 0); return o; };
+  // the resting face's pieces: a new mouth is drawn where the old one was wiped out, and that can leave the stub of a line
+  // that ran through it (a chin line, a smile crease): a piece that is only part of one of the resting face's lines goes
+  const a0r = feat(d0), m0 = paint(d0, a0r, pieces(a0r)), lab0 = pieces.lab, size0 = new Map();
+  for (const l of lab0) if (l) size0.set(l, (size0.get(l) || 0) + 1);
+  const stub = (q, tt) => { const cnt = new Map(); let same = 0; for (let k = 0; k < tt; k++) { const l = lab0[q[k]]; if (l) { same++; cnt.set(l, (cnt.get(l) || 0) + 1); } }
+    if (same < tt * 0.9 || tt > 1200) return true; let bl = 0, bc = 0; for (const [l, c] of cnt) if (c > bc) { bc = c; bl = l; } return size0.get(bl) < tt * 1.4; };
+  const mouths = A.mouths.map(m => { if (m === A.mouths[0]) return m0; const d = read(m), a = feat(d); return paint(d, a, pieces(a, stub)); });
+  // a blink is drawn on a patch of skin: bits of line cut by the patch's own edge go (the brows are put back whole below)
+  const eyes = (A.eyes || []).map((e, k) => { if (!k || !e) return null; const d = read(e), a = feat(d);
+    const inPatch = (q, tt) => { let edge = 0; for (let k = 0; k < tt; k++) { const p = q[k]; if (d[at(p % w, (p / w) | 0) * 4 + 3] < 230) edge++; } return edge < tt * 0.25; };
+    return paint(d, a, pieces(a, inPatch)); });
+  // the brows: dark lines above the eye whites that don't touch them (a blink's lids are drawn over a patch that hides them)
+  let brows = null;
+  const foot = new Uint8Array(w * h); let anyEye = false;
+  (A.eyes || []).forEach((e, k) => { if (!k || !e) return; const d = read(e); for (let p = 0; p < w * h; p++) { const x = p % w, y = (p / w) | 0; if (d[at(x, y) * 4 + 3] > 25) { foot[p] = 1; anyEye = true; } } });
+  if (anyEye) {
+    const white = new Uint8Array(w * h); let wTop = h;
+    for (let p = 0; p < w * h; p++) { const x = p % w, y = (p / w) | 0, i = at(x, y) * 4; if (M[at(x, y)] && d0[i] > 205 && d0[i + 1] > 205 && d0[i + 2] > 195) { white[p] = 1; if (y < wTop) wTop = y; } }
+    const near = p => { const x = p % w, y = (p / w) | 0; for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < w && yy < h && white[yy * w + xx]) return true; } return false; };
+    const a0 = feat(d0), ink = new Float32Array(w * h); for (let p = 0; p < w * h; p++) { const i = at(p % w, (p / w) | 0) * 4; ink[p] = d0[i] + d0[i + 1] + d0[i + 2] < 300 ? a0[p] : 0; }
+    let n = 0; const keep = pieces(ink, (q, tt) => { let over = 0, bottom = 0; for (let k = 0; k < tt; k++) { const p = q[k]; if (near(p)) return false; if (foot[p]) over++; bottom = Math.max(bottom, (p / w) | 0); }
+      if (over && bottom < wTop + 6) { n++; return true; } return false; }, true);
+    if (n) brows = paint(d0, ink, keep);
+  }
+  return A._lf = { tr, box:[x0, y0], mouths, eyes, brows };
+}
 function drawLoopBody(t, x, y, size) {
   const tr = S.trait, fr = tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length], [lc, fc] = LOOP_C, lg = lc.getContext('2d'), fg = fc.getContext('2d');
   // the body whole, then the face faded onto it through the mask (cutting a hole and filling it would let the background show at the soft edge)
   lg.globalCompositeOperation = 'source-over'; lg.clearRect(0, 0, 1000, 1000); lg.drawImage(fr, 0, 0, 1000, 1000);
+  if (tr.skinThrough) {   // slime: just the face's drawing, on the body's own skin
+    const L = loopFace(S.art, tr), [bx, by] = L.box, e = S.eye.cur;
+    fg.globalCompositeOperation = 'source-over'; fg.clearRect(0, 0, 1000, 1000); fg.drawImage(L.mouths[S.mouth.cur], bx, by);
+    if (e > 0 && L.eyes[e]) { fg.globalCompositeOperation = 'destination-out'; fg.drawImage(S.art.eyes[e], 0, 0, 1000, 1000); fg.globalCompositeOperation = 'source-over';
+      fg.drawImage(L.eyes[e], bx, by); if (L.brows) fg.drawImage(L.brows, bx, by); }
+    ctx.drawImage(lc, x, y, size, size); ctx.drawImage(fc, x, y, size, size);
+    if (e === 2 && !hasLook(S.art, 2)) popEyes(S.art, x, y, size);
+    const tg = S.mouth.cur === 0 && tongueOf(S.art.mouths[0], tr.holeImg); if (tg) { const k = size / 1000; ctx.drawImage(tg.c, x + tg.x * k, y + tg.y * k, tg.c.width * k, tg.c.height * k); }
+    return;
+  }
   fg.globalCompositeOperation = 'source-over'; fg.clearRect(0, 0, 1000, 1000); fg.drawImage(S.art.mouths[S.mouth.cur], 0, 0, 1000, 1000);
   if (S.eye.cur > 0 && S.art.eyes[S.eye.cur]) fg.drawImage(S.art.eyes[S.eye.cur], 0, 0, 1000, 1000);   // the blink goes in the same masked face, so it never spills past the flames
   fg.globalCompositeOperation = 'destination-in'; fg.drawImage(tr.holeImg, 0, 0, 1000, 1000); if (tr.innerImg) fg.drawImage(tr.innerImg, 0, 0, 1000, 1000);
@@ -1720,7 +1818,7 @@ function drawNibble(t) {
     else if (e === 0 && S.eye.cur === 4) step(S.eye, 3, t, 40);
     else step(S.eye, e, t, e === 4 || S.eye.cur === 3 ? 35 : 90);
   } else {
-    step(S.mouth, 0, t, 0);
+    step(S.mouth, S.forceMouth != null ? S.forceMouth : 0, t, 0);
     // idle blink every few seconds
     const ph = (t % 4200);
     step(S.eye, S.forceEye != null ? S.forceEye : ph < 70 ? 3 : ph < 170 ? 4 : ph < 240 ? 3 : 0, t, 0);
@@ -2189,6 +2287,15 @@ async function vmEnvelope(file) {
       if (best > 0.6) pitch[k] = fs / bl;
     }
     out.pitch = pitch;
+    // the voice track for the Nibble's mouth: the whole clip is known before the video is made, so the mouth reads the
+    // sound itself (not a live microphone-style listener that lags behind and has to guess how loud "loud" is)
+    const full = new Float32Array(b.length); for (const c of chs) for (let i = 0; i < b.length; i++) full[i] += c[i] / chs.length;
+    const h100 = sr / 100, n100 = Math.floor(b.length / h100), e = new Float32Array(n100);
+    for (let k = 0; k < n100; k++) { const c = Math.round(k * h100), i0 = Math.max(0, c - 512), i1 = Math.min(b.length, c + 512); let s2 = 0; for (let i = i0; i < i1; i++) s2 += full[i] * full[i]; e[k] = Math.sqrt(s2 / Math.max(1, i1 - i0)); }
+    const sorted = Array.from(e).sort((x, y) => x - y), pc = q => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] || 0;
+    const fl = pc(0.05), thr = Math.max(0.004, fl * 2, fl + (pc(0.95) - fl) * 0.1);
+    const vo = sorted.filter(x => x > thr), loud = Math.max(thr * 1.5, vo[Math.floor(vo.length * 0.9)] || thr * 3);
+    out.vt = { x:full, sr, e, thr, loud };
     return out;
   } catch (e) { return null; }
 }
@@ -2789,6 +2896,7 @@ function edDel() { if (!ED.sel) return; VM.lines.splice(VM.lines.indexOf(ED.sel)
 function vmSample(p, t) {
   const a = VM.people[p].smp; let lo = 0, hi = a.length - 1;
   while (lo < hi) { const m = (lo + hi + 1) >> 1; if (a[m].t <= t) lo = m; else hi = m - 1; }
+  if (a[lo + 1] && Math.abs(a[lo + 1].t - t) < Math.abs(a[lo].t - t)) lo++;   // the nearest reading
   const x = a[lo]; return x && Math.abs(x.t - t) < 0.2 ? x : null;
 }
 async function vmRender() {
@@ -2869,7 +2977,7 @@ function vmFrame(now) {
   }
   const k = Math.min(VM.timeline.length - 1, Math.floor(t / 0.05)), bgNow = (VM.tlBg && VM.tlBg[k]) || VM.bg;
   if (S.bg !== bgNow) S.bg = bgNow;   // every line can have its own background
-  const x = vmSample(p, t), f = VM.ps[p].face; S.face = f; S.tracking = true;
+  const x = vmSample(p, t + VM_LEAD), f = VM.ps[p].face; S.face = f; S.tracking = true;
   if (x) { Object.assign(f, x); f.seen = true; if (x.bu > t * 1000) S.blinkUntil = now + (x.bu - t * 1000);
     // a face running off the edge of the picture: its mouth shape can't be read, so the voice picks the shape
     if (x.edge) Object.assign(f, { round:0, wide:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0 }); }
