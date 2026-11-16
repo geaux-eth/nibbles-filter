@@ -280,7 +280,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
   // (with a donor standing in, only the mouth zone itself: below it the difference is this Nibble's outfit, not its mouth)
   for (let p = 0; p < N * N; p++) { if (!Zd[p] || !face[p] || (donor && !Z[p])) continue; const i = p * 4, m = mapped(R, i);
     if (donor && lum(T, i) >= 200 && lum(R, i) < 300) continue;   // (the donor's collar or clothes where the reference shows fur)
-    if (tBotP && inPal(tBotP, T[i], T[i + 1], T[i + 2]) && !inPal(tFaceP, T[i], T[i + 1], T[i + 2])) continue;   // this Nibble's clothes (a collar where the reference shows chin fur): not its mouth
+    if (tBotP && lum(T, i) >= 160 && inPal(tBotP, T[i], T[i + 1], T[i + 2]) && !inPal(tFaceP, T[i], T[i + 1], T[i + 2])) continue;   // this Nibble's clothes (a collar where the reference shows chin fur): not its mouth
     if (Math.abs(T[i + 3] - R[i + 3]) > 60 || (m && Math.abs(m[0] - T[i]) + Math.abs(m[1] - T[i + 1]) + Math.abs(m[2] - T[i + 2]) > 70)) own[p] = 1; }
   const ownG = grow(own, 3);
   // a tongue or drool hanging out of this Nibble's mouth (Tongue Out, Drooling): gone while it talks
@@ -361,7 +361,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       // the sheet repainting the fur or clothes a slightly different shade (not a line, not the mouth's reds, pinks or
       // teeth) isn't a change: this Nibble keeps its own there (a black bear's shirt collar stays a collar)
       // (fur included: a black bear's chin fur repainted a shade off must not paint an albino's white over its own shirt)
-      if (use[p] && D[i + 3] > 200 && R[i + 3] > 200 && dist(D, i, R, i) < (lum(R, i) < 200 ? 60 : 90) && lum(D, i) >= 75 && lum(R, i) >= 75 && !mouthHue(D[i], D[i + 1], D[i + 2]) && !mouthHue(R[i], R[i + 1], R[i + 2])) use[p] = 0; }
+      if (use[p] && !ownG[p] && D[i + 3] > 200 && R[i + 3] > 200 && dist(D, i, R, i) < (lum(R, i) < 200 ? 60 : 90) && lum(D, i) >= 75 && lum(R, i) >= 75 && !mouthHue(D[i], D[i + 1], D[i + 2]) && !mouthHue(R[i], R[i + 1], R[i + 2])) use[p] = 0; }
     // only solid changes count: scattered differences are Gemini redrawing the fur, and stay this Nibble's own
     const solid = fillHoles(grow(shrink(grow(blobs(use, 120), 3), 3), 0));
     const useG = grow(solid, 2); for (let p = 0; p < N * N; p++) { if (ownG[p] && face[p]) useG[p] = 1; useG[p] &= Zd[p]; }
@@ -384,7 +384,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     for (let p = 0; p < N * N; p++) { if (!useG[p] || hole[p] || subst.has(p)) continue; const i = p * 4; if (D[i + 3] < 200) continue;
       const mouthy = isMouthC(D[i], D[i + 1], D[i + 2]);
       // unchanged by this mouth: this Nibble's own, except where its own mouth is being replaced
-      if (dist(D, i, R, i) <= 30 && (!ownG[p] || (R[i + 3] > 200 && lum(R, i) >= 75 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2])))) { keepT[p] = 1; continue; }
+      if (dist(D, i, R, i) <= 30 && (!ownG[p] || (R[i + 3] > 200 && lum(R, i) >= 260 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2])))) { keepT[p] = 1; continue; }   // (a grey line edge isn't clothes)
       // skin: drawn in this Nibble's matching colour; a skin colour with no match here (a chin its hoodie hides) is filled from its own picture
       if (mouthy || isSkin(D, i)) { if (mouthy) continue; const mm = lum(D, i) >= 75 ? map(D[i], D[i + 1], D[i + 2]) : 1, m = mapped(D, i);
         const onJaw = onJawR(i);
