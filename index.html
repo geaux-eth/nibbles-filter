@@ -646,7 +646,7 @@ const IN_WALLET = /Rainbow|MetaMask|CoinbaseWallet|Coinbase|Trust|imToken|TokenP
 // State
 // ---------------------------------------------------------------------------
 const $ = id => document.getElementById(id);
-const stage = $('stage'), ctx = stage.getContext('2d');
+const stage = $('stage'); let ctx = stage.getContext('2d');   // (let: a group's back row is drawn on its own sheet)
 const video = $('cam');
 const S = {
   id:null, art:null, trait:null, bg:'Nibble color',
@@ -921,6 +921,15 @@ const NO_BLINK = /fire|ignis|laser|knocked|dizzy|slot|3d|glasses|monocle|robot|a
 const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || ''));
 const KIT_BUSY = {};
 window.__nf = { setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = k; }, setPose:p => { S.forcePose = p; }, setShape:n => setShape(n),
+  groupShot:async (ids, shape, gl, slots) => {   // (tests) one frame of a group layout
+    Object.assign(GLS[shape], gl || {}); if (slots) GLS[shape].slots = slots; setShape(shape);
+    VM.people = ids.map(() => ({ smp:[] })); VM.cast = {}; ids.forEach((id, i) => VM.cast[i] = id); VM.same = {}; VM.flip = {}; VM.mirror = {}; VM.group = 'all'; VM.arts = {};
+    for (const id of new Set(ids)) VM.arts[id] = await fetchNibble(id);
+    VM.ps = ids.map(() => ({ mouth:{ cur:0, prev:0, t:0 }, eye:{ cur:0, prev:0, t:0 }, face:{ roll:0, yaw:0, pitch:0, seen:false } }));
+    const a = VM.arts[ids[0]]; S.id = ids[0]; S.art = a.art; S.trait = a.trait; S.mouth = VM.ps[0].mouth; S.eye = VM.ps[0].eye; S.face = VM.ps[0].face; S.tracking = false;
+    VM.groupShot = true; const now = performance.now(); drawBackground(); vmBackRow(now, 0, 0);
+    ctx.save(); const W = stage.width, H = stage.height, F = GLS[shape].F; ctx.translate(W * (1 - F) / 2, H * (1 - F)); ctx.scale(F, F); S.solo = true; drawNibble(now); ctx.restore(); S.solo = false;
+    return stage.toDataURL('image/png'); },
   loadEnv:async url => { VM.env = await vmEnvelope(await (await fetch(url)).blob()); return !!VM.env; },
   mouthAt:(t, f) => { const now = performance.now(); V.on = true; vmVoice(now, t); const face = Object.assign({ open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0 }, f || {});
     return { v:V.voiced, lv:+V.level.toFixed(2), sh:V.sh && (V.sh.nasal ? 'nasal' : V.sh.fric ? 'fric' : V.sh.back ? 'back' : 'm' + V.sh.m), dip:V.dip, m:pickMouth(face, now) }; }, get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id), pickNibble:(c, f) => pickNibble(c, f), bgOptions:c => bgOptions(c), vmRandom:() => { vmRandom(); return VM.bg; } };   // for tests
@@ -1953,7 +1962,7 @@ function drawNibble(t) {
   const pad = size * 0.06;   // a little past the frame edge, so head turns and tilts don't reveal it
   // and it sits a little low, so a tilt only ever swings in more of its own picture: the bottom edge (and the plain rows
   // a body is stretched from) stays below the frame, never a gap or streaks under a lifted shoulder
-  const x = A.edgeL && !A.edgeR ? -pad : A.edgeR && !A.edgeL ? W - size + pad : (W - size)/2, y = H - size + size * SINK;
+  const solo = S.solo, x = !solo && A.edgeL && !A.edgeR ? -pad : !solo && A.edgeR && !A.edgeL ? W - size + pad : (W - size)/2, y = H - size + size * SINK;
   S.charAt = { x, y, size, W, H, b:A.bounds, o:A.outline, id:S.id };
   if (S.trait && S.trait.holeImg) drawLoopBody(t, x, y, size);   // a moving body (fire, slime) with the talking face set into it
   else if (NIBBLES[S.id].fullFace) {
@@ -1966,8 +1975,8 @@ function drawNibble(t) {
   const lift = tr && tr.holeImg ? size * 0.022 : 0;
   ctx.drawImage(strip, 0, 0, 1000, 1, x, y + size - lift, size, size * 0.3 + lift);
   const ec = A.edgeCols && ext === A.base ? A.edgeCols : null;   // a laser Nibble's sides are stretched without the beam
-  if (A.edgeL) { ctx.drawImage(ec || ext, 0, 0, 2, 1000, x - size*0.5 + 1, y, size*0.5, size); ctx.drawImage(strip, 0, 0, 2, 1, x - size*0.5 + 1, y + size - 1, size*0.5, size*0.3); }
-  if (A.edgeR) { ctx.drawImage(ec || ext, ec ? 2 : 998, 0, 2, 1000, x + size - 1, y, size*0.5, size); ctx.drawImage(strip, 998, 0, 2, 1, x + size - 1, y + size - 1, size*0.5, size*0.3); }
+  if (A.edgeL && !solo) { ctx.drawImage(ec || ext, 0, 0, 2, 1000, x - size*0.5 + 1, y, size*0.5, size); ctx.drawImage(strip, 0, 0, 2, 1, x - size*0.5 + 1, y + size - 1, size*0.5, size*0.3); }
+  if (A.edgeR && !solo) { ctx.drawImage(ec || ext, ec ? 2 : 998, 0, 2, 1000, x + size - 1, y, size*0.5, size); ctx.drawImage(strip, 998, 0, 2, 1, x + size - 1, y + size - 1, size*0.5, size*0.3); }
   if (A.laser && A.laser.ext) { const k = size / 1000; for (const e of A.laser.ext) ctx.drawImage(e.c, x + e.x * k, y + e.y * k, e.c.width * k, e.c.height * k); }
 
   const cfg = NIBBLES[S.id], under = S.trait && S.trait.under, looped = S.trait && S.trait.holeImg;
@@ -2830,10 +2839,11 @@ function vmCastStep() {
       <label>Shape<select id="vmShape">${opt(Object.keys(ASPECTS).map(k => [k, VID_SHAPE_TXT[k]]), VM.shape)}</select></label>
       <label class="vm-txt">Text on the video<input id="vmText" type="text" maxlength="60" placeholder="e.g. Happy Birthday Mom!" value="${esc(VM.text || '')}"></label>
       <label>Where<select id="vmTextAt">${opt([['top', 'Top'], ['bottom', 'Bottom']], VM.textAt)}</select></label>
+      ${nOn > 1 ? `<label class="vm-txt">On screen<select id="vmGroup">${opt([['one', 'One at a time'], ['all', 'Everyone (one talks)'], ['sing', 'Everyone sings along']], VM.group || 'one')}</select></label>` : ''}
     </div>
     <button class="vm-go" id="vmEdit" type="button">Next: who talks when</button>
     <button class="chipb seg" id="vmMake" type="button">Skip and make it now</button>`,
-    `<p>Tap a Nibble to change who plays that person.</p><p>Same person showing up twice? Pick them in <b>Same as…</b> and they'll be one Nibble.</p><p>The <b>⇆</b> on a Nibble turns it round to face the other way.</p><p><b>Text on the video</b> shows your words over the whole video, in the text style you picked on the main screen.</p><p><b>Next</b> lets you fix who talks when and watch it as you go. <b>Skip</b> makes it right away.</p>`);
+    `<p>Tap a Nibble to change who plays that person.</p><p>Same person showing up twice? Pick them in <b>Same as…</b> and they'll be one Nibble.</p><p>The <b>⇆</b> on a Nibble turns it round to face the other way.</p><p><b>On screen</b>: one Nibble at a time (cutting to whoever talks), or everyone together, with the one talking in front and the rest in a row behind (up to 4, or 6 in a wide video). <b>Everyone sings along</b> makes the back row sing with the voice, for a choir or a band.</p><p><b>Text on the video</b> shows your words over the whole video, in the text style you picked on the main screen.</p><p><b>Next</b> lets you fix who talks when and watch it as you go. <b>Skip</b> makes it right away.</p>`);
   const box = $('vmCast');
   P.forEach((p, i) => {
     const d = document.createElement('div'); d.className = 'vm-person';
@@ -2888,6 +2898,7 @@ function vmCastStep() {
   $('vmShape').onchange = e => VM.shape = e.target.value;
   $('vmText').oninput = e => VM.text = e.target.value.trim().replace(/\s+/g, ' ');
   $('vmTextAt').onchange = e => VM.textAt = e.target.value;
+  if ($('vmGroup')) $('vmGroup').onchange = e => VM.group = e.target.value;
   $('vmMake').onclick = vmRender;
   $('vmEdit').onclick = vmEditor;
 }
@@ -3119,7 +3130,7 @@ async function vmRender() {
     vmFacing(); VM.mirror = {}; P.forEach((p, i) => VM.mirror[i] = !!VM.flip[i]);   // which way each faces: picked on the cast screen
     VM.keep = { id:S.id, art:S.art, trait:S.trait, bg:S.bg, shape:S.shape || 'Square', face:S.face, mouth:S.mouth, eye:S.eye,
       v:{ an:V.an, buf:V.buf, spec:V.spec, hz:V.hz, floor:V.floor, peak:V.peak, loud:V.loud, trusted:V.trusted, on:V.on, lastVoice:V.lastVoice } };
-    VM.ps = P.map(() => ({ mouth:{ cur:0, prev:0, t:0 }, eye:{ cur:0, prev:0, t:0 }, face:{ roll:0, yaw:0, pitch:0, seen:false, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 } }));
+    VM.bm = {}; VM.ps = P.map(() => ({ mouth:{ cur:0, prev:0, t:0 }, eye:{ cur:0, prev:0, t:0 }, face:{ roll:0, yaw:0, pitch:0, seen:false, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 } }));
     const pics = [];
     for (const name of new Set([VM.bg, ...(VM.lines || []).map(l => l.bg || VM.bg)])) {   // every background in the video, loaded before it starts
       if (!IMG_BGS[name]) continue; S.bg = name; bonkdBg(name); pics.push(bgCache[name]); if (ENTRANCE[name]) { entrance(); pics.push(entCache[ENTRANCE[name].name]); }
@@ -3173,6 +3184,56 @@ function vmRestore() {
   Object.assign(V, k.v); V.noWhistle = false; S.id = k.id; S.art = k.art; S.trait = k.trait; S.bg = k.bg; S.face = k.face; S.mouth = k.mouth; S.eye = k.eye; S.tracking = false;
   setShape(k.shape); MH.length = 0; openLvl = 0; S.fit = 1;
 }
+// Everyone on screen: the person talking stands in front, a little smaller than alone, and everyone else found in the video
+// stands in a row behind, smaller, peeking out around them (as many as fit the shape). In the back row each mouth follows
+// that person's own mouth in the clip when it's seen; with "everyone sings", they also sing along with the voice.
+// per shape: the front's size, the back row's size, how far it stands up (of the frame's short side), how much of each back
+// Nibble fades away at the bottom, and the spots: [across, extra height] (the ones nearer the middle stand a little taller)
+const GLS = {
+  Square:{ F:0.8, s:0.52, lift:0.16, fade:0.35, slots:[[0.13, 0], [0.87, 0], [0.3, 0.17], [0.7, 0.17]] },
+  Wide:{ F:0.86, s:0.6, lift:0.16, fade:0.35, slots:[[0.13, 0], [0.87, 0], [0.27, 0.06], [0.73, 0.06], [0.39, 0.12], [0.61, 0.12]] },
+  Vertical:{ F:0.92, s:0.68, lift:0.55, fade:0.35, slots:[[0.22, 0], [0.78, 0], [0.4, 0.14], [0.6, 0.14]] } };
+let GL = GLS.Square;
+const vmGrouped = () => VM.group && VM.group !== 'one' && VM.people.filter((q, i) => !q.off && vmRoot(i) === i).length > 1;
+function vmBackRow(now, t, p) {
+  GL = GLS[S.shape] || GLS.Square;
+  const P = VM.people, W = stage.width, H = stage.height, m = Math.min(W, H), slots = GL.slots;
+  const front = vmRoot(p), who = P.map((q, i) => i).filter(i => !P[i].off && vmRoot(i) === i);
+  const keep = { id:S.id, art:S.art, trait:S.trait, mouth:S.mouth, eye:S.eye, face:S.face, tracking:S.tracking, fm:S.forceMouth, fe:S.forceEye, bu:S.blinkUntil };
+  const s = GL.s * (S.shape === 'Wide' ? 1.04 : 1), lift = m * GL.lift;
+  // everyone but the one talking, in order, takes the spots (outer ones first); the outer ones are drawn first, so the ones
+  // nearer the middle overlap them
+  const placed = who.filter(i => i !== front).slice(0, slots.length).map((i, k) => ({ i, x:slots[k][0], up:slots[k][1] })).sort((a, b) => Math.abs(b.x - 0.5) - Math.abs(a.x - 0.5));
+  for (const { i, x, up } of placed) {
+    const id = +VM.cast[i], a = VM.arts[id], ps = VM.ps[i]; if (!a || !ps) continue;
+    S.id = id; S.art = a.art; S.trait = a.trait; S.mouth = ps.mouth; S.eye = ps.eye; S.face = ps.face; S.tracking = false; S.solo = true;
+    S.forceMouth = vmBackMouth(i, t, now); S.forceEye = null;
+    // drawn on its own sheet first, so its lower part can fade away behind the people in front (no cut-off body bottoms)
+    const bc = vmBackRow.c || (vmBackRow.c = document.createElement('canvas')), bw = Math.ceil(W * s), bh = Math.ceil(H * s);
+    if (bc.width !== bw || bc.height !== bh) { bc.width = bw; bc.height = bh; }
+    const keepCtx = ctx; ctx = bc.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, bw, bh); ctx.save(); ctx.scale(s, s);
+    if (VM.mirror[i]) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+    try { drawNibble(now + i * 1700); } finally { ctx.restore(); }   // (its idle sway and blink on its own beat)
+    if (GL.fade) { const fh = m * s * GL.fade, g = ctx.createLinearGradient(0, bh - fh, 0, bh); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,1)');
+      ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = g; ctx.fillRect(0, bh - fh, bw, fh); ctx.globalCompositeOperation = 'source-over'; }
+    ctx = keepCtx; ctx.drawImage(bc, x * W - W * s / 2, H - lift - up * m - H * s);
+  }
+  S.solo = false; S.id = keep.id; S.art = keep.art; S.trait = keep.trait; S.mouth = keep.mouth; S.eye = keep.eye; S.face = keep.face; S.tracking = keep.tracking; S.forceMouth = keep.fm; S.forceEye = keep.fe; S.blinkUntil = keep.bu;
+}
+// a back-row mouth: its own mouth in the clip (how far apart the lips are, against how far they go for this face), and when
+// everyone sings, the voice too (a moment behind, a little softer, so they aren't a perfect copy of the lead); held ~0.1 s a shape
+function vmBackMouth(i, t, now) {
+  const P = VM.people, st = VM.bm || (VM.bm = {}), b = st[i] || (st[i] = { cur:0, t:0 });
+  let r = 0; const x = vmSample(i, t + VM_LEAD); if (x && P[i].moScale) r = clamp(x.mo / P[i].moScale, 0, 1.2);
+  if (VM.group === 'sing' && VM.env && VM.env.vt) {
+    const T = VM.env.vt, tt = t + VM_LEAD - 0.04 - (i % 3) * 0.03, k = Math.max(0, Math.min(T.e.length - 1, Math.round(tt * 100))), nv = VM.env.nov;
+    const talk = !VM.talk || VM.talk[Math.floor(tt / 0.05)], quiet = nv && nv[Math.floor(tt * 50)];
+    if (talk && !quiet && T.e[k] > T.thr) r = Math.max(r, clamp((T.e[k] - T.thr) / (T.loud - T.thr), 0, 1) * 0.85);
+  }
+  const want = r > 0.62 ? (i % 2 ? 5 : 3) : r > 0.18 ? 2 : 0;
+  if (want !== b.cur && now - b.t > 95) { b.cur = want; b.t = now; }
+  return b.cur;
+}
 // one frame of the Nibbled video: who's on screen now, their face, their mouth (from the clip's sound), flipped if they answer
 function vmFrame(now) {
   const v = VM.v, t = v.currentTime, P = VM.people;
@@ -3195,8 +3256,12 @@ function vmFrame(now) {
     if (now > (VM.nb || 0)) { S.blinkUntil = now + 170; VM.nb = now + 2800 + Math.random() * 2600; }
   }
   drawBackground();
-  ctx.save(); if (VM.mirror[p]) { ctx.translate(stage.width, 0); ctx.scale(-1, 1); }
-  drawNibble(now); ctx.restore();
+  const grp = vmGrouped();
+  if (grp) vmBackRow(now, t, p);   // everyone else in a row behind
+  ctx.save();
+  if (grp) { const W = stage.width, H = stage.height, F = (GLS[S.shape] || GLS.Square).F; ctx.translate(W * (1 - F) / 2, H * (1 - F)); ctx.scale(F, F); S.solo = true; }   // the speaker, in front
+  if (VM.mirror[p]) { ctx.translate(stage.width, 0); ctx.scale(-1, 1); }
+  drawNibble(now); ctx.restore(); S.solo = false;
   vmText();
   const pr = $('vmProg'); if (pr) pr.style.width = (100 * t / VM.dur).toFixed(1) + '%';
   // the end: phones don't always send the video's "ended" event, so the last frame (or a stall right at the end) finishes it too
