@@ -196,9 +196,9 @@ header .credit b{font-weight:400}
 .vm[hidden]{display:none}
 .vm.rendering{align-items:flex-start;background:none;pointer-events:none}
 .vm.rendering .vm-card{pointer-events:auto;margin-top:max(8px,env(safe-area-inset-top));padding:10px 14px 12px}
-.vm.rendering .vm-x{display:none}
+.vm.rendering .vm-x,.vm.rendering .vm-i{display:none}
 .vm-card{position:relative;width:100%;max-width:440px;max-height:calc(100dvh - 32px);overflow:auto;background:var(--paper);border:3px solid var(--ink);border-radius:22px;box-shadow:5px 6px 0 var(--ink);padding:14px 16px 16px}
-.vm-card h3{margin:2px 34px 8px 0;font:400 22px/1.05 var(--display);letter-spacing:.02em}
+.vm-card h3{margin:2px 84px 8px 0;font:400 22px/1.05 var(--display);letter-spacing:.02em}
 .vm-card p{margin:6px 0}
 .vm-x{position:absolute;top:10px;right:10px;width:34px;height:34px;border:2.5px solid var(--ink);border-radius:50%;background:var(--paper);font:700 16px/1 var(--body);cursor:pointer}
 .vm-go{display:block;width:100%;margin:12px 0 2px;padding:12px 14px 9px;border:3px solid var(--ink);border-radius:999px;background:var(--red);color:#fff;font:400 19px/1 var(--display);letter-spacing:.04em;box-shadow:3px 3px 0 var(--ink);cursor:pointer}
@@ -223,6 +223,17 @@ header .credit b{font-weight:400}
 .vm-tm{font:600 13px/1 var(--body);opacity:.8}
 .vm-lnib{width:44px;height:44px;margin:0}
 .ed-vid{display:block;width:100%;max-height:30dvh;background:#000;border:2.5px solid var(--ink);border-radius:12px;object-fit:contain}
+.ed-view{position:relative}
+.ed-view.nib .ed-vid{position:absolute;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;border:0}
+.ed-prev{display:none;margin:0 auto;max-width:100%;max-height:34dvh;background:#000;border:2.5px solid var(--ink);border-radius:12px}
+.ed-view.nib .ed-prev{display:block}
+.ed-load{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font:600 13px/1.2 var(--body);color:#fff;pointer-events:none}
+.ed-view.nib.wait .ed-load{display:flex}
+.vm-i{position:absolute;top:10px;right:52px;width:34px;height:34px;border:2.5px solid var(--ink);border-radius:50%;background:var(--paper);font:italic 700 17px/1 Georgia,serif;cursor:pointer;padding:0}
+.vm-i[hidden]{display:none}
+.vm-tip{position:absolute;top:50px;left:12px;right:12px;z-index:5;background:#fffbe9;border:2.5px solid var(--ink);border-radius:14px;box-shadow:3px 4px 0 var(--ink);padding:12px 40px 12px 14px;font:500 14px/1.4 var(--body)}
+.vm-tip p{margin:0 0 8px}.vm-tip p:last-child{margin:0}
+.vm-tip .vm-x{top:8px;right:8px;width:28px;height:28px;font-size:13px}
 .ed-bar{display:flex;align-items:center;gap:8px;margin:8px 0 6px}
 .ed-pp{width:40px;height:40px;border:2.5px solid var(--ink);border-radius:50%;background:var(--gold);font:700 15px/1 var(--body);cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
 .ed-time{font:700 13px/1 ui-monospace,Menlo,monospace}
@@ -390,7 +401,7 @@ header .credit b{font-weight:400}
   <div class="pk-grid" id="pkGrid"></div>
 </div></div>
 <div class="vm" id="vm" hidden><div class="vm-card" role="dialog" aria-modal="true" aria-labelledby="vmTitle">
-  <button class="vm-x" id="vmClose" type="button" aria-label="Close">✕</button>
+  <button class="vm-x" id="vmClose" type="button" aria-label="Close">✕</button><button class="vm-i" id="vmInfo" type="button" aria-label="How it works" hidden>i</button>
   <h3 id="vmTitle">Nibble a Video</h3><div id="vmBody"></div>
 </div></div>
 <video id="cam" playsinline muted style="display:none"></video>
@@ -400,7 +411,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261115-1800';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261115-1900';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1776,6 +1787,7 @@ function drawDebug() {
 
 function frame(now) {
   if (VM.rendering && VM.v) { vmFrame(now); requestAnimationFrame(frame); return; }
+  if (VM.previewing) { if (VM.v && $('edPrev')) { vmFrame(now); edPaint(); } requestAnimationFrame(frame); return; }
   track(now);
   drawBackground();
   drawNibble(now);
@@ -2140,7 +2152,11 @@ async function recordAudioTracks() {
 // ---------------------------------------------------------------------------
 var VM = { lm:null, url:null, dur:0, people:[], timeline:[], cast:{}, mirror:{}, main:0, bg:'Random', music:'', shape:'Square', rendering:false, cancel:false }; window.__vm = VM;
 const vmBody = () => $('vmBody');
-function vmShow(title, html) { $('vm').hidden = false; $('vmTitle').textContent = title; vmBody().innerHTML = html || ''; }
+function vmShow(title, html, info) { $('vm').hidden = false; $('vmTitle').textContent = title; vmBody().innerHTML = html || '';
+  // the how-to for this step lives behind the "i" button, not on the page
+  const ib = $('vmInfo'); ib.hidden = !info; ib.onclick = () => { const old = $('vmTip'); if (old) { old.remove(); return; }
+    const t = document.createElement('div'); t.className = 'vm-tip'; t.id = 'vmTip'; t.innerHTML = info + '<button class="vm-x" type="button" aria-label="Close">✕</button>';
+    t.querySelector('.vm-x').onclick = () => t.remove(); ib.after(t); }; const old = $('vmTip'); if (old) old.remove(); }
 function vmHide() { $('vm').hidden = true; }
 $('vidBtn').onclick = () => {
   if (S.recorder) { setStatus('x', 'Stop recording first.'); return; }
@@ -2151,7 +2167,7 @@ $('vidBtn').onclick = () => {
     <p class="note">Works best when faces look toward the camera.</p>`);
   $('vmFile').onchange = e => { const f = e.target.files && e.target.files[0]; if (f) vmAnalyse(f); };
 };
-$('vmClose').onclick = () => { try { VM.pv && VM.pv.pause(); } catch (e) {} if (VM.rendering) vmStop(true); VM.cancel = true; vmHide(); };
+$('vmClose').onclick = () => { try { VM.pv && VM.pv.pause(); } catch (e) {} try { ED.v && ED.v.pause(); } catch (e) {} edPreviewOff(); if (VM.rendering) vmStop(true); VM.cancel = true; vmHide(); };
 
 // the sound, as a loudness curve (50 per second), straight from the file
 async function vmEnvelope(file) {
@@ -2476,7 +2492,7 @@ function vmRandom() {
 function vmRemovePerson(i) {
   const P = VM.people; if (P.length < 2 || !P[i]) return;
   const fix = w => w === i ? -1 : w > i ? w - 1 : w;
-  P.splice(i, 1);
+  P.splice(i, 1); if (VM.ps) VM.ps.splice(i, 1);
   const cast = {}; for (const k of Object.keys(VM.cast)) { const n = +k; if (n < i) cast[n] = VM.cast[k]; else if (n > i) cast[n - 1] = VM.cast[k]; } VM.cast = cast;
   let main = fix(VM.main);
   if (main < 0) {   // the main speaker went: the on-screen person who talks most takes over
@@ -2505,7 +2521,6 @@ function vmCastStep() {
   const opt = (list, cur) => list.map(([v, t]) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${t}</option>`).join('');
   const nOn = P.filter(p => !p.off).length, off = P.some(p => p.off);
   vmShow((nOn === 1 ? 'Found 1 person' : `Found ${nOn} people`) + (off ? ' + a voice' : ''), `
-    <p class="note" style="margin-top:0">Same person showing up twice? Tap <b>Same person as ↑</b>.</p>
     <div class="vm-cast" id="vmCast"></div>
     <div class="vm-row"><button class="chipb seg" id="vmRand" type="button">🎲 Random</button>${P.some(p => p.off) ? '' : '<button class="chipb seg" id="vmAddVoice" type="button">🎙️ Add a voice off camera</button>'}</div>
 
@@ -2515,7 +2530,8 @@ function vmCastStep() {
       <label>Shape<select id="vmShape">${opt(Object.keys(ASPECTS).map(k => [k, RATIO_TXT[k]]), VM.shape)}</select></label>
     </div>
     <button class="vm-go" id="vmEdit" type="button">Next: who talks when</button>
-    <button class="chipb seg" id="vmMake" type="button">Skip and make it now</button>`);
+    <button class="chipb seg" id="vmMake" type="button">Skip and make it now</button>`,
+    `<p>Tap a Nibble to change who plays that person.</p><p>Same person showing up twice? Tap <b>Same person as ↑</b>.</p><p><b>Next</b> lets you fix who talks when and watch it as you go. <b>Skip</b> makes it right away.</p>`);
   const box = $('vmCast');
   P.forEach((p, i) => {
     const d = document.createElement('div'); d.className = 'vm-person';
@@ -2576,20 +2592,25 @@ function vmEditor() {
   const P = VM.people; VM.lines = VM.lines || [];
   ED.pps = Math.max(18, Math.min(90, (Math.min(innerWidth, 520) - 110) / Math.max(1, VM.dur) * 1.6));
   vmShow('Who talks when', `
-    <video class="ed-vid" id="edVid" playsinline preload="auto"></video>
+    <div class="ed-view nib wait" id="edView"><video class="ed-vid" id="edVid" playsinline preload="auto"></video><canvas class="ed-prev" id="edPrev" width="2" height="2"></canvas><div class="ed-load">Getting the Nibbles ready…</div></div>
     <div class="ed-bar"><button class="ed-pp" id="edPP" type="button" aria-label="Play">▶</button><span class="ed-time" id="edTime">0:00.0</span>
-      <span style="flex:1"></span><button class="chipb seg" id="edStart" type="button" aria-label="Go to the start">⏮</button><button class="chipb seg" id="edEnd" type="button" aria-label="Go to the end">⏭</button><button class="chipb seg" id="edZo" type="button" aria-label="Zoom out">−</button><button class="chipb seg" id="edZi" type="button" aria-label="Zoom in">+</button></div>
+      <span style="flex:1"></span><button class="chipb seg" id="edOrig" type="button" aria-label="Show the original video">🎞</button><button class="chipb seg" id="edStart" type="button" aria-label="Go to the start">⏮</button><button class="chipb seg" id="edEnd" type="button" aria-label="Go to the end">⏭</button><button class="chipb seg" id="edZo" type="button" aria-label="Zoom out">−</button><button class="chipb seg" id="edZi" type="button" aria-label="Zoom in">+</button></div>
     <div class="ed-tl"><div class="ed-heads" id="edHeads"></div><div class="ed-scroll" id="edScroll"><div class="ed-inner" id="edInner"></div></div></div>
     <div class="ed-tools">
       <button class="chipb seg" id="edSplit" type="button">✂︎ Split</button><button class="chipb seg" id="edAdd" type="button">＋ Line</button>
       <button class="chipb seg" id="edDel" type="button">🗑 Delete</button><button class="chipb seg" id="edVoice" type="button">🎙️ Add speaker</button><button class="chipb seg" id="edRm" type="button">✕ Remove speaker</button><button class="chipb seg" id="edBg" type="button">🖼 Background</button></div>
-    <p class="note" id="edHint">Swipe the timeline to scroll it, or jump with ⏮ ⏭. Tap a line to pick it. Drag it to move it, up or down to give it to someone else, or drag its yellow ends to trim it. <b>Background</b> sets the scene for the picked line (a dashed square: the everyone background). Tap a speaker's Nibble to pick them; <b>Remove</b> gives their lines to the main speaker.</p>
     <button class="vm-go" id="edMake" type="button">Make my video</button>
-    <button class="chipb seg" id="edBack" type="button">Back</button>`);
+    <button class="chipb seg" id="edBack" type="button">Back</button>`,
+    `<p>The picture on top is your video as it'll come out. Press ▶ to watch it, or 🎞 to see the original.</p>
+    <p>Swipe the timeline to scroll it, or jump with ⏮ ⏭. Tap a line to pick it. Drag it to move it, up or down to give it to someone else, or drag its yellow ends to trim it.</p>
+    <p><b>Background</b> sets the scene for the picked line (a dashed square means the everyone background).</p>
+    <p>Tap a speaker's Nibble to pick them; tap it again to change their Nibble. <b>Remove</b> gives their lines to the main speaker.</p>`);
   const v = $('edVid'); v.src = VM.url; ED.v = v;
-  $('edPP').onclick = () => { if (v.paused) { if (v.currentTime >= VM.dur - 0.05) v.currentTime = 0; v.play().catch(() => {}); } else v.pause(); };
-  v.onplay = () => { $('edPP').textContent = '❚❚'; ED.raf = requestAnimationFrame(edTick); };
-  v.onpause = () => { $('edPP').textContent = '▶'; edTick(); };
+  $('edPP').onclick = () => { if (v.paused) { edAudio(); if (v.currentTime >= VM.dur - 0.05) v.currentTime = 0; v.play().catch(() => {}); } else v.pause(); };
+  $('edOrig').onclick = () => { const on = $('edView').classList.toggle('nib'); $('edOrig').classList.toggle('on', !on); };
+  edPreviewOn();
+  v.onplay = () => { const b = $('edPP'); if (b) b.textContent = '❚❚'; ED.raf = requestAnimationFrame(edTick); };
+  v.onpause = () => { const b = $('edPP'); if (b) b.textContent = '▶'; edTick(); };
   v.onseeked = () => edTick();
   const jump = t => { v.currentTime = t; const sc = $('edScroll'); sc.scrollTo({ left:t <= 0 ? 0 : sc.scrollWidth, behavior:'smooth' }); edTick(); };
   $('edStart').onclick = () => jump(0); $('edEnd').onclick = () => jump(Math.max(0, VM.dur - 0.05));
@@ -2601,12 +2622,58 @@ function vmEditor() {
   $('edVoice').onclick = () => {
     P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 }); const i = P.length - 1;
     const used = new Set(Object.values(VM.cast).map(Number)), free = NIB_NAMES().map(x => x[0]).find(id => !used.has(id));
-    VM.cast[i] = free || NIB_NAMES()[0][0]; ED.lane = i; edDraw();
+    VM.cast[i] = free || NIB_NAMES()[0][0]; ED.lane = i; edDraw(); edEnsureArts();
   };
-  $('edRm').onclick = () => { if (VM.people.length < 2) return; vmRemovePerson(ED.lane); ED.lane = Math.min(ED.lane, VM.people.length - 1); ED.sel = null; edDraw(); };
-  $('edMake').onclick = () => { v.pause(); vmLinesToTimeline(); vmRender(); };
-  $('edBack').onclick = () => { v.pause(); vmLinesToTimeline(); vmCastStep(); };
+  $('edRm').onclick = () => { if (VM.people.length < 2) return; vmRemovePerson(ED.lane); ED.lane = Math.min(ED.lane, VM.people.length - 1); ED.sel = null; edDraw(); if (VM.previewing) edEnsureArts(); };
+  $('edMake').onclick = () => { v.pause(); edPreviewOff(); vmLinesToTimeline(); vmRender(); };
+  $('edBack').onclick = () => { v.pause(); edPreviewOff(); vmLinesToTimeline(); vmCastStep(); };
   edDraw();
+}
+// The live preview: the editor's own clip drives the same drawing the finished video uses (who's on screen, their
+// face from the tracker, their mouth from the sound), painted small into the editor. The main screen is borrowed
+// while it shows and given back after.
+async function edPreviewOn() {
+  if (VM.previewing) return;
+  if ($('camSwitch').checked) { $('camSwitch').checked = false; $('camToggle').classList.remove('on'); cameraOff(); }
+  stopMusic();
+  VM.keep = { id:S.id, art:S.art, trait:S.trait, bg:S.bg, shape:S.shape || 'Square', face:S.face, mouth:S.mouth, eye:S.eye,
+    v:{ an:V.an, buf:V.buf, spec:V.spec, hz:V.hz, floor:V.floor, peak:V.peak, loud:V.loud, trusted:V.trusted, on:V.on, lastVoice:V.lastVoice } };
+  VM.previewing = true; VM.arts = VM.arts || {}; VM.cur = -1;
+  V.on = false;   // silent until ▶ hooks up the clip's sound
+  for (const name of new Set([VM.bg, ...(VM.lines || []).map(l => l.bg || VM.bg)])) if (IMG_BGS[name]) { S.bg = name; bonkdBg(name); if (ENTRANCE[name]) entrance(); }
+  S.bg = VM.bg; setShape(VM.shape);
+  await edEnsureArts();
+  if (!VM.previewing) return;
+  VM.v = ED.v;
+}
+async function edEnsureArts() {
+  const P = VM.people;
+  VM.ps = VM.ps || []; P.forEach((p, i) => { if (!VM.ps[i]) VM.ps[i] = { mouth:{ cur:0, prev:0, t:0 }, eye:{ cur:0, prev:0, t:0 }, face:{ roll:0, yaw:0, pitch:0, seen:false, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 } }; });
+  const want = [...new Set(P.map((p, i) => +VM.cast[i]))].filter(id => !VM.arts[id]);
+  if (want.length) { const w = $('edView'); if (w) w.classList.add('wait');
+    for (const id of want) { try { VM.arts[id] = await fetchNibble(id); } catch (e) {} } }
+  VM.mirror = {}; P.forEach((p, i) => VM.mirror[i] = +VM.cast[i] !== +VM.cast[VM.first]);
+  VM.cur = -1; const w = $('edView'); if (w) w.classList.remove('wait');
+}
+function edAudio() {
+  const v = ED.v; if (!v || !VM.previewing) return;
+  try { const ac = audioCtx(); mixBus();
+    if (!v._an) { const src = ac.createMediaElementSource(v), an = ac.createAnalyser(); an.fftSize = 2048; an.smoothingTimeConstant = 0.3; src.connect(an); src.connect(AU.out); v._an = an; }
+    Object.assign(V, { noWhistle:true, an:v._an, buf:new Float32Array(2048), spec:new Float32Array(1024), hz:ac.sampleRate / 2048, floor:[], peak:0, loud:0.05, trusted:false, on:true, lastVoice:0 });
+  } catch (e) {}
+}
+function edPreviewOff() {
+  if (!VM.previewing) return; VM.previewing = false; VM.v = null;
+  const k = VM.keep; if (!k) return;
+  Object.assign(V, k.v); V.noWhistle = false; S.id = k.id; S.art = k.art; S.trait = k.trait; S.bg = k.bg; S.face = k.face; S.mouth = k.mouth; S.eye = k.eye; S.tracking = false;
+  setShape(k.shape); MH.length = 0; openLvl = 0;
+}
+// the main screen, copied small into the editor
+function edPaint() {
+  const c = $('edPrev'); if (!c) return;
+  const w = Math.round(stage.width / 2), h = Math.round(stage.height / 2);
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  c.getContext('2d').drawImage(stage, 0, 0, w, h);
 }
 const edNow = () => (ED.v && isFinite(ED.v.currentTime) ? ED.v.currentTime : 0);
 function edTick() {
@@ -2648,7 +2715,7 @@ function edDraw() {
   P.forEach((p, i) => {
     const h = document.createElement('button'); h.type = 'button'; h.className = 'ed-head' + (ED.lane === i ? ' on' : ''); h.style.setProperty('--c', LANE_COL[i % LANE_COL.length]);
     const c = document.createElement('span'); c.className = 'circ'; nibThumb(c, VM.cast[i]); const nm = document.createElement('span'); nm.className = 'lbl'; nm.textContent = pName(i);
-    h.append(c, nm); h.onclick = () => { if (ED.lane === i) pickNibble(VM.cast[i], Object.assign(id => { VM.cast[i] = id; edDraw(); }, { noAdd:true })); else { ED.lane = i; edDraw(); } };
+    h.append(c, nm); h.onclick = () => { if (ED.lane === i) pickNibble(VM.cast[i], Object.assign(id => { VM.cast[i] = id; edDraw(); edEnsureArts(); }, { noAdd:true })); else { ED.lane = i; edDraw(); } };
     heads.appendChild(h);
     const lane = document.createElement('div'); lane.className = 'ed-lane' + (ED.lane === i ? ' on' : ''); lane.style.width = W + 'px'; lane.dataset.lane = i;
     lane.addEventListener('click', e => { if (e.target !== lane) return; ED.lane = i; ED.sel = null; seekAt(e); edDraw(); });   // a tap (a swipe scrolls)
@@ -2795,7 +2862,9 @@ function vmFrame(now) {
   const v = VM.v, t = v.currentTime, P = VM.people;
   const p = VM.timeline[Math.min(VM.timeline.length - 1, Math.floor(t / 0.05))] ?? VM.main;
   if (p !== VM.cur) {   // a cut
-    VM.cur = p; const id = +VM.cast[p], a = VM.arts[id];
+    const id = +VM.cast[p], a = VM.arts[id];
+    if (!a || !VM.ps[p]) { if (VM.previewing) edEnsureArts(); return; }   // (the preview: a Nibble just picked, still loading)
+    VM.cur = p;
     S.id = id; S.art = a.art; S.trait = a.trait; S.mouth = VM.ps[p].mouth; S.eye = VM.ps[p].eye; MH.length = 0; openLvl = 0;
   }
   const k = Math.min(VM.timeline.length - 1, Math.floor(t / 0.05)), bgNow = (VM.tlBg && VM.tlBg[k]) || VM.bg;
