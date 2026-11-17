@@ -310,6 +310,8 @@ header .credit b{font-weight:400}
 .vm-sw i{position:relative;display:block;width:40px;height:24px;border:2.5px solid var(--ink);border-radius:999px;background:#e4ded2}
 .vm-sw i::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border:2px solid var(--ink);border-radius:50%;background:#fff;transition:left .15s}
 .vm-sw.on i{background:var(--gold)}.vm-sw.on i::after{left:17px}
+.cap-list{display:grid;gap:6px;max-height:260px;overflow:auto;margin:6px 0}.cap-list label{display:grid;grid-template-columns:44px 1fr;gap:6px;align-items:center;font:700 11px/1 var(--body)}.cap-list input{font:600 14px/1.2 var(--body);padding:7px 9px;border:2px solid var(--ink);border-radius:10px;min-width:0}
+#vmCap .chipb.on{background:var(--gold);box-shadow:2px 2px 0 var(--ink)}.note.warn{color:#b3261e;font-weight:700}
 .ed-show .vm-row{margin:4px 0}.ed-show .chipb.on{background:var(--gold);box-shadow:2px 2px 0 var(--ink)}
 .ed-hint{margin:6px 2px 0;min-height:2.7em;font:500 12.5px/1.35 var(--body)}.ed-hint.warn{color:#b3261e;font-weight:700}
 .st-hist{margin:12px 0 0;align-items:center}.st-hist .chipb[disabled]{opacity:.4}
@@ -2348,6 +2350,73 @@ function vmText() {
   paintText(L, W / 2, (region[1] + region[3]) / 2);
   TX.text = keep;
 }
+// ---------------------------------------------------------------------------
+// Captions: the words people say in the video, written on it as they're said. A small speech-to-text model (OpenAI's
+// Whisper, "tiny", English, run on this device with transformers.js; downloaded once, ~40 MB, then kept by the browser) reads the
+// clip's own sound and gives every word with its time. Nothing is sent anywhere. Two looks: a few words at a time with
+// the one being said lit up (Shorts style), or whole lines. Every line can be corrected by hand.
+// ---------------------------------------------------------------------------
+const ASR_LIB = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5/dist/transformers.min.js', ASR_MODEL = 'onnx-community/whisper-tiny.en_timestamped';
+let ASR = null;
+function asrPipe(onProg) {
+  if (!ASR) ASR = (async () => {
+    const T = await import(ASR_LIB); T.env.allowLocalModels = false;
+    return T.pipeline('automatic-speech-recognition', ASR_MODEL, { dtype:'q8', device:'wasm', progress_callback:onProg });
+  })().catch(e => { ASR = null; throw e; });
+  return ASR;
+}
+// the clip's sound at 16 kHz, one channel (what the model listens to)
+async function vmAudio16() {
+  const vt = VM.env && VM.env.vt; if (!vt) return null;
+  const len = Math.ceil(vt.x.length * 16000 / vt.sr), oc = new OfflineAudioContext(1, len, 16000), b = oc.createBuffer(1, vt.x.length, vt.sr);
+  b.getChannelData(0).set(vt.x); const src = oc.createBufferSource(); src.buffer = b; src.connect(oc.destination); src.start();
+  return (await oc.startRendering()).getChannelData(0);
+}
+async function vmTranscribe(msg) {
+  const C = VM.cap; if (C.busy) return; C.busy = true; C.err = null;
+  try {
+    const got = {};
+    const pipe = await asrPipe(p => { if (p.status === 'progress' && p.total) { got[p.file] = [p.loaded, p.total]; let a = 0, b = 0; for (const k in got) { a += got[k][0]; b += got[k][1]; }
+      msg(`Getting the word reader (only the first time): ${Math.round(100 * a / b)}%`); } });
+    msg('Listening for words… (about as long as the video, maybe longer)');
+    const a16 = await vmAudio16(); if (!a16) throw 'no sound';
+    const out = await pipe(a16, { return_timestamps:'word', chunk_length_s:30, stride_length_s:5 });
+    const words = (out.chunks || []).map(c => ({ w:String(c.text || '').trim(), t0:c.timestamp[0], t1:c.timestamp[1] ?? c.timestamp[0] + 0.3 })).filter(w => w.w && isFinite(w.t0));
+    vmMark(); C.words = words; C.on = true;
+  } catch (e) { console.warn('captions', e); C.err = String(e && e.message || e).slice(0, 120); }
+  C.busy = false;
+}
+// the words grouped into captions: a pause, the end of a sentence, or enough words starts a new one
+function capLines() {
+  const C = VM.cap, max = C.style === 'line' ? 7 : 3, out = []; let cur = null;
+  for (const w of C.words || []) {
+    if (!cur || w.t0 - cur.t1 > 0.6 || cur.words.length >= max || /[.!?]$/.test(cur.words[cur.words.length - 1].w)) { cur = { t0:w.t0, t1:w.t1, words:[] }; out.push(cur); }
+    cur.words.push(w); cur.t1 = w.t1;
+  }
+  return out;
+}
+// drawn over the video: across the top, under any words on the video (never over the Nibble)
+function vmCaption(t) {
+  const C = VM.cap; if (!C || !C.on || !C.words || !C.words.length) return;
+  const L = capLines(), cur = L.find(l => t >= l.t0 - 0.05 && t < Math.max(l.t1 + 0.35, l.t0 + 0.6)); if (!cur) return;
+  const W = stage.width, H = stage.height, m = Math.min(W, H);
+  // the Nibble FILTER display font, big; in a tall video, in the open space above the Nibble's head
+  const pop = C.style !== 'line', fs = m * (pop ? 0.105 : 0.07);
+  const top = VM.text && VM.textAt !== 'bottom' && TX.rect ? TX.rect[1] + TX.rect[3] + fs * 0.35 : H > W * 1.3 ? (H - W) * 0.45 : H * 0.045;
+  ctx.save(); ctx.font = `400 ${fs}px Frankys, 'Lilita One', 'Arial Black', sans-serif`; ctx.textBaseline = 'top'; ctx.lineJoin = 'round';
+  const words = cur.words.map(w => ({ ...w, s:pop ? w.w.toUpperCase() : w.w })), sp = ctx.measureText(' ').width, rows = [[]]; let rw = 0;
+  for (const w of words) { w.wd = ctx.measureText(w.s).width; if (rw && rw + sp + w.wd > W * 0.9) { rows.push([]); rw = 0; } rows[rows.length - 1].push(w); rw += (rw ? sp : 0) + w.wd; }
+  rows.forEach((r, i) => {
+    let x = W / 2 - (r.reduce((a, w) => a + w.wd, 0) + sp * (r.length - 1)) / 2; const y = top + i * fs * 1.12;
+    for (const w of r) {
+      const now = t >= w.t0 - 0.03 && t < w.t1 + 0.05, said = t >= w.t0 - 0.03;
+      ctx.lineWidth = fs * 0.2; ctx.strokeStyle = '#161616'; ctx.strokeText(w.s, x + fs * 0.05, y + fs * 0.06); ctx.fillStyle = '#161616'; ctx.fillText(w.s, x + fs * 0.05, y + fs * 0.06);
+      ctx.strokeText(w.s, x, y); ctx.fillStyle = now ? '#ffd23f' : pop || said ? '#ffffff' : 'rgba(255,255,255,.72)'; ctx.fillText(w.s, x, y);
+      x += w.wd + sp;
+    }
+  });
+  ctx.restore();
+}
 // controls
 const txtIn = $('txtIn');
 // the page itself never scrolls; if the phone tries to nudge it while the keyboard opens or closes, put it straight back
@@ -2561,7 +2630,7 @@ async function recordAudioTracks() {
 // it cuts to whoever is talking, the first speaker faces the usual way and everyone who answers is flipped to
 // face them, and when nobody talks it rests on the main character. All on the device; nothing is uploaded.
 // ---------------------------------------------------------------------------
-var VM = { lm:null, url:null, dur:0, people:[], timeline:[], cast:{}, mirror:{}, main:0, bg:'Random', music:'', shape:null, flip:null, same:{}, text:'', textAt:'top', rendering:false, cancel:false }; window.__vm = VM;
+var VM = { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, lm:null, url:null, dur:0, people:[], timeline:[], cast:{}, mirror:{}, main:0, bg:'Random', music:'', shape:null, flip:null, same:{}, text:'', textAt:'top', rendering:false, cancel:false }; window.__vm = VM;
 const vmBody = () => $('vmBody');
 function vmShow(title, html, info) { $('vm').hidden = false; $('vmTitle').textContent = title; vmBody().innerHTML = html || ''; document.querySelector('.vm-card').classList.remove('timing');
   // the how-to for this step lives behind the "i" button, not on the page
@@ -2800,7 +2869,7 @@ const vmSeek = (v, t) => new Promise(res => {
 const vmProg = p => { const e = $('vmProg'); if (e) e.style.width = Math.max(0, Math.min(100, p)).toFixed(1) + '%'; };
 const vmMsg = s => { const e = $('vmMsg'); if (e) e.textContent = s; };
 async function vmAnalyse(file, grab) {
-  Object.assign(VM, { soundFrom:null, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null });
+  Object.assign(VM, { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, soundFrom:null, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null });
   vmShow('Watching your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`);
   let v = null;
   try {
@@ -3251,11 +3320,11 @@ function vmRandom(keepMain) {
 }
 // Undo: every change first saves how things were. "Start over" goes back to the first choices.
 function vmSnap() {
-  return { j:JSON.stringify({ cast:VM.cast, same:VM.same, flip:VM.flip, group:VM.group, sing:VM.sing, bg:VM.bg, music:VM.music, shape:VM.shape, text:VM.text, textAt:VM.textAt, lines:VM.lines, main:VM.main }),
+  return { j:JSON.stringify({ cap:{ on:VM.cap.on, style:VM.cap.style, words:VM.cap.words }, cast:VM.cast, same:VM.same, flip:VM.flip, group:VM.group, sing:VM.sing, bg:VM.bg, music:VM.music, shape:VM.shape, text:VM.text, textAt:VM.textAt, lines:VM.lines, main:VM.main }),
     people:VM.people.slice() };
 }
 function vmRestoreSnap(s) {
-  Object.assign(VM, JSON.parse(s.j)); VM.people = s.people.slice(); VM.ps = {}; ED.sel = null; ED.lane = Math.min(ED.lane, VM.people.length - 1);
+  const J = JSON.parse(s.j); VM.cap = Object.assign(VM.cap || {}, J.cap || {}); delete J.cap; Object.assign(VM, J); VM.people = s.people.slice(); VM.ps = {}; ED.sel = null; ED.lane = Math.min(ED.lane, VM.people.length - 1);
   vmLinesToTimeline(); vmStudioSync();
 }
 function vmMark() { VM.hist.push(vmSnap()); if (VM.hist.length > 60) VM.hist.shift(); vmUndoBtns(); }
@@ -3430,13 +3499,35 @@ function vmLookTab(el) {
       <label class="vm-txt">Words on the video<input id="vmText" type="text" maxlength="60" placeholder="e.g. Happy Birthday Mom!" value="${esc(VM.text || '')}"></label>
       <label>Where<select id="vmTextAt">${opt([['top', 'Top'], ['bottom', 'Bottom']], VM.textAt)}</select></label>
     </div>
-    <p class="note">Music plays quietly under the video's own sound. Each line can have its own background too (Timing tab).</p>`;
+    <p class="note">Music plays quietly under the video's own sound. Each line can have its own background too (Timing tab).</p>
+    <div class="vm-h">Captions <span>the words people say, as they say them</span></div>
+    <div id="vmCap"></div>`;
+  vmCapPanel();
   $('vmBg').onchange = e => vmDo(() => { VM.bg = e.target.value; });
   $('vmMusic').onchange = e => vmDo(() => { VM.music = e.target.value; });
   $('vmShape').onchange = e => vmDo(() => { VM.shape = e.target.value; });
   let typing = null;
   $('vmText').oninput = e => { if (!typing) { vmMark(); } clearTimeout(typing); typing = setTimeout(() => typing = null, 1200); VM.text = e.target.value.trim().replace(/\s+/g, ' '); vmFit(); };
   $('vmTextAt').onchange = e => vmDo(() => { VM.textAt = e.target.value; });
+}
+function vmCapPanel() {
+  const el = $('vmCap'); if (!el) return; const C = VM.cap;
+  const opt = (k, label, on) => `<button type="button" class="chipb seg${on ? ' on' : ''}" data-k="${k}">${label}</button>`;
+  if (C.busy) { el.innerHTML = `<p class="note" id="vmCapMsg">${esc(C.msg || 'Starting…')}</p>`; return; }
+  if (!C.words) { el.innerHTML = `<div class="vm-row">${opt('make', '💬 Add captions', false)}</div>` + (C.err ? `<p class="note warn">That didn't work (${esc(C.err)}). Try again.</p>` : `<p class="note">Reads the words right here on your device. The first time it downloads its word reader (about 40 MB). English only for now.</p>`); }
+  else {
+    const L = capLines();
+    el.innerHTML = `<div class="vm-row">${opt('on', C.on ? '✓ Captions on' : 'Captions off', C.on)}${opt('style:pop', 'Pop words', C.style !== 'line')}${opt('style:line', 'Full lines', C.style === 'line')}${opt('make', '↻ Read again', false)}</div>` +
+      (L.length ? `<p class="note">Fix any word: edit a line, then tap away.</p><div class="cap-list">${L.map((l, i) => `<label><span>${fmtT(l.t0)}</span><input type="text" data-i="${i}" value="${esc(l.words.map(w => w.w).join(' '))}"></label>`).join('')}</div>` : '<p class="note">No words were heard in this video.</p>');
+  }
+  el.querySelectorAll('button').forEach(b => b.onclick = async () => { const k = b.dataset.k;
+    if (k === 'make') { C.msg = 'Starting…'; vmCapPanel(); await vmTranscribe(m => { C.msg = m; const x = $('vmCapMsg'); if (x) x.textContent = m; }); vmFit(); vmCapPanel(); return; }
+    vmDo(() => { if (k === 'on') C.on = !C.on; else if (k.startsWith('style:')) C.style = k.slice(6); }); vmFit(); vmCapPanel(); });
+  // a corrected line: its new words share its time, in proportion to their length
+  el.querySelectorAll('.cap-list input').forEach(inp => inp.onchange = () => vmDo(() => {
+    const l = capLines()[+inp.dataset.i]; if (!l) return; const ws = inp.value.trim().split(/\s+/).filter(Boolean), i0 = C.words.indexOf(l.words[0]);
+    const tot = ws.reduce((a, w) => a + w.length + 1, 0) || 1; let t = l.t0; const nw = ws.map(w => { const d = (l.t1 - l.t0) * (w.length + 1) / tot, o = { w, t0:t, t1:t + d }; t += d; return o; });
+    C.words.splice(i0, l.words.length, ...nw); }));
 }
 function vmTimingTab(el) {
   el.innerHTML = `<p class="note" style="margin-top:2px">Each coloured block is when that Nibble talks. Tap a block to pick it, drag it to move it (up or down gives it to someone else), drag its yellow ends to trim it.</p>
@@ -3516,7 +3607,7 @@ async function edEnsureArts() {
   try { await VM.loading; } finally { VM.loading = null; }
 }
 // words across the top of a square or wide video: the Nibble stands a little smaller, so they don't sit on its head
-function vmFit() { S.fit = VM.text && VM.textAt !== 'bottom' && VM.shape !== 'Vertical' ? 0.84 : 1; }
+function vmFit() { const cap = VM.cap && VM.cap.on, txt = VM.text && VM.textAt !== 'bottom'; S.fit = VM.shape === 'Vertical' || (!cap && !txt) ? 1 : cap && txt ? 0.72 : 0.82; }
 function edAudio() {
   const v = ED.v; if (!v || !VM.previewing) return;
   try { const ac = audioCtx(); mixBus();
@@ -3878,7 +3969,7 @@ function vmFrame(now) {
   }
   if (mir) { ctx.translate(stage.width, 0); ctx.scale(-1, 1); }
   drawNibble(now); ctx.restore(); S.solo = false;
-  vmText();
+  vmText(); vmCaption(t);
   const pr = $('vmProg'); if (pr) pr.style.width = (100 * t / VM.dur).toFixed(1) + '%';
   // the end: phones don't always send the video's "ended" event, so the last frame (or a stall right at the end) finishes it too
   if (v.ended || t >= VM.dur - 0.06) { vmStop(false); return; }
