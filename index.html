@@ -282,6 +282,7 @@ header .credit b{font-weight:400}
 .vm-tabs button.on{background:var(--ink);color:#fff}
 #vmTab{padding-top:8px}
 .vm-tag .sub{font:600 11.5px/1.25 var(--body);opacity:.7}
+.vm-chg{font-size:11px;padding:6px 10px 4px}
 .vm-arr{font:400 18px/1 var(--display);text-align:center}
 .vm-crowd{display:grid;grid-template-columns:62px 18px 62px 1fr;align-items:center;gap:8px;margin-top:6px;padding-top:14px;border-top:2px dashed rgba(22,22,22,.18)}
 .vm-cnibs.wide{grid-column:3 / -1;margin-top:2px}
@@ -3202,7 +3203,7 @@ const newPS = () => ({ mouth:{ cur:0, prev:0, t:0 }, eye:{ cur:0, prev:0, t:0 },
 // round), a background, and how they're shown (a song with a crowd: everyone together, the row behind singing along)
 function vmDefaults() {
   VM.shape = VM.shape || S.shape || 'Square';
-  vmRandom();
+  vmRandom(true);
   const music = (VM.env && VM.env.nov && VM.env.nov.music) || 0, others = VM.people.filter(q => !q.off).length - 1;
   VM.group = VM.crowd && (music > 0.3 || VM.crowd.n >= 3) ? 'all' : 'one';
   VM.sing = music > 0.3;
@@ -3210,9 +3211,10 @@ function vmDefaults() {
   for (let k = 3; k < 6; k++) VM.flip[CROWD0 + k] = true;
   VM.hist = []; VM.start = vmSnap();
 }
-function vmRandom() {
-  const ids = NIB_NAMES().map(x => x[0]).sort(() => Math.random() - 0.5), P = VM.people;
-  P.forEach((p, i) => VM.cast[i] = ids[i % ids.length]); vmLink();
+function vmRandom(keepMain) {
+  const mine = keepMain && NIBBLES[S.id] ? +S.id : null;   // the Nibble picked on the main screen plays the main person
+  const ids = NIB_NAMES().map(x => x[0]).filter(id => id !== mine).sort(() => Math.random() - 0.5), P = VM.people;
+  P.forEach((p, i) => VM.cast[i] = mine != null && i === VM.main ? mine : ids[i % ids.length]); vmLink();
   for (let k = 0; k < 6; k++) VM.cast[CROWD0 + k] = ids[(P.length + (k % 3)) % ids.length];
   const bgs = bgList().filter(n => bgCat(n) !== 'user'); VM.bg = bgs[Math.floor(Math.random() * bgs.length)];
 }
@@ -3340,7 +3342,8 @@ function vmPeopleTab(el) {
     const sub = document.createElement('span'); sub.className = 'sub';
     const talks = (VM.lines || []).filter(l => l.who === i).reduce((a, l) => a + l.t1 - l.t0, 0);
     sub.textContent = p.off ? 'a voice you hear but don’t see' : p.noface ? 'no face found: moves with the sound' : i === VM.main ? (P.length > 1 ? 'on screen most' : 'the one the video’s about') : talks > 0.5 ? `talks ${Math.round(talks)}s` : 'on screen a lot';
-    tag.append(lb, sub);
+    const chg = document.createElement('button'); chg.type = 'button'; chg.className = 'chipb seg vm-chg'; chg.textContent = 'Change Nibble'; chg.onclick = () => nib.click();
+    tag.append(lb, sub, chg);
     const others = P.map((q, j) => j).filter(j => j !== i && vmRoot(j) !== i && !P[j].off);
     if (others.length && !p.off) {   // one person found twice (a hand over the face): link them
       const sel = document.createElement('select'); sel.className = 'vm-same' + (VM.same[i] != null ? ' on' : ''); sel.setAttribute('aria-label', 'Same person as');
