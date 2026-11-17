@@ -457,7 +457,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261117-0830';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261117-1030';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1378,7 +1378,9 @@ function vmVoice(now, t) {
   const T = VM.env.vt, n = T.e.length, k = Math.max(0, Math.min(n - 1, Math.round(t * 100))), e = T.e[k];
   let pk = 0; for (let j = Math.max(0, k - 12); j <= Math.min(n - 1, k + 12); j++) if (T.e[j] > pk) pk = T.e[j];
   const nv = VM.env.nov, j = Math.floor(t * 50);
-  V.rms = e; V.trusted = true; V.hiss = 0; V.whistle = false; V.voiced = e > T.thr && !(nv && nv[j]) && (!VM.talk || !!VM.talk[Math.floor(t / 0.05)]);
+  V.inLine = !VM.talk || !!VM.talk[Math.floor(t / 0.05)];   // inside one of the lines (who talks when)
+  V.rms = e; V.trusted = true; V.hiss = 0; V.whistle = false; V.voiced = e > T.thr && !(nv && nv[j]) && V.inLine;
+  V.loudish = e > T.thr * 0.8;   // any sound at all (a voice under a horn too)
   if (V.voiced) {
     V.lastVoice = now; V.level = clamp((e - T.thr) / (T.loud - T.thr), 0, 1);
     const i0 = Math.max(0, Math.min(T.x.length - 2048, Math.round(t * T.sr) - 1024));
@@ -1495,6 +1497,22 @@ function pickMouth(f, now) {
   // Talking (the mic hears you): the voice opens the mouth and says which shape; the camera adds what it can see
   // (pressed lips, a pucker, the lower lip tucked for F/V, a grin). Lips that barely move still get a moving mouth.
   if (V.on && now - (V.lastWhistle || -1e9) < 120) return 6;                       // whistling: OO pucker
+  // Making a video with the person's face clearly in view: their own lips say how open the mouth is and which shape,
+  // frame by frame, like rotoscoping; the sound only says whether they're talking at all (traffic, a horn or music under
+  // them doesn't hold the mouth open, and words get their real open-shut rhythm)
+  if ((VM.rendering || VM.previewing) && f.live && V.on && V.trusted) {
+    // talking: inside a line, and the lips are moving with a sound (a horn or a car over the words doesn't stop them; the
+    // same sound with the lips shut doesn't open them)
+    const talking = V.inLine && ((V.loudish && lip > 0.08) || lip > 0.2);
+    if (!talking) return f.press > 0.55 ? 1 : round && f.round > 0.5 ? 6 : f.frown > 0.55 ? 9 : 0;
+    if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;              // M B P
+    if (f.lowIn > 0.45 && f.upIn < 0.35 && lip < 0.3) return 7;                   // F V
+    if (lip < 0.1) return round ? 6 : 1;                                           // lips together between sounds
+    if (round) return lip > 0.45 ? 5 : 6;                                          // O / OO
+    if (f.wide > 0.55 && f.smile > 0.5) return 4;                                  // EE, teeth
+    if (lip > 0.62) return 3;                                                      // AH
+    return V.sh && V.sh.back && lip < 0.4 ? 8 : 2;
+  }
   if (V.on && V.trusted && V.voiced && now - V.lastVoice < 60) {
     // Everyday talking is mostly the small open mouth. The big shapes (wide AH, round O, the teeth grin) are
     // saved for loud, stressed sounds, like a cartoon animator would: flapping between extremes reads as shouting.
@@ -2746,7 +2764,7 @@ async function vmFollow(v, who, prog) {
   const P = who.people, step = VM.dur <= 20 ? 1 / 12 : VM.dur <= 40 ? 1 / 10 : 1 / 8, fw = who.fw, fh = who.fh;
   const fc = document.createElement('canvas'); fc.width = fw; fc.height = fh; const fg = fc.getContext('2d');
   const cc = document.createElement('canvas'); cc.width = cc.height = 256; const cg = cc.getContext('2d');
-  for (const p of P) { p.smp = []; p.f = { roll:0, yaw:0, pitch:0, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 }; p.H = {}; p.spans = []; }
+  for (const p of P) { p.smp = []; p.raw = []; p.f = { roll:0, yaw:0, pitch:0, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 }; p.H = {}; p.spans = []; }
   vmCut.prev = null; vmCut.hist = null; const cuts = [];
   const look = t => {
     const cut = vmCut(v); if (cut) cuts.push(t);
@@ -2764,11 +2782,9 @@ async function vmFollow(v, who, prog) {
       const L = r.faceLandmarks[best].map(q => ({ x:(ox + q.x * side) / fw, y:(oy + q.y * side) / fh, z:q.z })), bs = {};
       (r.faceBlendshapes?.[best]?.categories || []).forEach(c => bs[c.categoryName] = c.score);
       let y0 = 1, y1 = 0; for (const q of L) { y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y); }
-      const f = p.f; readFace(L, bs, f, p.H, t * 1000);
-      p.smp.push({ t, open:f.open, wide:f.wide, round:f.round, smile:f.smile, press:f.press, frown:f.frown, fv:f.fv, jaw:f.jaw, lowIn:f.lowIn, upIn:f.upIn,
-        blink:f.blink, bu:f.blinkUntil || 0, brow:f.brow, browUp:f.browUp, eyeWide:f.eyeWide || 0, roll:f.roll, yaw:f.yaw, pitch:f.pitch,
-        mo:dist(L[13], L[14]) / (dist(L[10], L[152]) || 1e-6), cx:b.cx, s:+(y1 - y0).toFixed(3),
-        edge:L.some(q => q.x < 0.01 || q.x > 0.99 || q.y < 0.01 || q.y > 0.99) });
+      // kept raw: read once the whole clip is seen (each face's resting look is learned from all of it, not from its first
+      // moments, when it may well be talking)
+      p.raw.push({ t, L, bs, cx:b.cx, s:+(y1 - y0).toFixed(3) });
       const sp = p.spans[p.spans.length - 1]; if (sp && t - sp[1] < 0.4) sp[1] = t; else p.spans.push([t, t]);
     }
     prog(t / VM.dur);
@@ -2800,6 +2816,22 @@ async function vmFollow(v, who, prog) {
   }
   if (!played && !VM.cancel) for (let t = 0; t < VM.dur && !VM.cancel; t += step) { await vmSeek(v, Math.min(t, VM.dur - 0.01)); look(t); }
   fc.width = fc.height = cc.width = cc.height = 0;
+  for (const p of P) {
+    // how far apart the lips go for this face, from shut (its lowest) to its widest talking (near the top): the Nibble's
+    // mouth opens as far as theirs does, in between
+    const mos = p.raw.map(r => dist(r.L[13], r.L[14]) / (dist(r.L[10], r.L[152]) || 1e-6)).sort((a, b) => a - b);
+    const lo = mos.length ? mos[Math.floor(mos.length * 0.08)] : 0, hi = mos.length ? Math.max(lo + 0.02, mos[Math.floor(mos.length * 0.92)]) : 1;
+    p.moLo = lo; p.moHi = hi;
+    // two passes: the first only learns this face's resting look, the second reads it
+    for (let pass = 0; pass < 2; pass++) for (const r of p.raw) {
+      const f = p.f, L = r.L; readFace(L, r.bs, f, p.H, r.t * 1000); if (!pass) continue;
+      const mo = dist(L[13], L[14]) / (dist(L[10], L[152]) || 1e-6), op = clamp((mo - lo) / (hi - lo), 0, 1);
+      p.smp.push({ t:r.t, open:op, wide:f.wide, round:f.round, smile:f.smile, press:f.press, frown:f.frown, fv:f.fv, jaw:op, lowIn:f.lowIn, upIn:f.upIn,
+        blink:f.blink, bu:f.blinkUntil || 0, brow:f.brow, browUp:f.browUp, eyeWide:f.eyeWide || 0, roll:f.roll, yaw:f.yaw, pitch:f.pitch,
+        mo, cx:r.cx, s:r.s, edge:L.some(q => q.x < 0.01 || q.x > 0.99 || q.y < 0.01 || q.y > 0.99) });
+    }
+    p.raw = null;
+  }
 }
 // a camera cut: the whole picture changes at once (then nobody carries over from the last shot)
 function vmCut(v) {
@@ -2863,9 +2895,11 @@ function vmTimeline() {
   // the talking, split into lines: stretches of sound (short pauses inside a line don't split it), split again where
   // the speaker clearly changes. Each line gets a speaker; anyone can change it in the picker.
   const lines = []; let k = 0;
+  // sound while the only face in view keeps its lips still isn't talking (a horn, traffic, a song before they sing)
+  const talks = r => r.speech && !(r.still && !r.off && P.filter(q => !q.off).length === 1);
   while (k < raw.length) {
-    if (!raw[k].speech) { k++; continue; }
-    let e = k, gap = 0; for (let j = k; j < raw.length; j++) { if (raw[j].speech) { e = j; gap = 0; } else if (++gap * dt > 0.3) break; }
+    if (!talks(raw[k])) { k++; continue; }
+    let e = k, gap = 0; for (let j = k; j < raw.length; j++) { if (talks(raw[j])) { e = j; gap = 0; } else if (++gap * dt > 0.3) break; }
     // inside the line: runs of one speaker, short runs folded into their neighbour
     const segs = []; for (let j = k; j <= e; j++) { const w = raw[j].who; if (segs.length && (segs[segs.length - 1].w === w || w < 0)) segs[segs.length - 1].e = j; else segs.push({ w, s:j, e:j }); }
     for (let i = segs.length - 1; i > 0; i--) if ((segs[i].e - segs[i].s + 1) * dt < 0.6 || segs[i].w === segs[i - 1].w) { segs[i - 1].e = segs[i].e; segs.splice(i, 1); }
@@ -3429,6 +3463,7 @@ async function vmRender() {
     vmShow('Nibbling your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note">Keep this screen open until it's done. You'll hear it as it goes.</p><button class="chipb seg" id="vmStop" type="button">Cancel</button>`);
     $('vmStop').onclick = () => vmStop(true);
     v.onended = () => vmStop(false);
+    try { vmFrame(performance.now()); } catch (e) {}   // the first picture recorded is already the Nibble (not what the main screen showed)
     rec.start(1000); if (VM.mus) VM.mus.start();
     await v.play();
   } catch (e) { vmRestore(); vmShow('Nibble a Video', '<p>Something went wrong making the video. Try again.</p>'); }
@@ -3526,9 +3561,10 @@ function vmFrame(now) {
   if (x) { Object.assign(f, x); f.seen = true; if (x.bu > t * 1000) S.blinkUntil = now + (x.bu - t * 1000);
     // a face running off the edge of the picture, or a small one far back (a choir), can't be read for its mouth's shape
     // (lips that look pressed on a blur would shut the mouth while they sing): the voice picks the shape
-    if (x.edge || x.s < 0.13) Object.assign(f, { round:0, wide:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0 }); }
+    f.live = !(x.edge || x.s < 0.13);
+    if (!f.live) Object.assign(f, { round:0, wide:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0 }); }
   else {   // not seen right now: a resting face, the voice still moves the mouth, an easy blink now and then
-    Object.assign(f, { open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0, blink:0, brow:0, browUp:0, eyeWide:0 }); f.seen = true;
+    Object.assign(f, { open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0, blink:0, brow:0, browUp:0, eyeWide:0, live:false }); f.seen = true;
     if (now > (VM.nb || 0)) { S.blinkUntil = now + 170; VM.nb = now + 2800 + Math.random() * 2600; }
   }
   drawBackground();
