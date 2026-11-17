@@ -2628,7 +2628,7 @@ async function vmAnalyse(file) {
       if (VM.cancel) return;
     }
     vmProg(100);
-    VM.people = who.people.map(p => ({ smp:p.smp, thumb:p.thumb, t0:p.smp.length ? p.smp[0].t : p.t0, t1:p.smp.length ? p.smp[p.smp.length - 1].t : p.t1, n:p.smp.length, spans:p.spans }));
+    VM.people = who.people.map(p => ({ smp:p.smp, thumb:p.thumb, t0:p.smp.length ? p.smp[0].t : p.t0, t1:p.smp.length ? p.smp[p.smp.length - 1].t : p.t1, n:p.smp.length, spans:p.spans, lipOk:p.lipOk }));
     if (!VM.people.length) VM.people.push({ smp:[], thumb:null, t0:0, t1:VM.dur, n:0, noface:true });   // no face found: one Nibble, moving with the sound
     VM.crowd = who.crowd.n ? who.crowd : null;
     vmTimeline();
@@ -2780,7 +2780,10 @@ async function vmFollow(v, who, prog) {
       if (!drawn) { try { fg.drawImage(v, 0, 0, fw, fh); drawn = true; } catch (e) { return; } }
       const side = b.sp * 2.6, ox = b.cx * fw - side / 2, oy = b.cy * fh - side / 2;
       cg.fillStyle = '#808080'; cg.fillRect(0, 0, 256, 256); cg.drawImage(fc, ox, oy, side, side, 0, 0, 256, 256);
-      let r; try { r = VM.lmi.detect(cc); } catch (e) { VM.err = String(e); continue; }
+      { const px = cg.getImageData(96, 96, 64, 64).data; let h = 0; for (let i = 0; i < px.length; i += 16) h = (h * 31 + px[i]) | 0;   // (diagnostics: the same picture again?)
+        D.looks++; if (h === p.lastH) D.same++; p.lastH = h; }
+      let r; try { r = VM.lmi.detect(cc); } catch (e) { VM.err = String(e); D.err = String(e).slice(0, 80); continue; }
+      if (!(r.faceLandmarks || []).length) D.miss++;
       let best = null, bd = 0.3;
       (r.faceLandmarks || []).forEach((L, i) => { const d = Math.hypot(L[1].x - 0.5, L[1].y - 0.5); if (d < bd) { bd = d; best = i; } });
       if (best == null) continue;
@@ -2796,6 +2799,7 @@ async function vmFollow(v, who, prog) {
   };
   // play the clip (no sound) and read a frame every step as it goes, slowing the playback down if this device reads
   // slower than that; if frames don't come (some phones), step through it by seeking instead
+  const D = VM.diag = { looks:0, same:0, miss:0, mode:'', rates:[] };
   let played = false;
   if (v.requestVideoFrameCallback) {
     played = await new Promise(async done => {
@@ -2809,7 +2813,7 @@ async function vmFollow(v, who, prog) {
         if (t - last >= step * 0.95) {
           const t0 = performance.now(); look(t); last = t;
           const ms = performance.now() - t0, want = Math.max(0.1, Math.min(1, (step * 1000) / Math.max(1, ms * 1.25)));
-          if (Math.abs(want - rate) > 0.05) { rate = want; try { v.playbackRate = rate; } catch (e) {} }
+          if (Math.abs(want - rate) > 0.05) { rate = want; try { v.playbackRate = rate; } catch (e) {} D.rates.push(+rate.toFixed(2)); }
         }
         v.requestVideoFrameCallback(onFrame);
       };
@@ -2819,14 +2823,19 @@ async function vmFollow(v, who, prog) {
       const watch = setInterval(() => { ticks++; if (fin) return clearInterval(watch); if (ticks > 8 && v.currentTime < 0.05) { clearInterval(watch); end(false); } }, 500);   // no frames came
     });
   }
+  D.mode = played ? 'play' : 'seek';
   if (!played && !VM.cancel) for (let t = 0; t < VM.dur && !VM.cancel; t += step) { await vmSeek(v, Math.min(t, VM.dur - 0.01)); look(t); }
   fc.width = fc.height = cc.width = cc.height = 0;
   for (const p of P) {
     // how far apart the lips go for this face, from shut (its lowest) to its widest talking (near the top): the Nibble's
     // mouth opens as far as theirs does, in between
     const mos = p.raw.map(r => dist(r.L[13], r.L[14]) / (dist(r.L[10], r.L[152]) || 1e-6)).sort((a, b) => a - b);
-    const lo = mos.length ? mos[Math.floor(mos.length * 0.08)] : 0, hi = mos.length ? Math.max(lo + 0.02, mos[Math.floor(mos.length * 0.92)]) : 1;
+    const lo = mos.length ? mos[Math.floor(mos.length * 0.08)] : 0, hi = mos.length ? Math.max(lo + 0.02, mos[Math.floor(mos.length * 0.85)]) : 1;
     p.moLo = lo; p.moHi = hi;
+    // the lips can lead only when they were really seen moving, often enough (else the voice leads, as before)
+    const span = p.raw.length ? p.raw[p.raw.length - 1].t - p.raw[0].t : 0;
+    p.lipOk = mos.length >= 12 && hi - lo > 0.035 && p.raw.length * step >= span * 0.45;
+    D.p = (D.p || []).concat([{ n:p.raw.length, lo:+lo.toFixed(3), hi:+hi.toFixed(3), ok:p.lipOk }]);
     // two passes: the first only learns this face's resting look, the second reads it
     for (let pass = 0; pass < 2; pass++) for (const r of p.raw) {
       const f = p.f, L = r.L; readFace(L, r.bs, f, p.H, r.t * 1000); if (!pass) continue;
@@ -3170,6 +3179,13 @@ function vmPeopleTab(el) {
     d.append(fs, arrow, gs, tag); if (crowd.length) { nibs.classList.add('wide'); d.appendChild(nibs); } box.appendChild(d);
   }
   el.querySelectorAll('.vm-mode button').forEach(b => b.onclick = () => { if (VM.group !== b.dataset.g) vmDo(() => { VM.group = b.dataset.g; }); });
+  if (/[?&]debug\b/.test(location.search)) {   // (?debug) what the video analysis saw, to send back when something's off
+    const pre = document.createElement('pre'); pre.style.cssText = 'white-space:pre-wrap;word-break:break-all;font:11px/1.3 ui-monospace,monospace;background:#f3eee4;border:2px solid #161616;border-radius:10px;padding:8px;margin-top:10px';
+    const nv = VM.env && VM.env.nov; let quiet = 0; if (nv) for (const x of nv) quiet += x;
+    pre.textContent = JSON.stringify({ follow:VM.diag, sound:VM.env ? { classifier:nv ? 'ok' : 'none', noVoice:nv ? +(quiet / 50).toFixed(1) + 's' : null, music:nv ? +(nv.music || 0).toFixed(2) : null } : 'none',
+      lines:(VM.lines || []).map(l => [+l.t0.toFixed(1), +l.t1.toFixed(1), l.who]), err:VM.err || null, ua:navigator.userAgent.slice(0, 90) });
+    el.appendChild(pre);
+  }
   if ($('vmSing')) $('vmSing').onclick = () => vmDo(() => { VM.sing = !VM.sing; });
   $('vmRand').onclick = () => vmDo(() => { const bg = VM.bg; vmRandom(); VM.bg = bg; });
   if ($('vmAddVoice')) $('vmAddVoice').onclick = () => vmDo(vmAddVoice);
@@ -3566,7 +3582,7 @@ function vmFrame(now) {
   if (x) { Object.assign(f, x); f.seen = true; if (x.bu > t * 1000) S.blinkUntil = now + (x.bu - t * 1000);
     // a face running off the edge of the picture, or a small one far back (a choir), can't be read for its mouth's shape
     // (lips that look pressed on a blur would shut the mouth while they sing): the voice picks the shape
-    f.live = !(x.edge || x.s < 0.13);
+    f.live = !(x.edge || x.s < 0.13) && P[p].lipOk !== false;
     if (!f.live) Object.assign(f, { round:0, wide:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0 }); }
   else {   // not seen right now: a resting face, the voice still moves the mouth, an easy blink now and then
     Object.assign(f, { open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0, blink:0, brow:0, browUp:0, eyeWide:0, live:false }); f.seen = true;
