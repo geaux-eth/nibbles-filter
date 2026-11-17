@@ -451,7 +451,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261116-2300';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261117-0830';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -994,7 +994,7 @@ async function kitPrepare(id) {
       const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
       const cut = B.cutOriginal(im), { art } = await fetchNibble(ref), donor = await donorFor(id, a, B);
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop),
-        donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : FRONT_MOUTH.test(String(a.Mouth || '')) });
+        donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : FRONT_MOUTH.test(String(a.Mouth || '')) });
       res.face = FACE_AT[ref];
       res.traits = B.findTraits(cut.canvas, res, kind, cut.bg, { halo:/halo/i.test(String(a.Accessory || '')), fire:/fire/i.test(String(a.Eyes || '')), laser:/laser/i.test(String(a.Eyes || '')) });
       const exp = await B.exportFiles(res, cut.canvas), files = {};
@@ -1628,35 +1628,6 @@ function hasLook(A, k) {
     g.drawImage(im, 0, 0, 100, 100); const d = g.getImageData(0, 0, 100, 100).data; for (let i = 3; i < d.length; i += 4) if (d[i] > 30) { ok = true; break; } }
   return A.look[k] = ok;
 }
-// where the eyes are: the closed-eye layer's shapes (each eye its own box), in the 1000px art
-function eyeRects(A) {
-  if (A.eyeR !== undefined) return A.eyeR;
-  const src = hasLook(A, 4) ? A.eyes[4] : hasLook(A, 3) ? A.eyes[3] : null; if (!src) return A.eyeR = null;
-  const c = document.createElement('canvas'); c.width = c.height = 250; const g = c.getContext('2d', { willReadFrequently:true }); g.drawImage(src, 0, 0, 250, 250);
-  const d = g.getImageData(0, 0, 250, 250).data, colN = new Int32Array(250);
-  for (let y = 0; y < 250; y++) for (let x = 0; x < 250; x++) if (d[(y * 250 + x) * 4 + 3] > 60) colN[x]++;
-  const runs = []; let a = -1; for (let x = 0; x <= 250; x++) { const on = x < 250 && colN[x] > 1; if (on && a < 0) a = x; if (!on && a >= 0) { runs.push([a, x - 1]); a = -1; } }
-  const rects = runs.filter(([a0, a1]) => a1 - a0 >= 4).map(([a0, a1]) => { let y0 = 250, y1 = 0;
-    for (let y = 0; y < 250; y++) for (let x = a0; x <= a1; x++) if (d[(y * 250 + x) * 4 + 3] > 60) { if (y < y0) y0 = y; if (y > y1) y1 = y; }
-    return [a0 * 4, y0 * 4, (a1 + 1) * 4, (y1 + 1) * 4]; }).sort((p, q) => (q[2] - q[0]) * (q[3] - q[1]) - (p[2] - p[0]) * (p[3] - p[1])).slice(0, 3);
-  return A.eyeR = rects.length ? rects : null;
-}
-// surprised without a drawn look: each eye is drawn again a quarter bigger, inside a soft oval, from the face shown now
-let popC = null;
-function popEyes(A, x, y, size) {
-  const R = eyeRects(A); if (!R) return; const k = size / 1000, face = NIBBLES[S.id].fullFace ? A.mouths[S.mouth.cur] : A.base;
-  if (!popC) popC = document.createElement('canvas');
-  for (const [x0, y0, x1, y1] of R) {
-    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rw = (x1 - x0) / 2 * 1.15, rh = (y1 - y0) / 2 * 1.15, sc = 1.28;
-    const W = Math.ceil(rw * 2 * sc + 8), H = Math.ceil(rh * 2 * sc + 8); popC.width = W; popC.height = H; const g = popC.getContext('2d');
-    // the eye area, a quarter bigger, faded out at its rim so it melts into the face
-    g.drawImage(face, cx - W / sc / 2, cy - H / sc / 2, W / sc, H / sc, 0, 0, W, H);
-    g.globalCompositeOperation = 'destination-in'; g.save(); g.translate(W / 2, H / 2); g.scale(rw * sc, rh * sc);
-    const gr = g.createRadialGradient(0, 0, 0, 0, 0, 1); gr.addColorStop(0, '#000'); gr.addColorStop(0.78, '#000'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = gr; g.fillRect(-1.1, -1.1, 2.2, 2.2); g.restore(); g.globalCompositeOperation = 'source-over';
-    ctx.drawImage(popC, x + (cx - W / 2) * k, y + (cy - H / 2) * k, W * k, H * k);
-  }
-}
 function drawLayer(list, slot, now, fade, x, y, size) {
   if (slot.cur > 0) ctx.drawImage(list[slot.cur], x, y, size, size);   // hard cut, never a see-through blend
 }
@@ -1962,7 +1933,6 @@ function drawLoopBody(t, x, y, size) {
     if (e > 0 && L.eyes[e]) { fg.globalCompositeOperation = 'destination-out'; fg.drawImage(S.art.eyes[e], 0, 0, 1000, 1000); fg.globalCompositeOperation = 'source-over';
       fg.drawImage(L.eyes[e], bx, by); if (L.brows) fg.drawImage(L.brows, bx, by); }
     ctx.drawImage(lc, x, y, size, size); ctx.drawImage(fc, x, y, size, size);
-    if (e === 2 && !hasLook(S.art, 2)) popEyes(S.art, x, y, size);
     const tg = S.mouth.cur === 0 && tongueOf(S.art.mouths[0], tr.holeImg); if (tg) { const k = size / 1000; ctx.drawImage(tg.c, x + tg.x * k, y + tg.y * k, tg.c.width * k, tg.c.height * k); }
     return;
   }
@@ -1973,7 +1943,6 @@ function drawLoopBody(t, x, y, size) {
   fg.globalCompositeOperation = 'destination-in'; fg.drawImage(tr.holeImg, 0, 0, 1000, 1000); if (tr.innerImg) fg.drawImage(tr.innerImg, 0, 0, 1000, 1000);
   ctx.drawImage(lc, x, y, size, size); ctx.drawImage(fc, x, y, size, size);
   // a tongue hanging out past the face reaches over the moving body (the face's outline would cut it off)
-  if (S.eye.cur === 2 && !hasLook(S.art, 2)) popEyes(S.art, x, y, size);
   // the resting face's tongue only (the other mouths keep just a stray end of it)
   const tg = S.mouth.cur === 0 && tongueOf(S.art.mouths[0], tr.holeImg); if (tg) { const k = size / 1000; ctx.drawImage(tg.c, x + tg.x * k, y + tg.y * k, tg.c.width * k, tg.c.height * k); }
 }
@@ -2071,7 +2040,7 @@ function drawNibble(t) {
   if (under && !looped) drawTrait(t, x, y, size, live ? f : null);
   if (looped) {}   // the blink was drawn with the face (drawLoopBody)
   else if (cfg.eyesAlways) ctx.drawImage(A.eyes[cfg.noBlink ? 0 : S.eye.cur], x, y, size, size);   // eyes made of fire don't blink
-  else if (S.eye.cur === 2 && !hasLook(A, 2)) popEyes(A, x, y, size);   // no drawn surprised eyes: the Nibble's own eyes pop big
+  else if (S.eye.cur === 2 && !hasLook(A, 2)) {}   // no drawn surprised eyes: its own eyes stay as they are (they used to be blown up, which looked swollen and smeared)
   else drawLayer(A.eyes, S.eye, t, FADE.eye, x, y, size);
   if (A.over) ctx.drawImage(A.over[S.mouth.cur], x, y, size, size);
   if (!under && !looped) drawTrait(t, x, y, size, live ? f : null);

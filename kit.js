@@ -449,13 +449,22 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       while (h < t) { const p = q[h++], x = p % N; if (Zd[p]) inZ++;
         for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && dif[j] && !lab[j]) { lab[j] = id; q[t++] = j; } }
       const out = t - inZ; if (!inZ || out < 40) continue;
+      if (front === 'stick') {   // a straw: only the stick itself (the long part well past the mouth), never the grin
+        // holding it (that would stay over every talking mouth)
+        const far = grow(Zd, 6), part = new Uint8Array(N * N); for (let k = 0; k < t; k++) if (!far[q[k]]) part[q[k]] = 1;
+        const lb2 = new Int32Array(N * N), q2 = new Int32Array(N * N); let n2 = 0;
+        for (let s1 = 0; s1 < N * N; s1++) { if (!part[s1] || lb2[s1]) continue; n2++; let h2 = 0, t2 = 0, x0 = N, y0 = N, x1 = 0, y1 = 0; q2[t2++] = s1; lb2[s1] = n2;
+          while (h2 < t2) { const p = q2[h2++], x = p % N, y = (p / N) | 0; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+            for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && part[j] && !lb2[j]) { lb2[j] = n2; q2[t2++] = j; } }
+          if (Math.hypot(x1 - x0, y1 - y0) > 60) for (let k = 0; k < t2; k++) fr[q2[k]] = 1; }
+        continue; }
       if (front) { for (let k = 0; k < t; k++) fr[q[k]] = 1; continue; }
       if (donor) continue;   // (the donor already shows the face there)
       if (inZ < t * 0.25 || t > 30000) continue;   // mostly outside the mouth: clothes, a collar, not the mouth
       for (let k = 0; k < t; k++) { const p = q[k], i = p * 4; if (Zd[p] || R[i + 3] < 200 || T[i + 3] < 100) continue; if (isSkin(R, i) || lum(R, i) < 160) bh[p] = 1; } }
     let any = false; for (let p = 0; p < N * N && !any; p++) if (fr[p] || bh[p]) any = true;
     if (any) {
-      const frm = front ? fillHoles(fr) : fr, fa = front ? soft(grow(frm, 1), 1) : null;
+      const frm = front && front !== 'stick' ? fillHoles(fr) : fr, fa = front ? soft(grow(frm, 1), 1) : null;
       for (let k = 1; k < frames.length; k++) { const g = frames[k].getContext('2d', { willReadFrequently:true }), id2 = g.getImageData(0, 0, N, N), o = id2.data, D = K[k];
         // (a mustache lets the talking mouth show through it, outline and all: only what the mouth leaves as face is covered)
         const mo = front === 'mustache' ? (() => { const c = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) { const i = p * 4; if (Zd[p] && D[i + 3] > 120 && dist(D, i, R, i) > 60 && (isMouthC(D[i], D[i + 1], D[i + 2]) || lum(D, i) < 200)) c[p] = 1; } return grow(blobs(c, 40), 2); })() : null;
