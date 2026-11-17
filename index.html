@@ -3103,7 +3103,13 @@ function vmTimeline() {
     let sp = 0, st = 0; for (let j = Math.max(0, k - W / 2); j < Math.min(raw.length, k + W / 2); j++) if (raw[j].speech) { sp++; if (raw[j].still) st++; }
     if (sp && st / sp > 0.75) { r.off = true; offN++; }
   });
-  const OFF = offN * dt >= 1.5 ? P.length : -1;
+  // in a song, singing with someone in the picture is theirs (singers' lips can barely move, and nobody sings off camera
+  // in a music video): it goes to whoever is on screen then, the biggest face, before any off-camera voice is made up
+  const song = ((env && env.nov && env.nov.music) || 0) > 0.3;
+  if (song) raw.forEach((r, k) => { if (!r.speech || r.who >= 0) return; let best = -1, bs = 0;
+    P.forEach((p, i) => { const x = vmSample(i, k * dt); if (x && x.s > bs) { bs = x.s; best = i; } }); if (best >= 0) { r.who = best; r.off = false; } });
+  if (song) offN = raw.filter(r => r.off && r.who < 0).length;
+  const OFF = offN * dt >= 1.5 && !song ? P.length : -1;
   if (OFF >= 0) P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 });
   // fill: talking but no moving mouth seen -> the last speaker; silence longer than 1 s -> the main character
   raw.forEach(r => { if (r.off && OFF >= 0 && r.who < 0) r.who = OFF; });
@@ -3148,7 +3154,7 @@ function vmShowDefaults() {
   for (const l of VM.lines || []) {
     if (l.show) continue;
     const ts = []; for (let t = l.t0; t < l.t1; t += 0.2) ts.push(t);
-    const both = cast.filter(j => j !== l.who && ts.length && ts.filter(t => seen(j, t) && seen(l.who, t)).length >= ts.length * 0.5);
+    const both = l.t1 - l.t0 < 1 ? [] : cast.filter(j => j !== l.who && ts.length && ts.filter(t => seen(j, t) && seen(l.who, t)).length >= ts.length * 0.5);
     if (both.length) { l.show = 'both'; l.with = both[0]; l.face = 'each'; l.together = ((VM.env && VM.env.nov && VM.env.nov.music) || 0) > 0.3; }
     else l.show = VM.crowd && VM.group === 'all' ? 'all' : 'solo';
   }
