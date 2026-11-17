@@ -407,7 +407,8 @@ export async function build(orig, sheets, onStep = () => {}) {
   if (win) { onStep('Lining up the face…'); await tick(); for (const x of [ref, ...talk]) x.fit = refine(x, od, win); }
   // with a hand-set mouth area the face fit decides; the whole outline may differ more (a chair or arm cropped differently)
   const iouMin = sheets.clip ? 0.74 : 0.8;
-  if (ref.iou < iouMin || (win && ref.fit < 0.45)) P('Sheet 1\'s first panel (the rest mouth) doesn\'t line up with your picture.', 1, true);
+  const fitMin = sheets.fitMin || 0.45;
+  if (ref.iou < iouMin || (win && ref.fit < fitMin)) P('Sheet 1\'s first panel (the rest mouth) doesn\'t line up with your picture.', 1, true);
   const D1 = s1.slice(1).map(x => pdiff(x, ref)), heat = new Uint8Array(MW);
   for (const D of D1) for (let i = 0; i < MW; i++) heat[i] += D[i];
   const core = mainCore(and(open_(Uint8Array.from(heat, v => v >= 3 ? 1 : 0), 1), msil), 70, rough);
@@ -417,7 +418,7 @@ export async function build(orig, sheets, onStep = () => {}) {
   for (const x of s2) M[x.name] = nearCore(pdiff(x, ref), core);
   // a talking panel is bad if it doesn't line up on the face or doesn't change the mouth
   const bad = new Set();
-  for (const x of talk) if (x.iou < iouMin || (win && x.fit < 0.45) || count(M[x.name]) < 40) bad.add(x.name);
+  for (const x of talk) if (x.iou < (sheets.iouMin || iouMin) || (win && x.fit < fitMin) || count(M[x.name]) < 40) bad.add(x.name);
   let zone = new Uint8Array(MW);
   for (const k in M) if (!bad.has(k)) zone = or(zone, M[k]);
   zone = dilate(zone, 3);

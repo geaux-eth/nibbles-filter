@@ -317,7 +317,13 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     if (((p / N) | 0) > N * 0.88) botC[k]++; if (Z[p] && !nearK(snout, R[i], R[i + 1], R[i + 2]) && !mouthHue(R[i], R[i + 1], R[i + 2])) jawC[k]++; }
   for (let k = 0; k < 32768; k++) if (botC[k] > 200) jawC[k] = 0;
   const botP = palette(botC, 200, 1);   // what the reference wears: its colours along the bottom of the picture
-  const jawP = palette(jawC, 60, 1), onJawR = i => R[i + 3] > 200 && inPal(jawP, R[i], R[i + 1], R[i + 2]);
+  let jawP = palette(jawC, 60, 1);
+  // no jaw colour of its own found (the jaw shares a colour with the snout above the mouth's middle): every light colour
+  // in the mouth area but the main snout colour
+  if (!jawP.some(v => v)) { for (let p = 0; p < N * N; p++) { const i = p * 4; if (R[i + 3] < 220 || lum(R, i) < 300 || !Z[p]) continue; const k = bin(R[i], R[i + 1], R[i + 2]);
+      if (snout.length && k === snout[0]) continue; if (!mouthHue(R[i], R[i + 1], R[i + 2]) && !botC[k]) jawC[k]++; }
+    jawP = palette(jawC, 60, 1); }
+  const onJawR = i => R[i + 3] > 200 && inPal(jawP, R[i], R[i + 1], R[i + 2]);
   let chinT = null, lumJaw = 600, chinLearned = false;
   { const cnt = new Uint32Array(32768), rowS = new Float64Array(32768), below = new Uint8Array(N * N); let bk = -1, bn = 0;
     // the reference's jaw skin, in the upper half of the jaw below the mouth: a collar, shirt or scarf further down isn't the chin
