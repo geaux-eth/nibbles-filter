@@ -2685,6 +2685,7 @@ async function vmScan(v, fa, prog) {
         const d = await fa.nets.faceRecognitionNet.computeFaceDescriptor(dc); f.desc = d.length === 128 ? d : d[0];
       } catch (e) { VM.err = String(e); }
       f.score = f.s * (1 - Math.min(1, Math.abs(((L[1].x - L[234].x) / ((L[454].x - L[234].x) || 1e-6)) - 0.5) * 2));
+      f.mo = dist(L[13], L[14]) / (dist(L[10], L[152]) || 1e-6);   // how far apart the lips are (still lips: someone not talking)
       let best = null, bd = 1e9;
       for (const tr of open) {
         if (used.has(tr)) continue; const g = tr.faces[tr.faces.length - 1], r = f.sp / g.sp;
@@ -2742,9 +2743,13 @@ function vmWho(scan, music) {
   const featured = others.filter(p => p.score >= main.score * (music > 0.3 ? 0.75 : 0.4) && p.faces.length >= 4).slice(0, 3);
   // everyone else: real people seen a while (a second and a half or more); a hand, a face turned away for a moment, a
   // pattern that looked like a face for a picture or two isn't someone
-  const crowd = others.filter(p => !featured.includes(p) && p.faces.length >= 3 && p.faces.length * step >= 1.5);
+  // ...and not the faces of a cutaway (people in the street, a clip shown in an interview): never in a picture with the
+  // cast, and their lips don't move (a choir's or a band's sing, and share shots with the lead)
+  const castN = new Set([main, ...featured].flatMap(p => p.faces.map(f => f.n)));
+  const cutaway = p => { if (p.faces.some(f => castN.has(f.n))) return false; const m = p.faces.map(f => f.mo || 0).sort((a, b) => a - b); return m[Math.floor(m.length * 0.9)] - m[Math.floor(m.length * 0.1)] < 0.02; };   // (lips that don't move: open or shut)
+  const crowd = others.filter(p => !featured.includes(p) && p.faces.length >= 3 && p.faces.length * step >= 1.5 && !cutaway(p));
   [main, ...featured].forEach(p => keepT.add(p.thumb)); crowd.slice(0, 8).forEach(p => keepT.add(p.thumb)); done();
-  VM.whoDbg = ids.map(p => ({ n:p.faces.length, score:+p.score.toFixed(2), t0:p.t0, t1:p.t1, role:p === main ? 'main' : featured.includes(p) ? 'featured' : 'crowd' }));
+  VM.whoDbg = ids.map(p => ({ n:p.faces.length, score:+p.score.toFixed(2), t0:p.t0, t1:p.t1, role:p === main ? 'main' : featured.includes(p) ? 'featured' : crowd.includes(p) ? 'crowd' : 'left out' }));
   return { people:[main, ...featured], crowd:{ n:crowd.length, thumbs:crowd.slice(0, 8).map(p => p.thumb).filter(Boolean) }, step, fw, fh };
 }
 // where a person's face is at time t, from the first look (inside one of their tracks, or just past either end of one)
