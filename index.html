@@ -2399,9 +2399,11 @@ function capLines() {
 function vmCaption(t) {
   const C = VM.cap; if (!C || !C.on || !C.words || !C.words.length) return;
   const L = capLines(), cur = L.find(l => t >= l.t0 - 0.05 && t < Math.max(l.t1 + 0.35, l.t0 + 0.6)); if (!cur) return;
-  const W = stage.width, H = stage.height, m = Math.min(W, H), f = fontOf(); ensureFont(f);
-  const pop = C.style !== 'line', fs = m * (pop ? 0.085 : 0.06), top = VM.text && VM.textAt !== 'bottom' && TX.rect ? TX.rect[1] + TX.rect[3] + fs * 0.3 : H * 0.03;
-  ctx.save(); ctx.font = `${f[3]} ${fs}px ${f[2]}, 'Arial Black', sans-serif`; ctx.textBaseline = 'top'; ctx.lineJoin = 'round';
+  const W = stage.width, H = stage.height, m = Math.min(W, H);
+  // the Nibble FILTER display font, big; in a tall video, in the open space above the Nibble's head
+  const pop = C.style !== 'line', fs = m * (pop ? 0.105 : 0.07);
+  const top = VM.text && VM.textAt !== 'bottom' && TX.rect ? TX.rect[1] + TX.rect[3] + fs * 0.35 : H > W * 1.3 ? (H - W) * 0.45 : H * 0.045;
+  ctx.save(); ctx.font = `400 ${fs}px Frankys, 'Lilita One', 'Arial Black', sans-serif`; ctx.textBaseline = 'top'; ctx.lineJoin = 'round';
   const words = cur.words.map(w => ({ ...w, s:pop ? w.w.toUpperCase() : w.w })), sp = ctx.measureText(' ').width, rows = [[]]; let rw = 0;
   for (const w of words) { w.wd = ctx.measureText(w.s).width; if (rw && rw + sp + w.wd > W * 0.9) { rows.push([]); rw = 0; } rows[rows.length - 1].push(w); rw += (rw ? sp : 0) + w.wd; }
   rows.forEach((r, i) => {
