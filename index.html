@@ -457,7 +457,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261117-1030';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261117-1300';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -2495,15 +2495,49 @@ $('vidBtn').onclick = () => {
     and it makes a Nibbled copy with the original sound. Nothing is uploaded: it all happens on this ${IS_MOBILE ? 'phone' : 'computer'}.</p>
     <label class="vm-go" style="display:block;text-align:center">Choose a video<input id="vmFile" type="file" accept="video/*" hidden></label>
     <p class="note">Works best when faces look toward the camera.</p>`);
-  $('vmFile').onchange = e => { const f = e.target.files && e.target.files[0]; if (f) vmAnalyse(f); };
+  $('vmFile').onchange = e => { const f = e.target.files && e.target.files[0]; if (f) vmAnalyse(f, vmGrabAudio(f)); };   // (the sound starts here, during the tap)
 };
 $('vmClose').onclick = () => { try { VM.pv && VM.pv.pause(); } catch (e) {} try { ED.v && ED.v.pause(); } catch (e) {} edPreviewOff(); if (VM.rendering) vmStop(true); VM.cancel = true; vmHide(); };
 
 // the sound, as a loudness curve (50 per second), straight from the file
-async function vmEnvelope(file) {
+// The clip's sound, recorded by playing it (silently) through the sound engine. iPhones can't unpack the sound straight
+// out of a video file (a .mov from the camera roll), so this starts the moment the video is picked (a tap is needed
+// for sound to play at all) and runs alongside the rest; it takes as long as the clip.
+function vmGrabAudio(file) {
+  let stop = () => {};
+  const p = new Promise(async res => {
+    try {
+      const ac = audioCtx(), v = document.createElement('video'), url = URL.createObjectURL(file); v.src = url; v.playsInline = true; v.preload = 'auto'; v.setAttribute('playsinline', '');
+      const src = ac.createMediaElementSource(v), g = ac.createGain(); g.gain.value = 0;
+      const pr = v.play();   // (straight away, while the tap still counts)
+      const chunks = []; let done = false, node = null, on = false; v.onplaying = () => { on = true; };
+      // the recorder runs on the sound engine's own thread (a busy page, reading faces, can't make it drop any sound)
+      if (ac.audioWorklet && window.AudioWorkletNode) try {
+        const code = 'class R extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor("nf-rec",R)';
+        await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([code], { type:'text/javascript' })));
+        node = new AudioWorkletNode(ac, 'nf-rec'); node.port.onmessage = e => { if (!done && on) chunks.push(e.data); };
+      } catch (e) { node = null; }
+      if (!node) { node = ac.createScriptProcessor(4096, 1, 1); node.onaudioprocess = e => { if (!done && on) chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); }; }
+      src.connect(node); node.connect(g); g.connect(ac.destination);
+      const end = () => { try { v.pause(); src.disconnect(); node.disconnect(); g.disconnect(); } catch (e) {} URL.revokeObjectURL(url); };
+      const finish = () => { if (done) return; setTimeout(() => {   // (the last pieces still on their way in)
+        done = true; end();
+        const n = Math.min(chunks.reduce((a, c) => a + c.length, 0), Math.ceil((v.duration || 1e9) * ac.sampleRate)); if (n < ac.sampleRate * 0.5) return res(null);
+        const b = ac.createBuffer(1, n, ac.sampleRate), d = b.getChannelData(0); let o = 0, pk = 0; for (const c of chunks) { if (o >= n) break; d.set(o + c.length > n ? c.subarray(0, n - o) : c, o); o += c.length; } for (let i = 0; i < n; i += 7) pk = Math.max(pk, Math.abs(d[i]));
+        VM.grabInfo = { secs:+(n / ac.sampleRate).toFixed(1), peak:+pk.toFixed(3), via:node instanceof AudioWorkletNode ? 'worklet' : 'script' }; if (window.__noDecode) window.__grabBuf = d; res(b); }, 300); };
+      VM.grabV = v; v.onended = finish; stop = () => { if (!done) { done = true; end(); res(null); } };
+      v.onloadedmetadata = () => setTimeout(finish, (v.duration + 6) * 1000);
+      if (pr && pr.catch) pr.catch(() => stop());
+    } catch (e) { res(null); }
+  });
+  return { p, stop:() => stop() };
+}
+async function vmEnvelope(file, grab) {
   try {
-    const ac = audioCtx(); const ab = await file.arrayBuffer();
-    const b = await new Promise((res, rej) => ac.decodeAudioData(ab, res, rej));
+    const ac = audioCtx(); let b = null;
+    try { if (window.__noDecode) throw 'test'; const ab = await file.arrayBuffer(); b = await new Promise((res, rej) => ac.decodeAudioData(ab, res, rej)); VM.soundFrom = 'file'; if (grab) grab.stop(); VM.soundDecoded = true; }
+    catch (e) { VM.soundWait = true; b = grab ? await grab.p : null; VM.soundWait = false; VM.soundFrom = b ? 'played' : 'none'; }
+    if (!b) return null;
     const sr = b.sampleRate, hop = Math.round(sr / 50), n = Math.floor(b.length / hop), out = new Float32Array(n);
     const chs = Array.from({ length:b.numberOfChannels }, (_, i) => b.getChannelData(i));
     for (let k = 0; k < n; k++) { let e = 0; for (let i = k * hop; i < (k + 1) * hop; i++) { let x = 0; for (const c of chs) x += c[i]; x /= chs.length; e += x * x; } out[k] = Math.sqrt(e / hop); }
@@ -2597,8 +2631,8 @@ const vmSeek = (v, t) => new Promise(res => {
 });
 const vmProg = p => { const e = $('vmProg'); if (e) e.style.width = Math.max(0, Math.min(100, p)).toFixed(1) + '%'; };
 const vmMsg = s => { const e = $('vmMsg'); if (e) e.textContent = s; };
-async function vmAnalyse(file) {
-  Object.assign(VM, { cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null });
+async function vmAnalyse(file, grab) {
+  Object.assign(VM, { soundFrom:null, grabInfo:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null });
   vmShow('Watching your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`);
   let v = null;
   try {
@@ -2611,11 +2645,15 @@ async function vmAnalyse(file) {
     await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej('load'); });
     if (!isFinite(v.duration) || v.duration > 61) throw 'long';
     VM.dur = v.duration; VM.vw = v.videoWidth; VM.vh = v.videoHeight;
-    const envP = vmEnvelope(file); vmCut.prev = null; vmCut.hist = null; VM.cutT = []; VM.strip = [];
+    const envP = vmEnvelope(file, grab); vmCut.prev = null; vmCut.hist = null; VM.cutT = []; VM.strip = [];
     const idP = faceIdNet();
     VM.lmi = VM.lmi || await makeLandmarker(6, 0.3, 'IMAGE');
     vmProg(3); const fa = await idP;
     try { await v.play(); } catch (e) {} v.pause();
+    VM.soundDecoded = false; VM.soundWait = false;
+    for (let i = 0; i < 40 && !VM.soundDecoded && !VM.soundWait; i++) await new Promise(r => setTimeout(r, 100));   // (did the file's sound open?)
+    if (VM.soundWait) { vmMsg('Listening to the sound…');
+      while (VM.soundWait && !VM.cancel) { const g = VM.grabV; vmProg(4 + (g && g.duration ? 12 * g.currentTime / g.duration : 0)); await new Promise(r => setTimeout(r, 200)); } }
     vmMsg('Seeing who’s in it…');
     const scan = await vmScan(v, fa, p => vmProg(4 + p * 56));
     if (VM.cancel || !scan) return;
@@ -3182,7 +3220,7 @@ function vmPeopleTab(el) {
   if (/[?&]debug\b/.test(location.search)) {   // (?debug) what the video analysis saw, to send back when something's off
     const pre = document.createElement('pre'); pre.style.cssText = 'white-space:pre-wrap;word-break:break-all;font:11px/1.3 ui-monospace,monospace;background:#f3eee4;border:2px solid #161616;border-radius:10px;padding:8px;margin-top:10px';
     const nv = VM.env && VM.env.nov; let quiet = 0; if (nv) for (const x of nv) quiet += x;
-    pre.textContent = JSON.stringify({ follow:VM.diag, sound:VM.env ? { classifier:nv ? 'ok' : 'none', noVoice:nv ? +(quiet / 50).toFixed(1) + 's' : null, music:nv ? +(nv.music || 0).toFixed(2) : null } : 'none',
+    pre.textContent = JSON.stringify({ follow:VM.diag, soundFrom:VM.soundFrom, grab:VM.grabInfo, sound:VM.env ? { classifier:nv ? 'ok' : 'none', noVoice:nv ? +(quiet / 50).toFixed(1) + 's' : null, music:nv ? +(nv.music || 0).toFixed(2) : null } : 'none',
       lines:(VM.lines || []).map(l => [+l.t0.toFixed(1), +l.t1.toFixed(1), l.who]), err:VM.err || null, ua:navigator.userAgent.slice(0, 90) });
     el.appendChild(pre);
   }
