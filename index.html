@@ -986,6 +986,7 @@ window.__nf = { setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = 
     ctx.save(); const W = stage.width, H = stage.height, F = GLS[shape].F; ctx.translate(W * (1 - F) / 2, H * (1 - F)); ctx.scale(F, F); S.solo = true; drawNibble(now); ctx.restore(); S.solo = false;
     return stage.toDataURL('image/png'); },
   loadEnv:async url => { VM.env = await vmEnvelope(await (await fetch(url)).blob()); return !!VM.env; },
+  soundOf:async url => { VM.soundTrack = null; const e = await vmEnvelope(await (await fetch(url)).blob()); return { from:VM.soundFrom, track:VM.soundTrack, err:VM.soundErr, secs:e && e.vt ? +(e.vt.e.length / 100).toFixed(2) : 0, thr:e && e.vt && e.vt.thr, music:e && e.nov && e.nov.music, noVoice:e && e.nov ? Array.from(e.nov).reduce((a, x) => a + x, 0) / 50 : null }; },
   mouthAt:(t, f) => { const now = performance.now(); V.on = true; vmVoice(now, t); const face = Object.assign({ open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0 }, f || {});
     return { v:V.voiced, lv:+V.level.toFixed(2), sh:V.sh && (V.sh.nasal ? 'nasal' : V.sh.fric ? 'fric' : V.sh.back ? 'back' : 'm' + V.sh.m), dip:V.dip, m:pickMouth(face, now) }; }, get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id), pickNibble:(c, f) => pickNibble(c, f), bgOptions:c => bgOptions(c), vmRandom:() => { vmRandom(); return VM.bg; } };   // for tests
 async function kitPrepare(id) {
@@ -2532,11 +2533,98 @@ function vmGrabAudio(file) {
   });
   return { p, stop:() => stop() };
 }
+// The sound track pulled straight out of the video file (an iPhone can't unpack a phone video's sound itself), then wrapped
+// so the phone's sound decoder takes it. A minimal MP4/MOV reader: the AAC frames of the first sound track and its decoder setup (AudioSpecificConfig).
+// Handles plain files (moov sample tables) and fragmented ones (moof/traf/trun).
+function demuxAAC(ab) {
+  const dv = new DataView(ab), u8 = new Uint8Array(ab), L = ab.byteLength;
+  const boxes = (s, e) => { const out = []; let p = s; while (p + 8 <= e) { let sz = dv.getUint32(p), hs = 8; const ty = String.fromCharCode(u8[p + 4], u8[p + 5], u8[p + 6], u8[p + 7]);
+    if (sz === 1) { sz = Number(dv.getBigUint64(p + 8)); hs = 16; } else if (sz === 0) sz = e - p; if (sz < hs || p + sz > e) break; out.push({ ty, s:p, d:p + hs, e:p + sz }); p += sz; } return out; };
+  const kid = (b, ty) => boxes(b.d, b.e).find(x => x.ty === ty);
+  const path = (b, ...tys) => { for (const t of tys) { if (!b) return null; b = kid(b, t); } return b; };
+  const top = boxes(0, L), moov = top.find(b => b.ty === 'moov'); if (!moov) return null;
+  let trak = null, tid = 0, entry = null, ts = 0;
+  for (const t of boxes(moov.d, moov.e).filter(b => b.ty === 'trak')) {
+    const hd = path(t, 'mdia', 'hdlr'); if (!hd || String.fromCharCode(...u8.subarray(hd.d + 8, hd.d + 12)) !== 'soun') continue;
+    const sd = path(t, 'mdia', 'minf', 'stbl', 'stsd'); if (!sd) continue;
+    const en = boxes(sd.d + 8, sd.e)[0]; if (!en || en.ty !== 'mp4a') continue;
+    const tk = path(t, 'tkhd'); tid = dv.getUint32(tk.d + (u8[tk.d] === 1 ? 20 : 12));
+    const md = path(t, 'mdia', 'mdhd'); ts = dv.getUint32(md.d + (u8[md.d] === 1 ? 20 : 12));
+    trak = t; entry = en; break;
+  }
+  if (!trak) return null;
+  // the decoder setup, in the esds box (inside mp4a, or inside its wave box in a .mov)
+  let asc = null, ch = dv.getUint16(entry.d + 16), rate = dv.getUint32(entry.d + 24) >>> 16;
+  const ver = dv.getUint16(entry.d + 8), inner = entry.d + 28 + (ver === 1 ? 16 : ver === 2 ? 36 : 0);
+  const findEsds = (s, e) => { for (const b of boxes(s, e)) { if (b.ty === 'esds') return b; if (b.ty === 'wave') { const r = findEsds(b.d, b.e); if (r) return r; } } return null; };
+  const es = findEsds(inner, entry.e);
+  if (es) { let p = es.d + 4; const len = () => { let n = 0, c; do { c = u8[p++]; n = (n << 7) | (c & 0x7F); } while (c & 0x80 && p < es.e); return n; };
+    while (p < es.e) { const tag = u8[p++], n = len();
+      if (tag === 3) { p += 2; const f = u8[p++]; if (f & 0x80) p += 2; if (f & 0x40) p += 1 + u8[p]; if (f & 0x20) p += 2; continue; }
+      if (tag === 4) { p += 13; continue; }
+      if (tag === 5) { asc = u8.slice(p, p + n); break; }
+      p += n; } }
+  const frames = [];
+  // plain file: sizes (stsz), chunk offsets (stco/co64), samples per chunk (stsc)
+  const stbl = path(trak, 'mdia', 'minf', 'stbl'), sz = kid(stbl, 'stsz'), co = kid(stbl, 'stco') || kid(stbl, 'co64'), sc = kid(stbl, 'stsc');
+  if (sz && co && sc) {
+    const fixed = dv.getUint32(sz.d + 4), n = dv.getUint32(sz.d + 8), sizes = []; for (let i = 0; i < n; i++) sizes.push(fixed || dv.getUint32(sz.d + 12 + i * 4));
+    const nc = dv.getUint32(co.d + 4), offs = []; for (let i = 0; i < nc; i++) offs.push(co.ty === 'co64' ? Number(dv.getBigUint64(co.d + 8 + i * 8)) : dv.getUint32(co.d + 8 + i * 4));
+    const ns = dv.getUint32(sc.d + 4), runs = []; for (let i = 0; i < ns; i++) runs.push([dv.getUint32(sc.d + 8 + i * 12), dv.getUint32(sc.d + 12 + i * 12)]);
+    let k = 0; for (let c = 0; c < nc && k < n; c++) { let per = 0; for (const [first, spc] of runs) if (c + 1 >= first) per = spc; let p = offs[c]; for (let j = 0; j < per && k < n; j++) { frames.push(u8.subarray(p, p + sizes[k])); p += sizes[k]; k++; } }
+  }
+  // fragments: each moof's traf for this track, its trun sample sizes, from the base offset
+  let trex = null; { const mv = kid(moov, 'mvex'); if (mv) for (const b of boxes(mv.d, mv.e)) if (b.ty === 'trex' && dv.getUint32(b.d + 4) === tid) trex = dv.getUint32(b.d + 16); }
+  for (const mf of top.filter(b => b.ty === 'moof')) for (const tf of boxes(mf.d, mf.e).filter(b => b.ty === 'traf')) {
+    const th = kid(tf, 'tfhd'); if (!th || dv.getUint32(th.d + 4) !== tid) continue;
+    const fl = dv.getUint32(th.d) & 0xFFFFFF; let p = th.d + 8, base = mf.s, dsize = trex || 0;
+    if (fl & 1) { base = Number(dv.getBigUint64(p)); p += 8; } if (fl & 2) p += 4; if (fl & 8) p += 4; if (fl & 0x10) { dsize = dv.getUint32(p); p += 4; }
+    for (const tr of boxes(tf.d, tf.e).filter(b => b.ty === 'trun')) {
+      const tfl = dv.getUint32(tr.d) & 0xFFFFFF, n = dv.getUint32(tr.d + 4); let q = tr.d + 8, off = base;
+      if (tfl & 1) { off = base + dv.getInt32(q); q += 4; } if (tfl & 4) q += 4;
+      for (let i = 0; i < n; i++) { if (tfl & 0x100) q += 4; let s = dsize; if (tfl & 0x200) { s = dv.getUint32(q); q += 4; } if (tfl & 0x400) q += 4; if (tfl & 0x800) q += 4;
+        frames.push(u8.subarray(off, off + s)); off += s; }
+    }
+  }
+  return { frames, asc, ch, rate, timescale:ts };
+}
+async function vmDemuxAudio(file, ac) {
+  const r = demuxAAC(await file.arrayBuffer());
+  VM.soundTrack = r ? `aac ${r.frames.length} frames${r.asc ? '' : ' no-asc'}` : 'no aac track';
+  if (!r || !r.frames.length) return null;
+  const RATES = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350], a = r.asc;
+  let aot = 2, fi = RATES.indexOf(r.rate), ch = r.ch || 2;
+  if (a && a.length >= 2) { aot = a[0] >> 3; fi = ((a[0] & 7) << 1) | (a[1] >> 7); ch = (a[1] >> 3) & 15 || ch; }
+  if (fi < 0 || fi > 12) fi = 4;
+  // 1: each frame with an ADTS header, decoded as an .aac stream
+  try {
+    if (window.__noAdts) throw 'test';
+    const prof = Math.max(0, Math.min(3, (aot === 5 || aot === 29 ? 2 : aot) - 1)), out = new Uint8Array(r.frames.reduce((s2, x) => s2 + x.length + 7, 0)); let o = 0;
+    for (const d of r.frames) { const len = d.length + 7;
+      out[o] = 0xFF; out[o + 1] = 0xF1; out[o + 2] = (prof << 6) | (fi << 2) | ((ch >> 2) & 1); out[o + 3] = ((ch & 3) << 6) | ((len >> 11) & 3);
+      out[o + 4] = (len >> 3) & 0xFF; out[o + 5] = ((len & 7) << 5) | 0x1F; out[o + 6] = 0xFC; out.set(d, o + 7); o += len; }
+    const b = await new Promise((res, rej) => ac.decodeAudioData(out.buffer, res, rej)); if (b && b.duration > 0.3) { VM.soundFrom = 'track (aac)'; return b; }
+  } catch (e) {}
+  // 2: the browser's own frame decoder (newer phones)
+  if (window.AudioDecoder && a) try {
+    const parts = []; let rate = 0, sr = RATES[fi];
+    const dec = new AudioDecoder({ output:x => { rate = x.sampleRate; const n = x.numberOfFrames, m = new Float32Array(n), t = new Float32Array(n);
+      for (let c = 0; c < x.numberOfChannels; c++) { x.copyTo(t, { planeIndex:c, format:'f32-planar' }); for (let i = 0; i < n; i++) m[i] += t[i] / x.numberOfChannels; } parts.push(m); x.close(); }, error:() => {} });
+    dec.configure({ codec:'mp4a.40.' + aot, sampleRate:sr, numberOfChannels:ch, description:a });
+    let ts = 0; for (const d of r.frames) { dec.decode(new EncodedAudioChunk({ type:'key', timestamp:ts, data:d })); ts += 1024 / sr * 1e6; }
+    await dec.flush(); dec.close();
+    const n = parts.reduce((s2, x) => s2 + x.length, 0); if (n && rate) { const b = ac.createBuffer(1, n, rate), d = b.getChannelData(0); let o = 0; for (const x of parts) { d.set(x, o); o += x.length; } VM.soundFrom = 'track (decoder)'; return b; }
+  } catch (e) {}
+  return null;
+}
 async function vmEnvelope(file, grab) {
   try {
     const ac = audioCtx(); let b = null;
     try { if (window.__noDecode) throw 'test'; const ab = await file.arrayBuffer(); b = await new Promise((res, rej) => ac.decodeAudioData(ab, res, rej)); VM.soundFrom = 'file'; if (grab) grab.stop(); VM.soundDecoded = true; }
-    catch (e) { VM.soundWait = true; b = grab ? await grab.p : null; VM.soundWait = false; VM.soundFrom = b ? 'played' : 'none'; }
+    catch (e) {
+      try { b = await vmDemuxAudio(file, ac); } catch (e2) { VM.soundErr = String(e2).slice(0, 60); }
+      if (b) { if (grab) grab.stop(); VM.soundDecoded = true; }
+      else { VM.soundWait = true; b = grab ? await grab.p : null; VM.soundWait = false; VM.soundFrom = b ? 'played' : 'none'; } }
     if (!b) return null;
     const sr = b.sampleRate, hop = Math.round(sr / 50), n = Math.floor(b.length / hop), out = new Float32Array(n);
     const chs = Array.from({ length:b.numberOfChannels }, (_, i) => b.getChannelData(i));
@@ -2632,7 +2720,7 @@ const vmSeek = (v, t) => new Promise(res => {
 const vmProg = p => { const e = $('vmProg'); if (e) e.style.width = Math.max(0, Math.min(100, p)).toFixed(1) + '%'; };
 const vmMsg = s => { const e = $('vmMsg'); if (e) e.textContent = s; };
 async function vmAnalyse(file, grab) {
-  Object.assign(VM, { soundFrom:null, grabInfo:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null });
+  Object.assign(VM, { soundFrom:null, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null });
   vmShow('Watching your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`);
   let v = null;
   try {
@@ -3220,7 +3308,7 @@ function vmPeopleTab(el) {
   if (/[?&]debug\b/.test(location.search)) {   // (?debug) what the video analysis saw, to send back when something's off
     const pre = document.createElement('pre'); pre.style.cssText = 'white-space:pre-wrap;word-break:break-all;font:11px/1.3 ui-monospace,monospace;background:#f3eee4;border:2px solid #161616;border-radius:10px;padding:8px;margin-top:10px';
     const nv = VM.env && VM.env.nov; let quiet = 0; if (nv) for (const x of nv) quiet += x;
-    pre.textContent = JSON.stringify({ follow:VM.diag, soundFrom:VM.soundFrom, grab:VM.grabInfo, sound:VM.env ? { classifier:nv ? 'ok' : 'none', noVoice:nv ? +(quiet / 50).toFixed(1) + 's' : null, music:nv ? +(nv.music || 0).toFixed(2) : null } : 'none',
+    pre.textContent = JSON.stringify({ follow:VM.diag, soundFrom:VM.soundFrom, track:VM.soundTrack, soundErr:VM.soundErr, grab:VM.grabInfo, sound:VM.env ? { classifier:nv ? 'ok' : 'none', noVoice:nv ? +(quiet / 50).toFixed(1) + 's' : null, music:nv ? +(nv.music || 0).toFixed(2) : null } : 'none',
       lines:(VM.lines || []).map(l => [+l.t0.toFixed(1), +l.t1.toFixed(1), l.who]), err:VM.err || null, ua:navigator.userAgent.slice(0, 90) });
     el.appendChild(pre);
   }
