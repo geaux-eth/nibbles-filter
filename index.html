@@ -2500,6 +2500,30 @@ $('vidBtn').onclick = () => {
 $('vmClose').onclick = () => { try { VM.pv && VM.pv.pause(); } catch (e) {} try { ED.v && ED.v.pause(); } catch (e) {} edPreviewOff(); if (VM.rendering) vmStop(true); VM.cancel = true; vmHide(); };
 
 // the sound, as a loudness curve (50 per second), straight from the file
+// A voice's fingerprint, 50 times a second: the shape of its sound (how strong each pitch band is, in the way people hear
+// it, then summed up into 12 numbers: "mel cepstrum"). The same voice keeps roughly the same numbers whatever it says;
+// another voice sits elsewhere. Quiet moments get none (NaN).
+function vmVoiceprints(x, fs, n, step, env) {
+  const N = 256, B = 20, C = 12, out = new Float32Array(n * C).fill(NaN), re = new Float64Array(N), im = new Float64Array(N);
+  const win = Float64Array.from({ length:N }, (_, i) => 0.54 - 0.46 * Math.cos(2 * Math.PI * i / (N - 1)));
+  const mel = f => 2595 * Math.log10(1 + f / 700), imel = m => 700 * (10 ** (m / 2595) - 1), lo = mel(100), hi = mel(Math.min(4000, fs / 2 - 1));
+  const edges = Array.from({ length:B + 2 }, (_, i) => imel(lo + (hi - lo) * i / (B + 1)) * N / fs);
+  const bits = Math.log2(N), rev = new Uint16Array(N); for (let i = 0; i < N; i++) { let r = 0; for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b); rev[i] = r; }
+  const band = new Float64Array(B);
+  for (let k = 0; k < n; k++) {
+    if (!(env[k] > 0.012)) continue;
+    const s0 = Math.round(k * step); if (s0 + N >= x.length) break;
+    for (let i = 0; i < N; i++) { re[rev[i]] = x[s0 + i] * win[i]; im[rev[i]] = 0; }
+    for (let len = 2; len <= N; len <<= 1) { const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+      for (let i = 0; i < N; i += len) { let cr = 1, ci = 0; for (let j = 0; j < len / 2; j++) { const p = i + j, q = p + len / 2, tr = re[q] * cr - im[q] * ci, ti = re[q] * ci + im[q] * cr;
+        re[q] = re[p] - tr; im[q] = im[p] - ti; re[p] += tr; im[p] += ti; const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr; } } }
+    for (let b = 0; b < B; b++) { let e = 1e-10; const a = edges[b], c = edges[b + 1], d = edges[b + 2];
+      for (let j = Math.floor(a); j <= Math.ceil(d) && j < N / 2; j++) { const w = j < c ? (j - a) / (c - a) : (d - j) / (d - c); if (w > 0) e += w * (re[j] * re[j] + im[j] * im[j]); }
+      band[b] = Math.log(e); }
+    for (let c = 1; c <= C; c++) { let v = 0; for (let b = 0; b < B; b++) v += band[b] * Math.cos(Math.PI * c * (b + 0.5) / B); out[k * C + c - 1] = v; }
+  }
+  return { C, v:out };
+}
 async function vmEnvelope(file) {
   try {
     const ac = audioCtx(); const ab = await file.arrayBuffer();
@@ -2519,6 +2543,7 @@ async function vmEnvelope(file) {
       if (best > 0.6) pitch[k] = fs / bl;
     }
     out.pitch = pitch;
+    out.vox = vmVoiceprints(mono, fs, n, step, out);
     // the voice track for the Nibble's mouth: the whole clip is known before the video is made, so the mouth reads the
     // sound itself (not a live microphone-style listener that lags behind and has to guess how loud "loud" is)
     const full = new Float32Array(b.length); for (const c of chs) for (let i = 0; i < b.length; i++) full[i] += c[i] / chs.length;
@@ -2685,6 +2710,7 @@ async function vmScan(v, fa, prog) {
         const d = await fa.nets.faceRecognitionNet.computeFaceDescriptor(dc); f.desc = d.length === 128 ? d : d[0];
       } catch (e) { VM.err = String(e); }
       f.score = f.s * (1 - Math.min(1, Math.abs(((L[1].x - L[234].x) / ((L[454].x - L[234].x) || 1e-6)) - 0.5) * 2));
+      f.mo = dist(L[13], L[14]) / (dist(L[10], L[152]) || 1e-6);   // how far apart the lips are (still lips: someone not talking)
       let best = null, bd = 1e9;
       for (const tr of open) {
         if (used.has(tr)) continue; const g = tr.faces[tr.faces.length - 1], r = f.sp / g.sp;
@@ -2742,9 +2768,13 @@ function vmWho(scan, music) {
   const featured = others.filter(p => p.score >= main.score * (music > 0.3 ? 0.75 : 0.4) && p.faces.length >= 4).slice(0, 3);
   // everyone else: real people seen a while (a second and a half or more); a hand, a face turned away for a moment, a
   // pattern that looked like a face for a picture or two isn't someone
-  const crowd = others.filter(p => !featured.includes(p) && p.faces.length >= 3 && p.faces.length * step >= 1.5);
+  // ...and not the faces of a cutaway (people in the street, a clip shown in an interview): never in a picture with the
+  // cast, and their lips don't move (a choir's or a band's sing, and share shots with the lead)
+  const castN = new Set([main, ...featured].flatMap(p => p.faces.map(f => f.n)));
+  const cutaway = p => { if (p.faces.some(f => castN.has(f.n))) return false; const m = p.faces.map(f => f.mo || 0).sort((a, b) => a - b); return m[Math.floor(m.length * 0.9)] - m[Math.floor(m.length * 0.1)] < 0.02; };   // (lips that don't move: open or shut)
+  const crowd = others.filter(p => !featured.includes(p) && p.faces.length >= 3 && p.faces.length * step >= 1.5 && !cutaway(p));
   [main, ...featured].forEach(p => keepT.add(p.thumb)); crowd.slice(0, 8).forEach(p => keepT.add(p.thumb)); done();
-  VM.whoDbg = ids.map(p => ({ n:p.faces.length, score:+p.score.toFixed(2), t0:p.t0, t1:p.t1, role:p === main ? 'main' : featured.includes(p) ? 'featured' : 'crowd' }));
+  VM.whoDbg = ids.map(p => ({ n:p.faces.length, score:+p.score.toFixed(2), t0:p.t0, t1:p.t1, role:p === main ? 'main' : featured.includes(p) ? 'featured' : crowd.includes(p) ? 'crowd' : 'left out' }));
   return { people:[main, ...featured], crowd:{ n:crowd.length, thumbs:crowd.slice(0, 8).map(p => p.thumb).filter(Boolean) }, step, fw, fh };
 }
 // where a person's face is at time t, from the first look (inside one of their tracks, or just past either end of one)
@@ -2877,6 +2907,32 @@ function vmTimeline() {
     let sp = 0, st = 0; for (let j = Math.max(0, k - W / 2); j < Math.min(raw.length, k + W / 2); j++) if (raw[j].speech) { sp++; if (raw[j].still) st++; }
     if (sp && st / sp > 0.75) { r.off = true; offN++; }
   });
+  // Voices: each person's voiceprint from the moments they're seen talking. Talking that no moving mouth on screen explains
+  // (a cutaway, a clip shown in an interview, the singer off screen) goes to the person whose voice it is, if it's clearly
+  // theirs and they're not on screen keeping still; only a voice nobody's matches is someone off camera
+  const VX = env && env.vox, Cn = VX ? VX.C : 0, fpAt = (k0, k1, min = 8) => {   // the mean voiceprint over raw frames k0..k1 (speech only)
+    const m = new Float64Array(Cn); let c = 0;
+    for (let k = Math.max(0, k0); k <= Math.min(raw.length - 1, k1); k++) { if (!raw[k].speech) continue;
+      for (let j = Math.floor(k * dt * 50); j < Math.floor((k + 1) * dt * 50); j++) { const o = j * Cn; if (!(o + Cn <= VX.v.length) || isNaN(VX.v[o])) continue; for (let d = 0; d < Cn; d++) m[d] += VX.v[o + d]; c++; } }
+    if (c < min) return null; for (let d = 0; d < Cn; d++) m[d] /= c; return m; };
+  if (VX) {
+    const sd = new Float64Array(Cn).fill(1); { const all = []; raw.forEach((r, k) => { const f = r.speech && fpAt(k, k, 1); if (f) all.push(f); });
+      if (all.length > 20) for (let d = 0; d < Cn; d++) { let mu = 0; for (const f of all) mu += f[d]; mu /= all.length; let v = 0; for (const f of all) v += (f[d] - mu) ** 2; sd[d] = Math.sqrt(v / all.length) || 1; } }
+    const dist2 = (a, b) => { let s2 = 0; for (let d = 0; d < Cn; d++) s2 += Math.abs(a[d] - b[d]) / sd[d]; return s2 / Cn; };
+    const prof = P.map((p, i) => { const ks = []; raw.forEach((r, k) => { if (r.speech && r.who === i) ks.push(k); }); if (ks.length * dt < 1.2) return null;
+      const mu = new Float64Array(Cn); let c = 0; for (const k of ks) { const f = fpAt(k, k, 1); if (!f) continue; for (let d = 0; d < Cn; d++) mu[d] += f[d]; c++; } if (c < 10) return null; for (let d = 0; d < Cn; d++) mu[d] /= c;
+      // how far this voice's own moments stray from it: the yardstick for "it's them"
+      const own = ks.filter((_, j) => j % 3 === 0).map(k => fpAt(k - 12, k + 12)).filter(Boolean).map(f => dist2(f, mu)).sort((a, b) => a - b);
+      return own.length >= 4 ? { mu, thr:Math.max(0.35, own[Math.floor(own.length * 0.85)] * 1.25) } : null; });
+    VM.voiceDbg = { prof:prof.map(q => q && +q.thr.toFixed(2)), own:P.map((p, i) => raw.filter(r => r.speech && r.who === i).length), hits:[] };
+    if (prof.some(Boolean)) raw.forEach((r, k) => {
+      if (!r.speech || r.who >= 0) return; const f = fpAt(k - 12, k + 12); if (!f) return;
+      const ds = prof.map((q, i) => q && activity(P[i], k * dt) < 0 ? dist2(f, q.mu) / q.thr : 9), best = ds.indexOf(Math.min(...ds)), second = Math.min(9, ...ds.filter((_, i) => i !== best));
+      if (k % 10 === 0) VM.voiceDbg.hits.push([+(k * dt).toFixed(1), ds.map(x => +x.toFixed(2))]);
+      if (ds[best] < 1 && second - ds[best] > 0.15) { r.who = best; r.off = false; r.byVoice = true; }
+    });
+    offN = raw.filter(r => r.off).length;
+  }
   const OFF = offN * dt >= 1.5 ? P.length : -1;
   if (OFF >= 0) P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 });
   // fill: talking but no moving mouth seen -> the last speaker; silence longer than 1 s -> the main character
@@ -2896,7 +2952,7 @@ function vmTimeline() {
   // the speaker clearly changes. Each line gets a speaker; anyone can change it in the picker.
   const lines = []; let k = 0;
   // sound while the only face in view keeps its lips still isn't talking (a horn, traffic, a song before they sing)
-  const talks = r => r.speech && !(r.still && !r.off && P.filter(q => !q.off).length === 1);
+  const talks = r => r.speech && (r.byVoice || !(r.still && !r.off && P.filter(q => !q.off).length === 1));
   while (k < raw.length) {
     if (!talks(raw[k])) { k++; continue; }
     let e = k, gap = 0; for (let j = k; j < raw.length; j++) { if (talks(raw[j])) { e = j; gap = 0; } else if (++gap * dt > 0.3) break; }
