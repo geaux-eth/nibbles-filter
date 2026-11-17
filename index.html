@@ -3043,7 +3043,7 @@ async function vmFollow(v, who, prog) {
     const lo = mos.length ? mos[Math.floor(mos.length * 0.08)] : 0, hi = mos.length ? Math.max(lo + 0.02, mos[Math.floor(mos.length * 0.85)]) : 1;
     p.moLo = lo; p.moHi = hi;
     // the lips can lead only when they were really seen moving, often enough (else the voice leads, as before)
-    const span = p.raw.length ? p.raw[p.raw.length - 1].t - p.raw[0].t : 0;
+    const span = (p.tracks || []).reduce((a, tr) => a + (tr.faces[tr.faces.length - 1].t - tr.faces[0].t) + who.step, 0) || (p.raw.length ? p.raw[p.raw.length - 1].t - p.raw[0].t : 0);   // (the time they're in shot)
     p.lipOk = mos.length >= 12 && hi - lo > 0.02 && p.raw.length * step >= span * 0.45;
     D.p = (D.p || []).concat([{ n:p.raw.length, lo:+lo.toFixed(3), hi:+hi.toFixed(3), ok:p.lipOk }]);
     // two passes: the first only learns this face's resting look, the second reads it
@@ -3086,7 +3086,9 @@ function vmTimeline() {
   for (const p of P) { const v = []; for (let t = 0; t < VM.dur; t += 0.2) { const a = activity(p, t); if (a >= 0) v.push(a); } v.sort((x, y) => x - y); p.busy = Math.max(0.6, v[Math.floor(v.length * 0.9)] || 0); }
   const raw = [];
   for (let k = 0; k < n; k++) {
-    const t = k * dt, speech = !env || (loud(t) > floor * 2.5 && !(env.nov && env.nov[Math.floor(t * 50)]));   // music or a sound effect alone isn't talking
+    // talking or singing: when the sound classifier ran, its say (any real sound it calls a voice; a song never goes quiet,
+    // so 'louder than the quiet parts' can't tell); without it, clearly louder than the quiet parts
+    const t = k * dt, speech = !env || (env.nov ? loud(t) > Math.max(0.004, floor * 0.6) && !env.nov[Math.floor(t * 50)] : loud(t) > floor * 2.5);
     let who = -1, ba = 0.45, seen = false, top = 0;
     // talking = lips moving at least about half as much as that face does when it talks
     if (speech) P.forEach((p, i) => { const a = activity(p, t); if (a < 0) return; seen = true; const rel = a / p.busy; top = Math.max(top, rel); if (rel > ba && a > 0.15) { ba = rel; who = i; } });
