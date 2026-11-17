@@ -205,13 +205,14 @@ header .credit b{font-weight:400}
 .vm-go:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink)}
 .vm-bar{height:16px;border:2.5px solid var(--ink);border-radius:999px;overflow:hidden;background:#f3eee4;margin:8px 0}
 .vm-bar i{display:block;height:100%;width:0;background:var(--gold);transition:width .2s}
-.vm-cast{display:grid;gap:8px;margin:4px 0 8px}
+.vm-cast{display:grid;gap:14px;margin:4px 0 12px}
 .vm-person{display:grid;grid-template-columns:62px 18px 62px 1fr auto;align-items:center;gap:8px;font:400 18px/1 var(--display)}
+.vm-cast .lbl{font:400 15px/1.1 var(--display);letter-spacing:.03em;text-transform:uppercase}
 .vm-face{width:62px;height:62px;border-radius:50%;border:2.5px solid var(--ink);background:#ddd;object-fit:cover}
 .vm-nib{position:relative;display:block;width:62px;height:62px}
 .vm-nib .circ{width:62px;height:62px;margin:0}
 .vm-nib{border:0;background:none;padding:0;cursor:pointer}
-.vm-person .lbl{font-size:13px;text-align:left}
+.vm-person .lbl{text-align:left}
 .vm-rm{width:34px;height:34px;border-radius:50%;border:2.5px solid #1a1a1a;background:#fff;color:#1a1a1a;font-size:15px;font-weight:700;line-height:1;cursor:pointer;padding:0}
 .vm-tag{display:grid;gap:5px;justify-items:start;min-width:0}.vm-tag .chipb{font-size:11px;padding:6px 8px 4px}
 .vm-ctl{display:flex;gap:6px;align-items:center;flex-wrap:nowrap;max-width:100%}
@@ -282,7 +283,12 @@ header .credit b{font-weight:400}
 #vmTab{padding-top:8px}
 .vm-tag .sub{font:600 11.5px/1.25 var(--body);opacity:.7}
 .vm-arr{font:400 18px/1 var(--display);text-align:center}
-.vm-crowd{display:grid;grid-template-columns:62px 18px 1fr;align-items:center;gap:8px}
+.vm-crowd{display:grid;grid-template-columns:62px 18px 62px 1fr;align-items:center;gap:8px;margin-top:6px;padding-top:14px;border-top:2px dashed rgba(22,22,22,.18)}
+.vm-cnibs.wide{grid-column:3 / -1;margin-top:2px}
+.vm-gstack{position:relative;display:block;width:62px;height:62px;font:400 18px/62px var(--display);text-align:center}
+.vm-gstack .circ{position:absolute;width:38px;height:38px;margin:0;border-width:2px;box-shadow:none}
+.vm-gstack .circ:nth-child(1){left:0;top:0}.vm-gstack .circ:nth-child(2){left:24px;top:6px}.vm-gstack .circ:nth-child(3){left:10px;top:24px}
+.vm-crowd .vm-tag{gap:4px}
 .vm-faces{position:relative;width:62px;height:62px}
 .vm-faces canvas{position:absolute;width:38px;height:38px;border-radius:50%;border:2px solid var(--ink);background:#ddd}
 .vm-faces canvas:nth-child(1){left:0;top:0}.vm-faces canvas:nth-child(2){left:24px;top:6px}.vm-faces canvas:nth-child(3){left:10px;top:24px}
@@ -2529,11 +2535,17 @@ async function vmSoundKinds(b) {
       let v = 0, sg = 0; for (const c of cats) { const nm = c.categoryName || c.displayName || ''; if (VOX.speech.test(nm) || VOX.sing.test(nm)) v = Math.max(v, c.score); else if (VOX.genre.test(nm)) v = Math.max(v, c.score * 0.5);
         if (VOX.sing.test(nm) || /^(Music|Gospel music|Christian music|Soul music)$/.test(nm)) sg = Math.max(sg, c.score); }
       if (sg > 0.15) sung++;
-      const t0 = r.timestampMs != null ? r.timestampMs / 1000 : k * 0.975; win.push({ t0, none:v < 0.011 });   // instruments alone score ~0.005; a voice under a band 0.012 and up
+      // the loudest other sound: music (a voice under a band scores low, ~0.012 and up, instruments alone ~0.005) or
+      // anything else (traffic, a horn, wind, a crowd: a voice that's really there scores well above that)
+      let top = 0, musical = false; for (const c of cats) { const nm = c.categoryName || c.displayName || ''; if (VOX.speech.test(nm) || VOX.sing.test(nm)) continue; if (c.score > top) { top = c.score; musical = /music|guitar|drum|piano|keyboard|bass|synth|instrument|orchestra|strum|bell|hip hop|rock|pop|jazz|soul|gospel|electronic|scratch/i.test(nm); } }
+      const t0 = r.timestampMs != null ? r.timestampMs / 1000 : k * 0.975;
+      const voice = v >= 0.3 || v >= top || (musical && v >= 0.011);
+      win.push({ t0, none:!voice, hard:!voice && !musical });   // (a voice weaker than a horn or traffic: the horn)
       if (window.__soundDbg) window.__soundDbg.push([+t0.toFixed(2), +v.toFixed(3), cats.slice(0, 4).map(c => (c.categoryName || '').slice(0, 14) + ':' + c.score.toFixed(2)).join(' ')]);
     });
     win.forEach((w, k) => { w.t1 = k + 1 < win.length ? win[k + 1].t0 : w.t0 + 0.975; });
-    win.forEach((w, k) => { if (w.none && ((win[k - 1] && win[k - 1].none) || (win[k + 1] && win[k + 1].none))) for (let j = Math.floor(w.t0 * 50); j < Math.min(n, Math.ceil(w.t1 * 50)); j++) out[j] = 1; });
+    // no voice: a stretch that's clearly something else (a car, a horn), or a second or more of music with no voice in it
+    win.forEach((w, k) => { if (w.none && (w.hard || (win[k - 1] && win[k - 1].none) || (win[k + 1] && win[k + 1].none))) for (let j = Math.floor(w.t0 * 50); j < Math.min(n, Math.ceil(w.t1 * 50)); j++) out[j] = 1; });
     out.music = res.length ? sung / res.length : 0;   // how much of the clip is singing or music (a song: the crowd sings along)
     return out;
   } catch (e) { console.warn('sound kinds', e); return null; }
@@ -2710,7 +2722,9 @@ function vmWho(scan, music) {
   // someone else gets their own Nibble when they're on screen nearly as much as the main person (in a song, about as much:
   // a choir's singers are on screen a lot too, but the lead is the song's own)
   const featured = others.filter(p => p.score >= main.score * (music > 0.3 ? 0.75 : 0.4) && p.faces.length >= 4).slice(0, 3);
-  const crowd = others.filter(p => !featured.includes(p));
+  // everyone else: real people seen a while (a second and a half or more); a hand, a face turned away for a moment, a
+  // pattern that looked like a face for a picture or two isn't someone
+  const crowd = others.filter(p => !featured.includes(p) && p.faces.length >= 3 && p.faces.length * step >= 1.5);
   [main, ...featured].forEach(p => keepT.add(p.thumb)); crowd.slice(0, 8).forEach(p => keepT.add(p.thumb)); done();
   VM.whoDbg = ids.map(p => ({ n:p.faces.length, score:+p.score.toFixed(2), t0:p.t0, t1:p.t1, role:p === main ? 'main' : featured.includes(p) ? 'featured' : 'crowd' }));
   return { people:[main, ...featured], crowd:{ n:crowd.length, thumbs:crowd.slice(0, 8).map(p => p.thumb).filter(Boolean) }, step, fw, fh };
@@ -3110,9 +3124,11 @@ function vmPeopleTab(el) {
       fl.onclick = () => vmDo(() => { VM.flip[k] = !VM.flip[k]; });
       w.append(b, fl); nibs.appendChild(w);
     });
-    tag.appendChild(nibs);
+    // laid out like a person's row: their faces → their Nibbles (a little group) and the name; the Nibbles to change below
+    const gs = document.createElement('span'); gs.className = 'vm-gstack'; crowd.slice(0, 3).forEach(k => { const c = document.createElement('span'); c.className = 'circ'; nibThumb(c, VM.cast[k]); flipThumb(c, k); gs.appendChild(c); });
+    if (!crowd.length) gs.textContent = '—';
     const arrow = document.createElement('span'); arrow.className = 'vm-arr'; arrow.textContent = '→';
-    d.append(fs, arrow, tag); box.appendChild(d);
+    d.append(fs, arrow, gs, tag); if (crowd.length) { nibs.classList.add('wide'); d.appendChild(nibs); } box.appendChild(d);
   }
   el.querySelectorAll('.vm-mode button').forEach(b => b.onclick = () => { if (VM.group !== b.dataset.g) vmDo(() => { VM.group = b.dataset.g; }); });
   if ($('vmSing')) $('vmSing').onclick = () => vmDo(() => { VM.sing = !VM.sing; });
