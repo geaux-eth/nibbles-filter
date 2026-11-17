@@ -390,6 +390,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     for (let p = 0; p < N * N; p++) { if (!useG[p] || hole[p] || subst.has(p)) continue; const i = p * 4; if (D[i + 3] < 200) continue;
       const mouthy = isMouthC(D[i], D[i + 1], D[i + 2]);
       // unchanged by this mouth: this Nibble's own, except where its own mouth is being replaced
+      if (dist(D, i, R, i) <= 30 && T[i + 3] < 40) { keepT[p] = 1; continue; }   // this Nibble has nothing here (the reference's backpack edge isn't its)
       if (dist(D, i, R, i) <= 30 && (!ownG[p] || (R[i + 3] > 200 && lum(R, i) >= 260 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2])))) { keepT[p] = 1; continue; }   // (a grey line edge isn't clothes)
       // skin: drawn in this Nibble's matching colour; a skin colour with no match here (a chin its hoodie hides) is filled from its own picture
       if (mouthy || isSkin(D, i)) { if (mouthy) continue; const mm = lum(D, i) >= 75 ? map(D[i], D[i + 1], D[i + 2]) : 1, m = mapped(D, i);
