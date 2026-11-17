@@ -20,7 +20,7 @@ export const FX_HAND = {
   5900: { lights:[[500, 215, 45, '#ff3b30'], [150, 240, 26, '#ffffff'], [560, 400, 150, '#ffd23f']] },   // red antenna light, eyes
   8482: { lights:[[602, 168, 30, '#ffffff'], [560, 440, 120, '#3cff5a'], [470, 900, 110, '#3cff5a']] },  // antenna, visor, chest screen
   794:  { heart:true }, 1998:{ heart:true }, 3538:{ heart:true }, 5807:{ heart:true },
-  7192: { heart:true }, 7813:{ heart:true }, 8617:{ heart:true }, 8637:{ heart:true },
+  7192: { heart:true }, 7813:{ heart:true }, 8617:{ heart:true }, 8637:{ heart:{ x1:530 } },   // (8637: the wattle beside the heart is red too, and stays still)
 };
 // where steam comes out of the ears, by kind: [x, y, direction x, direction y]
 const STEAM = {
@@ -200,7 +200,7 @@ export function prepareFx(base, traits = {}, hand = null) {
     const bx = [Math.max(0, x - r), Math.max(0, y - r), Math.min(N - 1, x + r), Math.min(N - 1, y + r)];
     return { x, y, r, col, img:sprite(d, m.map(v => v), bx), box:bx, ph:k * 1.7 }; }) });
   if (hand && hand.heart) {
-    const red = new Uint8Array(N * N); for (let y = 520; y < N; y++) for (let x = 0; x < N; x++) { const i = y * N + x, r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2]; if (A(i) > 200 && r > 165 && g < 95 && b < 105) red[i] = 1; }
+    const red = new Uint8Array(N * N); for (let y = 520; y < N; y++) for (let x = 0; x < N; x++) { const i = y * N + x, r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2]; if (A(i) > 200 && r > 165 && g < 95 && b < 105 && !(hand.heart.x1 && x > hand.heart.x1)) red[i] = 1; }
     const ps = parts(red, 60).sort((a, b) => b.n - a.n);
     if (ps.length) {   // the heart shows in pieces between the ribs: the biggest red piece and every red piece close to it
       const [a0, b0, a1, b1] = ps[0].box, close = ps.filter(q => q.box[0] < a1 + 70 && q.box[2] > a0 - 70 && q.box[1] < b1 + 90 && q.box[3] > b0 - 90);
