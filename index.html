@@ -3606,7 +3606,7 @@ function edShowPanel() {
     opt('solo', 'Just ' + pName(l.who), cur === 'solo') +
     others.map(j => opt('both:' + j, pName(l.who) + ' + ' + pName(j), cur === 'both' && l.with === j)).join('') +
     (all ? opt('all', 'Everyone', cur === 'all') : '') + `</div>` +
-    (cur === 'both' ? `<div class="vm-row">${opt('sing:one', 'Only ' + pName(l.who) + ' sings / talks', !l.together)}${opt('sing:both', 'Both sing', !!l.together)}</div>
+    (cur === 'both' ? `<div class="vm-row">${opt('sing:one', 'Only ' + pName(l.who) + ' sings / talks', !l.together)}${opt('sing:both', 'Both at once', !!l.together)}</div>
       <div class="vm-row">${opt('face:each', '↔ Facing each other', l.face !== 'same')}${opt('face:same', '→ → Same way', l.face === 'same')}</div>
       <p class="note" style="margin:2px 0 4px">Both stay on screen. To switch who's talking, split the part (✂︎) and drag one half to the other's row.</p>` : '') +
     (cur === 'all' ? `<div class="vm-row">${opt('sing', VM.sing ? '✓ Row behind sings along' : 'Row behind sings along', VM.sing)}</div>` : '') +
