@@ -2159,11 +2159,11 @@ function drawNibble(t) {
 
 // Debug readout (only with ?debug in the address): draws what the tracker reads into the picture,
 // so a recorded clip shows exactly why the Nibble did what it did. Nothing is sent anywhere.
-const DEBUG = new URLSearchParams(location.search).has('debug');
+const DEBUG = new URLSearchParams(location.search).get('debug') === 'face';   // (?debug=face: the live face readings on the picture; plain ?debug only adds the video analysis box)
 function drawDebug() {
   if (!DEBUG) return;
   const f = S.face, rows = [['open',f.open],['wide',(f.wide+1)/2],['round',f.round],['smile',f.smile],['press',f.press],['blink',f.blink],['frown',f.brow],['brows up',f.browUp]];
-  const k = Math.min(stage.width, stage.height) / 1080, x = 16*k, y = 16*k, w = 300*k, rh = 30*k;
+  const k = Math.min(stage.width, stage.height) / 1080 * 0.6, x = 16*k, y = 16*k, w = 300*k, rh = 30*k;   // (small: in a corner, off the Nibble)
   ctx.save(); ctx.globalAlpha = .82; ctx.fillStyle = '#000'; ctx.fillRect(x, y, w * 1.45, rh*(rows.length+2.2)); ctx.globalAlpha = 1;
   ctx.font = `700 ${18*k}px system-ui, sans-serif`; ctx.textBaseline = 'middle';
   rows.forEach(([n, v], i) => {
