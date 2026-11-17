@@ -3147,7 +3147,7 @@ function vmShowDefaults() {
     if (l.show) continue;
     const ts = []; for (let t = l.t0; t < l.t1; t += 0.2) ts.push(t);
     const both = cast.filter(j => j !== l.who && ts.length && ts.filter(t => seen(j, t) && seen(l.who, t)).length >= ts.length * 0.5);
-    if (both.length) { l.show = 'both'; l.with = both[0]; l.face = 'each'; }
+    if (both.length) { l.show = 'both'; l.with = both[0]; l.face = 'each'; l.together = ((VM.env && VM.env.nov && VM.env.nov.music) || 0) > 0.3; }
     else l.show = VM.crowd && VM.group === 'all' ? 'all' : 'solo';
   }
 }
@@ -3185,6 +3185,8 @@ function vmHear(t0, t1, btn) {
 }
 function vmLinesToTimeline() {
   const dt = 0.05, n = Math.ceil(VM.dur / dt), tl = new Array(n).fill(VM.main), L = (VM.lines || []).slice().sort((x, y) => x.t0 - y.t0);
+  for (const l of L) if (l.show === 'both' && (l.with === l.who || !VM.people[l.with])) {   // (a pair's part dragged to the other one: still the pair)
+    const o = VM.people.map((q, i) => i).find(i => i !== l.who && !VM.people[i].off); if (o == null) { l.show = 'solo'; delete l.with; } else l.with = o; }
   const bgs = new Array(n).fill(null);   // each line can have its own background; null = the everyone background
   const shows = new Array(n).fill(null);   // and who's on screen ({ show, with, face }); null = just the one talking
   let last = -1, lastEnd = -9, lastBg = null, lastShow = null;
@@ -3193,7 +3195,7 @@ function vmLinesToTimeline() {
     for (const l of L) { if (l.t0 > t) break; if (t < l.t1) on = l; else if (l.t1 > lastEnd) { lastEnd = l.t1; last = l.who; lastBg = l.bg || null; lastShow = l; } }
     const hold = !on && t - lastEnd < 1 && last >= 0;   // a pause under a second stays on whoever just spoke
     tl[k] = on ? on.who : hold ? last : VM.main; bgs[k] = on ? on.bg || null : hold ? lastBg : null;
-    const sl = on || (hold ? lastShow : null); shows[k] = sl && sl.show ? { show:sl.show, with:sl.with, face:sl.face } : VM.crowd && VM.group === 'all' ? { show:'all' } : null;
+    const sl = on || (hold ? lastShow : null); shows[k] = sl && sl.show ? { show:sl.show, with:sl.with, face:sl.face, together:!!sl.together } : VM.crowd && VM.group === 'all' ? { show:'all' } : null;
   }
   VM.timeline = tl; VM.tlBg = bgs; VM.tlShow = shows; VM.first = L.length ? L[0].who : VM.main;
   // the mouth only talks inside a line (a line taken out in the editor, over music say, keeps the mouth shut there)
@@ -3604,7 +3606,9 @@ function edShowPanel() {
     opt('solo', 'Just ' + pName(l.who), cur === 'solo') +
     others.map(j => opt('both:' + j, pName(l.who) + ' + ' + pName(j), cur === 'both' && l.with === j)).join('') +
     (all ? opt('all', 'Everyone', cur === 'all') : '') + `</div>` +
-    (cur === 'both' ? `<div class="vm-row">${opt('face:each', '↔ Facing each other', l.face !== 'same')}${opt('face:same', '→ → Same way', l.face === 'same')}</div>` : '') +
+    (cur === 'both' ? `<div class="vm-row">${opt('sing:one', 'Only ' + pName(l.who) + ' sings / talks', !l.together)}${opt('sing:both', 'Both sing', !!l.together)}</div>
+      <div class="vm-row">${opt('face:each', '↔ Facing each other', l.face !== 'same')}${opt('face:same', '→ → Same way', l.face === 'same')}</div>
+      <p class="note" style="margin:2px 0 4px">Both stay on screen. To switch who's talking, split the part (✂︎) and drag one half to the other's row.</p>` : '') +
     (cur === 'all' ? `<div class="vm-row">${opt('sing', VM.sing ? '✓ Row behind sings along' : 'Row behind sings along', VM.sing)}</div>` : '') +
     `<div class="vm-row"><button type="button" class="chipb seg" data-k="every">Use this for every part</button></div>`;
   el.querySelectorAll('button').forEach(b => b.onclick = () => vmDo(() => {
@@ -3612,8 +3616,9 @@ function edShowPanel() {
     if (k === 'solo' || k === 'all') { l.show = k; delete l.with; }
     else if (k.startsWith('both:')) { l.show = 'both'; l.with = +k.slice(5); l.face = l.face || 'each'; }
     else if (k.startsWith('face:')) l.face = k.slice(5);
+    else if (k.startsWith('sing:')) l.together = k === 'sing:both';
     else if (k === 'sing') VM.sing = !VM.sing;
-    else if (k === 'every') for (const o of VM.lines) { o.show = l.show; o.face = l.face;
+    else if (k === 'every') for (const o of VM.lines) { o.show = l.show; o.face = l.face; o.together = l.together;
       if (l.show === 'both') { o.with = o.who === l.with ? l.who : l.with; if (o.with === o.who) o.show = 'solo'; } else delete o.with; }
     vmLinesToTimeline();
   }));
@@ -3664,7 +3669,7 @@ function edSplit() {
     return edHint('Split cuts a block in two at the red line, but the red line isn’t inside a block. Tap a block first, or drag the ruler to move the red line into one.');
   }
   vmMark();
-  const n = { t0:Math.round(t * 20) / 20, t1:l.t1, who:l.who, bg:l.bg }; if (!n.bg) delete n.bg; l.t1 = n.t0; VM.lines.push(n); ED.sel = n; vmLinesToTimeline(); edDraw();
+  const n = { t0:Math.round(t * 20) / 20, t1:l.t1, who:l.who, bg:l.bg, show:l.show, with:l.with, face:l.face, together:l.together }; for (const k of Object.keys(n)) if (n[k] == null) delete n[k]; l.t1 = n.t0; VM.lines.push(n); ED.sel = n; vmLinesToTimeline(); edDraw();
   edHint(`Cut in two at ${fmtT(n.t0)}. The second half is picked: drag it up or down to give it to someone else.`, true);
 }
 function edAdd() {
@@ -3797,10 +3802,10 @@ function vmBackRow(now, t, p) {
 }
 // a back-row mouth: its own mouth in the clip (how far apart the lips are, against how far they go for this face), and when
 // everyone sings, the voice too (a moment behind, a little softer, so they aren't a perfect copy of the lead); held ~0.1 s a shape
-function vmBackMouth(i, t, now, sing) {
+function vmBackMouth(i, t, now, sing, quiet) {
   const P = VM.people, st = VM.bm || (VM.bm = {}), b = st[i] || (st[i] = { cur:0, t:0 });
   let r = 0; const x = P[i] && vmSample(i, t + VM_LEAD); if (x && P[i].moScale) r = clamp(x.mo / P[i].moScale, 0, 1.2);
-  if ((sing || VM.sing || VM.group === 'sing') && VM.env && VM.env.vt) {
+  if (!quiet && (sing || VM.sing || VM.group === 'sing') && VM.env && VM.env.vt) {
     const T = VM.env.vt, tt = t + VM_LEAD - 0.04 - (i % 3) * 0.03, k = Math.max(0, Math.min(T.e.length - 1, Math.round(tt * 100))), nv = VM.env.nov;
     const talk = !VM.talk || VM.talk[Math.floor(tt / 0.05)], quiet = nv && nv[Math.floor(tt * 50)];
     if (talk && !quiet && T.e[k] > T.thr) r = Math.max(r, clamp((T.e[k] - T.thr) / (T.loud - T.thr), 0, 1) * 0.85);
@@ -3812,13 +3817,13 @@ function vmBackMouth(i, t, now, sing) {
 // one frame of the Nibbled video: who's on screen now, their face, their mouth (from the clip's sound), flipped if they answer
 // two of the cast side by side: how big each stands and where (across the frame), per shape
 const DUO = { Square:{ s:0.72, xs:[0.29, 0.71] }, Wide:{ s:0.92, xs:[0.3, 0.7] }, Vertical:{ s:0.82, xs:[0.3, 0.7] } };
-// the other one of a pair: drawn first (the one singing or talking stands a little in front), its mouth from its own lips
-// when it's seen close enough, otherwise singing along with the voice
-function vmDuoOther(now, t, i, x, s, turned) {
+// the other one of a pair: drawn first, listening (its mouth only moves with its own lips in the clip), or, in a part
+// where both sing, singing along with the voice too
+function vmDuoOther(now, t, i, x, s, turned, sing) {
   const id = +VM.cast[i], a = VM.arts[id]; if (!a) return; if (!VM.ps[i]) VM.ps[i] = newPS();
   const keep = { id:S.id, art:S.art, trait:S.trait, mouth:S.mouth, eye:S.eye, face:S.face, tracking:S.tracking, fm:S.forceMouth, fe:S.forceEye, bu:S.blinkUntil };
   const ps = VM.ps[i]; S.id = id; S.art = a.art; S.trait = a.trait; S.mouth = ps.mouth; S.eye = ps.eye; S.face = ps.face; S.tracking = false; S.solo = true;
-  S.forceMouth = vmBackMouth(i, t, now, true); S.forceEye = null;
+  S.forceMouth = vmBackMouth(i, t, now, !!sing, !sing); S.forceEye = null;
   const W = stage.width, H = stage.height; ctx.save(); ctx.translate(x * W - W * s / 2, H * (1 - s)); ctx.scale(s, s);
   if ((!!VM.mirror[i]) !== turned) { ctx.translate(W, 0); ctx.scale(-1, 1); }
   try { drawNibble(now + i * 1700); } finally { ctx.restore(); }
@@ -3859,7 +3864,7 @@ function vmFrame(now) {
   let mir = !!VM.mirror[p];
   if (duo) {   // two side by side: the cast's first on the left; facing each other (the right one turned round) or the same way
     const left = Math.min(p, sh.with), other = sh.with, D = DUO[S.shape] || DUO.Square, W = stage.width, H = stage.height, x = D.xs[p === left ? 0 : 1];
-    vmDuoOther(now, t, other, D.xs[other === left ? 0 : 1], D.s, sh.face !== 'same' && other !== left);
+    vmDuoOther(now, t, other, D.xs[other === left ? 0 : 1], D.s, sh.face !== 'same' && other !== left, sh.together);
     ctx.translate(x * W - W * D.s / 2, H * (1 - D.s)); ctx.scale(D.s, D.s); S.solo = true;
     mir = (!!VM.mirror[p]) !== (sh.face !== 'same' && p !== left);
   }
