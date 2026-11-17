@@ -3478,10 +3478,15 @@ function vmBackRow(now, t, p) {
   const front = vmRoot(p), who = P.map((q, i) => i).filter(i => !P[i].off && vmRoot(i) === i);
   const keep = { id:S.id, art:S.art, trait:S.trait, mouth:S.mouth, eye:S.eye, face:S.face, tracking:S.tracking, fm:S.forceMouth, fe:S.forceEye, bu:S.blinkUntil };
   const s = GL.s * (S.shape === 'Wide' ? 1.04 : 1), lift = m * GL.lift;
-  // everyone but the one talking, in order, takes the spots (outer ones first); the outer ones are drawn first, so the ones
-  // nearer the middle overlap them
+  // everyone but the one talking, in order, takes the spots (outer ones first). Depth: the higher a spot, the further back it
+  // is, so the highest are drawn first and the lower, nearer ones overlap them (never a far one over a near one)
   const behind = [...who.filter(i => i !== front), ...vmCrowdKeys()];   // the people first, then the crowd
-  const placed = behind.slice(0, slots.length).map((i, k) => ({ i, x:slots[k][0], up:slots[k][1] })).sort((a, b) => Math.abs(b.x - 0.5) - Math.abs(a.x - 0.5));
+  const placed = behind.slice(0, slots.length).map((i, k) => ({ i, x:slots[k][0], up:slots[k][1] })).sort((a, b) => (b.up - a.up) || (Math.abs(b.x - 0.5) - Math.abs(a.x - 0.5)));
+  // the row is put together on its own sheet: each Nibble first clears what's behind its whole shape (so a faded lower part
+  // never shows the one behind through it), then goes on, faded at the bottom into the background
+  const rc = vmBackRow.r || (vmBackRow.r = document.createElement('canvas'));
+  if (rc.width !== W || rc.height !== H) { rc.width = W; rc.height = H; }
+  const rg = rc.getContext('2d'); rg.setTransform(1, 0, 0, 1, 0, 0); rg.clearRect(0, 0, W, H);
   for (const { i, x, up } of placed) {
     const id = +VM.cast[i], a = VM.arts[id], ps = VM.ps[i]; if (!a || !ps) continue;
     S.id = id; S.art = a.art; S.trait = a.trait; S.mouth = ps.mouth; S.eye = ps.eye; S.face = ps.face; S.tracking = false; S.solo = true;
@@ -3492,10 +3497,13 @@ function vmBackRow(now, t, p) {
     const keepCtx = ctx; ctx = bc.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, bw, bh); ctx.save(); ctx.scale(s, s);
     if (VM.mirror[i]) { ctx.translate(W, 0); ctx.scale(-1, 1); }
     try { drawNibble(now + i * 1700); } finally { ctx.restore(); }   // (its idle sway and blink on its own beat)
+    const bx = x * W - W * s / 2, by = H - lift - up * m - H * s;
+    rg.globalCompositeOperation = 'destination-out'; rg.drawImage(bc, bx, by); rg.globalCompositeOperation = 'source-over';
     if (GL.fade) { const fh = m * s * GL.fade, g = ctx.createLinearGradient(0, bh - fh, 0, bh); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,1)');
       ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = g; ctx.fillRect(0, bh - fh, bw, fh); ctx.globalCompositeOperation = 'source-over'; }
-    ctx = keepCtx; ctx.drawImage(bc, x * W - W * s / 2, H - lift - up * m - H * s);
+    ctx = keepCtx; rg.drawImage(bc, bx, by);
   }
+  ctx.drawImage(rc, 0, 0);
   S.solo = false; S.id = keep.id; S.art = keep.art; S.trait = keep.trait; S.mouth = keep.mouth; S.eye = keep.eye; S.face = keep.face; S.tracking = keep.tracking; S.forceMouth = keep.fm; S.forceEye = keep.fe; S.blinkUntil = keep.bu;
 }
 // a back-row mouth: its own mouth in the clip (how far apart the lips are, against how far they go for this face), and when
