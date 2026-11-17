@@ -457,7 +457,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261117-1300';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261117-1330';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1011,6 +1011,7 @@ async function kitPrepare(id) {
       if (grp && grp.loop) { files.hole = URL.createObjectURL(await new Promise(r => res.faceMask.toBlob(r, 'image/png')));
         NIBBLES[id].trait = { frames:grp.frames, fps:grp.fps, from:grp.loop, hole:true, skinThrough:!!grp.skinThrough, drawnBlink:!!grp.drawnBlink }; }
       // dark magic: #8549's moving magic (the one made for it by hand), fitted onto the collection picture's own magic
+      if (/lump/i.test(String(a.Accessory || '')) && !NIBBLES[id].trait) NIBBLES[id].lump = true;   // its stars spin (unLump)
       if (kind === 'Gnome' && /dark magic/i.test(String(a.Accessory || '')) && !NIBBLES[id].trait) NIBBLES[id].trait = { frames:20, fps:6.67, from:8549, box:[-24, -18, 1020, 1020], darkMagic:true };
       FACE_AT[id] = exp.layout.at; delete ART[id]; addOption(id, kind);
       setStatus('x', `${kind} #${id} is ready.`, '', 1500);
@@ -1173,6 +1174,7 @@ function fetchNibble(id) {
       }
     } catch (e) { console.warn('fx', e); }
     if (cfg.trait && cfg.trait.darkMagic) unMagic(art);
+    if (cfg.lump && !cfg.trait) { try { const bx = unLump(art, cfg.bg); if (bx) cfg.trait = { frames:6, fps:8, from:'lump', box:bx }; } catch (e) { console.warn('lump', e); } cfg.lump = false; }
     if (cfg.overlay) art.over = await Promise.all(Array.from({ length:10 }, (_, i) => loadImg(`faces/${id}/b${i}.webp?v=${ART_V}`)));
     // does the art's body run off its left / right edge? then it keeps going in wide frames
     const pc = document.createElement('canvas'); pc.width = 1000; pc.height = 1000; const pg = pc.getContext('2d', { willReadFrequently:true });
@@ -1712,6 +1714,82 @@ function drawFire(t, x, y, size) {
 }
 // Dark magic on a collection gnome: its own still magic is painted out (filled from the colours around it) before #8549's
 // moving magic goes on top, so the still wisps never peek out from under the moving ones as a second outline.
+// A lump on the head (Bear, Gecko, Raccoon, Wolf Lump): the picture's still stars and swirl are taken out and Bear #4248's
+// spinning ones (traits/lump, drawn by hand) go round the lump instead, fitted to where the still ones were. Taken out
+// with them: their ink outlines, and the bits of the picture's old background caught inside the swirl. Where they
+// crossed the head, the head is filled back in from around it; elsewhere it's left see-through.
+const LUMP_REF = { cx:454, w:395, bottom:239, box:[240, 20, 430, 290] };   // #4248's swirl: its middle, width and lump bottom
+function unLump(art, bgHex) {
+  const N = 1000, c = document.createElement('canvas'); c.width = c.height = N; const g = c.getContext('2d', { willReadFrequently:true });
+  g.drawImage(art.base, 0, 0, N, N); const d = g.getImageData(0, 0, N, N).data;
+  const R = i => d[i * 4], G = i => d[i * 4 + 1], B = i => d[i * 4 + 2], A = i => d[i * 4 + 3];
+  const comps = (m, y1 = N) => { const lab = new Int32Array(N * N), q = new Int32Array(N * N), out = [];
+    for (let s0 = 0; s0 < y1 * N; s0++) { if (!m[s0] || lab[s0]) continue; let h = 0, t = 0; q[t++] = s0; lab[s0] = 1; let x0 = N, y0 = N, x1 = 0, yy1 = 0, sx = 0, sy = 0;
+      while (h < t) { const p = q[h++], x = p % N, y = (p / N) | 0; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); yy1 = Math.max(yy1, y); sx += x; sy += y;
+        for (const r of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (r >= 0 && r < N * N && m[r] && !lab[r]) { lab[r] = 1; q[t++] = r; } }
+      out.push({ px:Array.from(q.subarray(0, t)), x0, y0, x1, y1:yy1, cx:sx / t, cy:sy / t }); }
+    return out; };
+  const dil = (m, r) => { if (!r) return m.slice(); const t = new Uint8Array(N * N), o = new Uint8Array(N * N);   // square grow, by running counts
+    for (let y = 0; y < N; y++) { let c2 = 0; const row = y * N; for (let x = 0; x < Math.min(r, N); x++) c2 += m[row + x];
+      for (let x = 0; x < N; x++) { if (x + r < N) c2 += m[row + x + r]; if (x - r - 1 >= 0) c2 -= m[row + x - r - 1]; t[row + x] = c2 > 0 ? 1 : 0; } }
+    for (let x = 0; x < N; x++) { let c2 = 0; for (let y = 0; y < Math.min(r, N); y++) c2 += t[y * N + x];
+      for (let y = 0; y < N; y++) { if (y + r < N) c2 += t[(y + r) * N + x]; if (y - r - 1 >= 0) c2 -= t[(y - r - 1) * N + x]; o[y * N + x] = c2 > 0 ? 1 : 0; } }
+    return o; };
+  // the lump: the pink blob highest up the head
+  const pink = new Uint8Array(N * N); for (let p = 0; p < 500 * N; p++) if (A(p) > 100 && R(p) > 180 && R(p) - G(p) > 40 && B(p) > G(p) - 10) pink[p] = 1;
+  const lumps = comps(pink, 500).filter(k => k.px.length > 600).sort((a, b) => a.y0 - b.y0); if (!lumps.length) return null;
+  const L = lumps[0], lw = L.x1 - L.x0, lb = L.y1, lcx = (L.x0 + L.x1) / 2, ylim = Math.min(N, Math.round(lb + 0.45 * lw));
+  const inX = x => x > lcx - 3.4 * lw && x < lcx + 3.4 * lw;
+  // the stars: yellow, not too big, not low down (wolves' yellow eyes are)
+  const ylY = Math.min(N, Math.round(lb + 0.8 * lw)), yel = new Uint8Array(N * N); for (let p = 0; p < ylY * N; p++) if (A(p) > 100 && R(p) > 200 && G(p) > 150 && B(p) < 130) yel[p] = 1;
+  const stars = new Uint8Array(N * N), swirl = new Uint8Array(N * N), core = new Uint8Array(N * N);
+  for (const k of comps(yel, ylY)) if (k.px.length > 20 && k.px.length < (lw * 0.9) ** 2 && k.cy < lb + 0.5 * lw && inX(k.cx)) for (const p of k.px) stars[p] = core[p] = 1;
+  // the swirl: thin white strokes (eye whites are round blobs, and further down)
+  const wh = new Uint8Array(N * N); for (let p = 0; p < ylim * N; p++) { const mx = Math.max(R(p), G(p), B(p)), mn = Math.min(R(p), G(p), B(p)); if (A(p) > 100 && mn > 185 && mx - mn < 45 && inX(p % N)) wh[p] = 1; }
+  // (white blobs: what survives shrinking by 6 px, grown back; a stroke can run into an eye white, so only the blob goes)
+  const blob = dil(dil(wh.map(v => v ? 0 : 1), 6).map(v => v ? 0 : 1), 9), thin = wh.map((v, p) => v && !blob[p] ? 1 : 0);
+  for (const k of comps(thin, ylim)) if (k.px.length > 40) for (const p of k.px) swirl[p] = core[p] = 1;
+  let cx0 = N, cx1 = 0, nCore = 0; for (let p = 0; p < N * N; p++) if (core[p]) { nCore++; const x = p % N; cx0 = Math.min(cx0, x); cx1 = Math.max(cx1, x); }
+  if (nCore < 400 || cx1 - cx0 < lw * 1.5) return null;
+  // the character without them: its biggest piece (and the lump), its outline closed over the gaps they leave
+  const big = dil(core, 8), sil0 = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) if (A(p) > 160 && !big[p]) sil0[p] = 1;
+  const parts = comps(sil0).sort((x, y) => y.px.length - x.px.length), sil = new Uint8Array(N * N);
+  if (parts[0]) for (const p of parts[0].px) sil[p] = 1; for (const p of L.px) sil[p] = 1;
+  let shut = dil(dil(sil, 9).map(v => v ? 0 : 1), 9).map(v => v ? 0 : 1);
+  { const out = new Uint8Array(N * N), q = []; for (let x = 0; x < N; x++) { q.push(x, (N - 1) * N + x); } for (let y = 0; y < N; y++) q.push(y * N, y * N + N - 1);   // holes filled
+    for (const p of q) if (!shut[p]) out[p] = 1; for (let h = 0; h < q.length; h++) { const p = q[h]; if (shut[p] || !out[p]) continue; const x = p % N;
+      for (const r of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (r >= 0 && r < N * N && !shut[r] && !out[r]) { out[r] = 1; q.push(r); } }
+    shut = shut.map((v, p) => v || !out[p] ? 1 : 0); }
+  // what goes: the stars and swirl with their ink; around them, anything outside the character (old background caught
+  // inside the swirl, half-see-through edges) goes see-through; inside it, they're painted over from around them
+  const keepL = dil(L.px.reduce((m, p) => (m[p] = 1, m), new Uint8Array(N * N)), 7), zone = dil(core, 28);   // (the lump and its ink outline)
+  const inkS = dil(stars, 8), inkW = dil(swirl, 4), dark = p => A(p) > 60 && Math.max(R(p), G(p), B(p)) < 110, pale = p => Math.min(R(p), G(p), B(p)) > 130 && Math.max(R(p), G(p), B(p)) - Math.min(R(p), G(p), B(p)) < 40;
+  const M = new Uint8Array(N * N), CLR = new Uint8Array(N * N), bgc = [1, 3, 5].map(k => parseInt(String(bgHex || '#ffffff').slice(k, k + 2), 16));
+  for (let p = 0; p < N * N; p++) { if (!zone[p]) continue; if (keepL[p]) { if (core[p]) M[p] = 1; continue; }
+    if (!shut[p] || (A(p) > 30 && Math.abs(R(p) - bgc[0]) + Math.abs(G(p) - bgc[1]) + Math.abs(B(p) - bgc[2]) < 60)) { CLR[p] = 1; continue; }   // (and the old background colour)
+    if (core[p] || (inkS[p] && dark(p)) || (inkW[p] && (dark(p) || pale(p)))) M[p] = 1; }
+  const body = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) if (A(p) > 200 && shut[p] && !M[p] && !CLR[p] && Math.abs(R(p) - bgc[0]) + Math.abs(G(p) - bgc[1]) + Math.abs(B(p) - bgc[2]) >= 60) body[p] = 1;
+  const P = [0, 1, 2, 3].map(() => new Float32Array(N * N));
+  for (let i = 0; i < N * N; i++) if (body[i]) { P[3][i] = 1; for (let ch = 0; ch < 3; ch++) P[ch][i] = d[i * 4 + ch]; }
+  const box = (Ar, r) => { const T = new Float32Array(N * N);
+    for (let y = 0; y < N; y++) { let acc = 0; for (let x = -r; x < N; x++) { if (x + r < N) acc += Ar[y * N + x + r]; if (x - r - 1 >= 0) acc -= Ar[y * N + x - r - 1]; if (x >= 0) T[y * N + x] = acc; } }
+    for (let x = 0; x < N; x++) { let acc = 0; for (let y = -r; y < N; y++) { if (y + r < N) acc += T[(y + r) * N + x]; if (y - r - 1 >= 0) acc -= T[(y - r - 1) * N + x]; if (y >= 0) Ar[y * N + x] = acc; } } };
+  for (let k = 0; k < 2; k++) for (const Ar of P) box(Ar, 6);
+  const paint = im => { const o = document.createElement('canvas'); o.width = o.height = N; const og = o.getContext('2d', { willReadFrequently:true }); og.drawImage(im, 0, 0, N, N);
+    const id = og.getImageData(0, 0, N, N), q = id.data;
+    for (let i = 0; i < N * N; i++) { if (CLR[i]) { q[i * 4 + 3] = 0; continue; } if (!M[i]) continue;
+      const w = P[3][i]; if (w > 0.02) { q[i * 4] = P[0][i] / w; q[i * 4 + 1] = P[1][i] / w; q[i * 4 + 2] = P[2][i] / w; q[i * 4 + 3] = 255; } else q[i * 4 + 3] = 0; }
+    // where the head lost its edge (a stroke crossed it), its ink outline is drawn back
+    for (let i = 0; i < N * N; i++) { if (!edge[i] || q[i * 4 + 3] < 200 || Math.max(q[i * 4], q[i * 4 + 1], q[i * 4 + 2]) < 90) continue; const x = i % N, y = (i / N) | 0; let open = false;
+      for (let dy = -4; dy <= 4 && !open; dy++) for (let dx = -4; dx <= 4; dx++) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= N || yy >= N) continue; const j = yy * N + xx; if (CLR[j] && dx * dx + dy * dy <= 16) { open = true; break; } }
+      if (open) { q[i * 4] = ink[0]; q[i * 4 + 1] = ink[1]; q[i * 4 + 2] = ink[2]; q[i * 4 + 3] = 255; } }
+    og.putImageData(id, 0, 0); return o; };
+  const edge = dil(CLR, 5), ink = [24, 22, 26];
+  art.base = paint(art.base); art.mouths = art.mouths.map(paint);
+  // Bear #4248's spinning stars, fitted: as wide as the still ones were, around their middle, sitting on the lump the same way
+  const k = (cx1 - cx0) / LUMP_REF.w, mid = (cx0 + cx1) / 2, [bx, by, bw, bh] = LUMP_REF.box;
+  return [Math.round(mid + (bx - LUMP_REF.cx) * k), Math.round(lb + (by - LUMP_REF.bottom) * k), Math.round(bw * k), Math.round(bh * k)];
+}
 function unMagic(art) {
   const N = 1000, c = document.createElement('canvas'); c.width = c.height = N; const g = c.getContext('2d', { willReadFrequently:true });
   g.drawImage(art.base, 0, 0, N, N); const d = g.getImageData(0, 0, N, N).data, m = new Uint8Array(N * N);
