@@ -197,7 +197,7 @@ header .credit b{font-weight:400}
 .vm.rendering{align-items:flex-start;background:none;pointer-events:none}
 .vm.rendering .vm-card{pointer-events:auto;margin-top:max(8px,env(safe-area-inset-top));padding:10px 14px 12px}
 .vm.rendering .vm-x,.vm.rendering .vm-i{display:none}
-.vm-card{position:relative;width:100%;max-width:440px;max-height:calc(100dvh - 32px);overflow:auto;background:var(--paper);border:3px solid var(--ink);border-radius:22px;box-shadow:5px 6px 0 var(--ink);padding:14px 16px 16px}
+.vm-card{position:relative;width:100%;max-width:440px;max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain;background:var(--paper);border:3px solid var(--ink);border-radius:22px;box-shadow:5px 6px 0 var(--ink);padding:14px 16px 16px}
 .vm-card h3{margin:2px 84px 8px 0;font:400 22px/1.05 var(--display);letter-spacing:.02em}
 .vm-card p{margin:6px 0}
 .vm-x{position:absolute;top:10px;right:10px;width:34px;height:34px;border:2.5px solid var(--ink);border-radius:50%;background:var(--paper);font:700 16px/1 var(--body);cursor:pointer}
@@ -258,11 +258,11 @@ header .credit b{font-weight:400}
 .ed-inner{position:relative;padding-right:24px}
 .ed-rul{position:relative;height:20px;border-bottom:1.5px solid #ccc;touch-action:none;cursor:pointer}
 .ed-rul i{position:absolute;top:0;height:7px;border-left:1.5px solid #999;font:600 9px/1 var(--body);font-style:normal;padding:8px 0 0 2px;white-space:nowrap}
-.ed-strip{position:relative;height:46px;overflow:hidden;background:#222;border-bottom:1.5px solid #ccc;touch-action:pan-x;cursor:pointer}
+.ed-strip{position:relative;height:46px;overflow:hidden;background:#222;border-bottom:1.5px solid #ccc;touch-action:pan-x pan-y;cursor:pointer}
 .ed-strip canvas{position:absolute;top:1px;height:44px;opacity:.9}
 .ed-lane{position:relative;height:56px;border-bottom:1.5px solid #ddd}
 .ed-lane.on{background:rgba(255,210,63,.18)}
-.ed-blk{position:absolute;top:8px;height:40px;border:2.5px solid var(--ink);border-radius:9px;touch-action:pan-x;cursor:grab;box-sizing:border-box}
+.ed-blk{position:absolute;top:8px;height:40px;border:2.5px solid var(--ink);border-radius:9px;touch-action:pan-x pan-y;cursor:grab;box-sizing:border-box}
 .ed-blk.sel{touch-action:none;border-color:var(--ink);box-shadow:0 0 0 3px var(--gold);z-index:2}
 .ed-blk.drag{z-index:5;cursor:grabbing;will-change:left,width,transform}
 .ed-blk.now{filter:brightness(1.12);outline:2px dashed var(--ink);outline-offset:1px}
@@ -274,6 +274,12 @@ header .credit b{font-weight:400}
 .vm-out{display:block;width:100%;max-height:52dvh;border:2.5px solid var(--ink);border-radius:14px;background:#000;margin:4px 0 2px}
 #vmSaveNote .save{display:inline-block;background:var(--red);color:#fff;text-decoration:none;border:2.5px solid var(--ink);border-radius:999px;padding:6px 14px 4px;font:400 15px/1 var(--display)}
 .vm-opts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.vm-card.studio{height:calc(100dvh - 32px)}
+.vm-who{margin:0 0 12px;padding:6px 10px 2px;border:2px solid rgba(22,22,22,.15);border-radius:12px;background:#fffdf5}
+.vm-who .vm-row,.ed-show .vm-row{gap:6px;margin:2px 0 6px}.vm-who .chipb.seg,.ed-show .chipb.seg{font-size:11px;padding:6px 8px 4px}
+.ed-show{margin:8px 0 0;padding:6px 10px 2px;border:2px solid rgba(22,22,22,.15);border-radius:12px;background:#fffdf5}
+.ed-mode{position:absolute;right:3px;top:2px;min-width:16px;height:16px;padding:0 3px;border-radius:8px;background:rgba(255,255,255,.85);border:1.5px solid var(--ink);font:400 10px/15px var(--display);font-style:normal;text-align:center;pointer-events:none}
+.ed-blk.sel .ed-mode{right:12px}
 .st-top{position:sticky;top:-14px;z-index:4;background:var(--paper);margin:0 -16px;padding:2px 16px 4px;border-bottom:2px solid rgba(22,22,22,.12)}
 .st-top .ed-prev{max-height:30dvh}.st-top .ed-vid{max-height:28dvh}
 .vm-card.timing .st-top .ed-prev{max-height:22dvh}.vm-card.timing .st-top .ed-vid{max-height:20dvh}
@@ -2644,7 +2650,7 @@ async function recordAudioTracks() {
 // ---------------------------------------------------------------------------
 var VM = { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, lm:null, url:null, dur:0, people:[], timeline:[], cast:{}, mirror:{}, main:0, bg:'Random', music:'', shape:null, flip:null, same:{}, text:'', textAt:'top', rendering:false, cancel:false }; window.__vm = VM;
 const vmBody = () => $('vmBody');
-function vmShow(title, html, info) { $('vm').hidden = false; $('vmTitle').textContent = title; vmBody().innerHTML = html || ''; document.querySelector('.vm-card').classList.remove('timing');
+function vmShow(title, html, info) { $('vm').hidden = false; $('vmTitle').textContent = title; vmBody().innerHTML = html || ''; document.querySelector('.vm-card').classList.remove('timing', 'studio');
   // the how-to for this step lives behind the "i" button, not on the page
   const ib = $('vmInfo'); ib.hidden = !info; ib.onclick = () => { const old = $('vmTip'); if (old) { old.remove(); return; }
     const t = document.createElement('div'); t.className = 'vm-tip'; t.id = 'vmTip'; t.innerHTML = info + '<button class="vm-x" type="button" aria-label="Close">✕</button>';
@@ -3415,6 +3421,7 @@ function vmStudio() {
     <p><b>Look</b>: background, music, shape and words on the video.</p>
     <p><b>Timing</b>: who talks when, if it got someone wrong.</p>
     <p>Nothing is lost going between tabs. <b>Undo</b> takes back the last change, <b>Start over</b> goes back to how it was first found.</p>`);
+  document.querySelector('.vm-card').classList.add('studio');   // one steady height while editing (nothing jumps when a tab or panel changes size)
   const v = $('edVid'); v.src = VM.url; ED.v = v;
   $('edPP').onclick = () => { if (v.paused) { edAudio(); if (v.currentTime >= VM.dur - 0.05) v.currentTime = 0; v.play().catch(() => {}); } else v.pause(); };
   $('edOrig').onclick = () => { const on = $('edView').classList.toggle('nib'); $('edOrig').classList.toggle('on', !on); };
@@ -3447,9 +3454,9 @@ function vmTabShow() {
 function vmPeopleTab(el) {
   const P = VM.people, crowd = vmCrowdKeys(), nOn = P.filter(p => !p.off).length;
   const together = VM.group === 'all';
-  el.innerHTML = `<div class="vm-cast" id="vmCast"></div>
-    ${nOn > 1 || crowd.length ? '<p class="note">Who\'s on screen in each part (one, two side by side, or everyone) is on the <b>Timing</b> tab.</p>' : ''}
+  el.innerHTML = `${nOn > 1 || crowd.length ? '<div class="vm-who" id="vmWho"></div>' : ''}<div class="vm-cast" id="vmCast"></div>
     <div class="vm-row" style="margin-top:10px"><button class="chipb seg" id="vmRand" type="button">🎲 New Nibbles</button>${P.some(p => p.off) ? '' : '<button class="chipb seg" id="vmAddVoice" type="button">🎙️ Add a voice off camera</button>'}</div>`;
+  vmWhoPanel($('vmWho'));
   const box = $('vmCast');
   P.forEach((p, i) => {
     const d = document.createElement('div'); d.className = 'vm-person';
@@ -3561,12 +3568,12 @@ function vmCapPanel() {
 function vmTimingTab(el) {
   el.innerHTML = `<p class="note" style="margin-top:2px">Each coloured block is when that Nibble talks. Tap a block to pick it, drag it to move it (up or down gives it to someone else), drag its yellow ends to trim it.</p>
     <div class="ed-tl"><div class="ed-heads" id="edHeads"></div><div class="ed-scroll" id="edScroll"><div class="ed-inner" id="edInner"></div></div></div>
+    <div class="ed-show" id="edShow"></div>
     <div class="ed-bar" style="margin-top:6px"><button class="chipb seg" id="edStart" type="button" aria-label="Go to the start">⏮</button><button class="chipb seg" id="edEnd" type="button" aria-label="Go to the end">⏭</button><span style="flex:1"></span><button class="chipb seg" id="edZo" type="button" aria-label="Zoom out">−</button><button class="chipb seg" id="edZi" type="button" aria-label="Zoom in">+</button></div>
     <div class="ed-tools">
       <button class="chipb seg" id="edSplit" type="button">✂︎ Split</button><button class="chipb seg" id="edAdd" type="button">＋ Line</button>
       <button class="chipb seg" id="edDel" type="button">🗑 Delete</button><button class="chipb seg" id="edBg" type="button">🖼 Background</button></div>
-    <p class="ed-hint" id="edHint"></p>
-    <div class="ed-show" id="edShow"></div>`;
+    <p class="ed-hint" id="edHint"></p>`;
   const v = ED.v;
   const jump = t => { v.currentTime = t; const sc = $('edScroll'); sc.scrollTo({ left:t <= 0 ? 0 : sc.scrollWidth, behavior:'smooth' }); edTick(); };
   $('edStart').onclick = () => jump(0); $('edEnd').onclick = () => jump(Math.max(0, VM.dur - 0.05));
@@ -3715,6 +3722,7 @@ function edDraw() {
     if (ED.sel === l) { const a = document.createElement('i'); a.className = 'ed-h ed-hl'; a.textContent = '‹'; const z = document.createElement('i'); z.className = 'ed-h ed-hr'; z.textContent = '›'; b.append(a, z); }
     if ((l.t1 - l.t0) * pps > 34) { const sw = document.createElement('i'); sw.className = 'ed-sw' + (l.bg ? '' : ' same'); const nm = l.bg || VM.bg;
       bgThumb(sw, nm); if (nm === 'Nibble color') sw.style.backgroundColor = NIBBLES[VM.cast[l.who]] ? NIBBLES[VM.cast[l.who]].bg : '#fff'; b.appendChild(sw); }
+    { const m = document.createElement('i'); m.className = 'ed-mode'; m.textContent = l.show === 'both' ? '2' : l.show === 'all' ? '👥' : '1'; b.appendChild(m); }   // who's on screen in it
     b.addEventListener('pointerdown', e => edGrab(e, l, b));
     lane.appendChild(b);
   });
@@ -3722,15 +3730,41 @@ function edDraw() {
   $('edDel').disabled = !ED.sel;
   edTick(); edHint(); edShowPanel();
 }
+// the whole video at once (People tab): one at a time, two side by side, or everyone. A part changed on its own on the
+// Timing tab makes it "mixed"; picking here again sets every part.
+function vmWhoPanel(el) {
+  if (!el) return;
+  const P = VM.people, L = VM.lines || [], cast = P.map((q, i) => i).filter(i => !P[i].off && vmRoot(i) === i);
+  const talk = i => L.filter(l => l.who === i).reduce((a, l) => a + l.t1 - l.t0, 0);
+  const a = vmRoot(VM.main), b = cast.filter(i => i !== a).sort((x, y) => talk(y) - talk(x))[0];
+  const modes = new Set(L.map(l => l.show || 'solo')), cur = modes.size === 1 ? [...modes][0] : L.length ? 'mixed' : 'solo';
+  const all = VM.crowd || cast.length > 2, duo = b != null, l0 = L.find(l => l.show === 'both');
+  const opt = (k, label, on) => `<button type="button" class="chipb seg vm-wb${on ? ' on' : ''}" data-k="${k}">${label}</button>`;
+  el.innerHTML = `<div class="vm-h">Who's on screen</div><div class="vm-row">` +
+    opt('solo', '🙂 One at a time', cur === 'solo') + (duo ? opt('both', '👯 Two side by side', cur === 'both') : '') + (all ? opt('all', '👥 Everyone', cur === 'all') : '') + `</div>` +
+    (cur === 'both' && l0 ? `<div class="vm-row">${opt('face:each', '↔ Facing each other', l0.face !== 'same')}${opt('face:same', '→ → Same way', l0.face === 'same')}</div>
+      <div class="vm-row">${opt('sing:one', 'Only the one talking moves', !l0.together)}${opt('sing:both', 'Both sing / talk at once', !!l0.together)}</div>` : '') +
+    `<p class="note">${cur === 'mixed' ? 'Mixed: some parts are set on their own. Pick one above to set every part, or ' : 'To change just one part, '}go to <b>Timing</b> and tap that part.</p>`;
+  el.querySelectorAll('button').forEach(btn => btn.onclick = () => vmDo(() => {
+    const k = btn.dataset.k;
+    for (const l of VM.lines || []) {
+      if (k === 'solo' || k === 'all') { l.show = k; delete l.with; }
+      else if (k === 'both') { l.show = 'both'; l.with = vmRoot(l.who) === a ? b : a; l.face = l.face || 'each'; if (l.together == null) l.together = (VM.env && VM.env.nov && VM.env.nov.music > 0.3) || false; }
+      else if (k.startsWith('face:') && l.show === 'both') l.face = k.slice(5);
+      else if (k.startsWith('sing:') && l.show === 'both') l.together = k === 'sing:both';
+    }
+    vmLinesToTimeline();
+  }));
+}
 // who's on screen in the picked part: just the one singing or talking, two side by side (facing each other or the same
 // way), or everyone (the row behind singing along or not). "Every part" sets it for the whole video.
 function edShowPanel() {
   const el = $('edShow'); if (!el) return; const l = ED.sel;
-  if (!l) { el.innerHTML = ''; return; }
+  if (!l) { el.innerHTML = `<div class="vm-h">On screen in each part</div><p class="note" style="margin:0 0 4px">Tap a coloured block to choose who's on screen in it: just that one, two side by side, or everyone. The badge on each block shows it (1, 2, 👥).</p>`; return; }
   const P = VM.people, cast = P.map((q, i) => i).filter(i => !P[i].off && vmRoot(i) === i), others = cast.filter(i => i !== l.who);
   const cur = l.show || 'solo', all = VM.crowd || cast.length > 2;
   const opt = (key, label, on) => `<button type="button" class="chipb seg${on ? ' on' : ''}" data-k="${key}">${label}</button>`;
-  el.innerHTML = `<div class="vm-h">On screen in this part</div><div class="vm-row">` +
+  el.innerHTML = `<div class="vm-h">On screen in this part <span>(${fmtT(l.t0)}–${fmtT(l.t1)})</span></div><div class="vm-row">` +
     opt('solo', 'Just ' + pName(l.who), cur === 'solo') +
     others.map(j => opt('both:' + j, pName(l.who) + ' + ' + pName(j), cur === 'both' && l.with === j)).join('') +
     (all ? opt('all', 'Everyone', cur === 'all') : '') + `</div>` +
