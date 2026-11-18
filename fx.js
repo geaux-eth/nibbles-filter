@@ -9,12 +9,12 @@
 const N = 1000;
 const cv = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
 
-// hand-placed parts for the built-in specials (1000px art): robot lights [x, y, radius, colour] and dissection hearts
+// hand-placed parts for the built-in specials (1000px art): robot lights [x, y, radius, colour, how close to the colour (default 170)] and dissection hearts
 export const FX_HAND = {
   546:  { lights:[[560, 505, 150, '#ff4f8b']] },                                       // the pink visor
   2775: { lights:[[402, 128, 34, '#ffffff'], [548, 88, 34, '#ffffff'], [600, 420, 250, '#3cff5a']] },   // antenna bulbs, the screen face
   3113: { lights:[[480, 430, 90, '#ffd23f'], [705, 405, 70, '#ffd23f']] },              // yellow eyes
-  3159: { lights:[[572, 150, 30, '#ffffff'], [570, 480, 130, '#3cff5a']] },              // antenna ball, green visor
+  3159: { lights:[[572, 150, 30, '#ffffff'], [570, 480, 130, '#38f800', 80]] },         // antenna ball, the two green pupils (not the round shines on them)
   3295: { lights:[[540, 450, 130, '#ffd23f'], [560, 330, 45, '#a24bff']] },              // yellow eyes, purple gem
   3543: { lights:[[560, 330, 150, '#3cff5a']] },                                        // green visor
   5900: { lights:[[500, 215, 45, '#ff3b30'], [150, 240, 26, '#ffffff'], [560, 400, 150, '#ffd23f']] },   // red antenna light, eyes
@@ -193,12 +193,17 @@ export function prepareFx(base, traits = {}, hand = null) {
     if (spins.length) fx.push({ type:'spin', spins });
   }
   // the built-in specials: robot lights blink, anatomy hearts beat
-  if (hand && hand.lights) fx.push({ type:'lights', lights:hand.lights.map(([x, y, r, col], k) => {
+  if (hand && hand.lights) fx.push({ type:'lights', lights:hand.lights.map(([x, y, r, col, tol = 170], k) => {
     const [cr, cg, cb] = hexRGB(col), m = new Uint8Array(N * N);   // the light's own pixels: close to its colour, inside its circle
     for (let yy = Math.max(0, y - r); yy < Math.min(N, y + r); yy++) for (let xx = Math.max(0, x - r); xx < Math.min(N, x + r); xx++) { const i = yy * N + xx;
-      if (A(i) > 200 && Math.hypot(xx - x, yy - y) < r && Math.abs(d[i * 4] - cr) + Math.abs(d[i * 4 + 1] - cg) + Math.abs(d[i * 4 + 2] - cb) < 170) m[i] = 1; }
+      if (A(i) > 200 && Math.hypot(xx - x, yy - y) < r && Math.abs(d[i * 4] - cr) + Math.abs(d[i * 4 + 1] - cg) + Math.abs(d[i * 4 + 2] - cb) < tol) m[i] = 1; }
     const bx = [Math.max(0, x - r), Math.max(0, y - r), Math.min(N - 1, x + r), Math.min(N - 1, y + r)];
-    return { x, y, r, col, img:sprite(d, m.map(v => v), bx), box:bx, ph:k * 1.7 }; }) });
+    // its glow: the light's own shape in its colour, blurred (shrunk small, then drawn big and smooth), so only the light itself glows
+    const pad = 28, w = bx[2] - bx[0] + 1 + pad * 2, h = bx[3] - bx[1] + 1 + pad * 2, sh = cv(w, h), sg = sh.getContext('2d');
+    sg.drawImage(sprite(d, m, bx), pad, pad); sg.globalCompositeOperation = 'source-in'; sg.fillStyle = col; sg.fillRect(0, 0, w, h);
+    const sm = cv(Math.max(1, Math.round(w / 10)), Math.max(1, Math.round(h / 10))), smg = sm.getContext('2d'); smg.imageSmoothingQuality = 'high'; smg.drawImage(sh, 0, 0, sm.width, sm.height);
+    const glow = cv(w, h), gg = glow.getContext('2d'); gg.imageSmoothingQuality = 'high'; gg.drawImage(sm, 0, 0, w, h); gg.drawImage(sm, -3, -3, w + 6, h + 6);
+    return { x, y, r, col, img:sprite(d, m, bx), glow, pad, box:bx, ph:k * 1.7 }; }) });
   if (hand && hand.heart) {
     const red = new Uint8Array(N * N); for (let y = 520; y < N; y++) for (let x = 0; x < N; x++) { const i = y * N + x, r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2]; if (A(i) > 200 && r > 165 && g < 95 && b < 105 && !(hand.heart.x1 && x > hand.heart.x1)) red[i] = 1; }
     const ps = parts(red, 60).sort((a, b) => b.n - a.n);
@@ -299,8 +304,7 @@ export function drawFx(ctx, fx, t, x, y, size) {
       const on = Math.max(0, Math.sin(t / 1000 * 3.1 + l.ph)) ** 3;
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = 0.55 * on; ctx.drawImage(l.img, l.box[0], l.box[1]);
-      const g = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r * 1.25); g.addColorStop(0, l.col + 'aa'); g.addColorStop(1, l.col + '00');
-      ctx.globalAlpha = 0.6 * on; ctx.fillStyle = g; ctx.fillRect(l.x - l.r * 1.3, l.y - l.r * 1.3, l.r * 2.6, l.r * 2.6); ctx.restore();
+      ctx.globalAlpha = on; ctx.drawImage(l.glow, l.box[0] - l.pad, l.box[1] - l.pad); ctx.globalAlpha = 0.5 * on; ctx.drawImage(l.glow, l.box[0] - l.pad, l.box[1] - l.pad); ctx.restore();
     }
     else if (f.type === 'heart') {   // lub-dub: the heart swells behind the ribs
       const s = 1 + 0.09 * beat(t), [x0, y0] = f.box;

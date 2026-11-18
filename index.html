@@ -264,6 +264,7 @@ header .credit b{font-weight:400}
 .ed-lane.on{background:rgba(255,210,63,.18)}
 .ed-blk{position:absolute;top:8px;height:40px;border:2.5px solid var(--ink);border-radius:9px;touch-action:pan-x;cursor:grab;box-sizing:border-box}
 .ed-blk.sel{touch-action:none;border-color:var(--ink);box-shadow:0 0 0 3px var(--gold);z-index:2}
+.ed-blk.drag{z-index:5;cursor:grabbing;will-change:left,width,transform}
 .ed-blk.now{filter:brightness(1.12);outline:2px dashed var(--ink);outline-offset:1px}
 .ed-h{position:absolute;top:-3px;bottom:-3px;width:18px;background:var(--gold);border:2.5px solid var(--ink);font:900 16px/34px var(--body);font-style:normal;text-align:center;cursor:ew-resize;touch-action:none}
 .ed-hl{left:-11px;border-radius:8px 0 0 8px}.ed-hr{right:-11px;border-radius:0 8px 8px 0}
@@ -461,7 +462,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261117-1330';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261117-2030';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1386,13 +1387,23 @@ function vmVoice(now, t) {
   let pk = 0; for (let j = Math.max(0, k - 12); j <= Math.min(n - 1, k + 12); j++) if (T.e[j] > pk) pk = T.e[j];
   const nv = VM.env.nov, j = Math.floor(t * 50);
   V.inLine = !VM.talk || !!VM.talk[Math.floor(t / 0.05)];   // inside one of the lines (who talks when)
-  V.rms = e; V.trusted = true; V.hiss = 0; V.whistle = false; V.voiced = e > T.thr && !(nv && nv[j]) && V.inLine;
-  V.loudish = e > T.thr * 0.8;   // any sound at all (a voice under a horn too)
+  // in a song the voice sits under the music, so its level alone can't say when someone sings: where the sound
+  // classifier hears a voice, a much quieter level still counts (the dips between syllables still shut the mouth)
+  // in a song the voice sits under the music, so the mix's level can't say when someone sings or where the syllables are:
+  // the singing voice's own level (VM.env.vt.ev, the middle of the mix in the voice's band) says both
+  const song = nv && nv.music > 0.3 && T.ev;
+  V.rms = e; V.trusted = true; V.hiss = 0; V.whistle = false; V.loudish = e > T.thr * 0.8;   // (loudish: any sound at all, a voice under a horn too)
+  if (song) {
+    const ve = T.ev[k]; let pv = 0; for (let q = Math.max(0, k - 25); q <= Math.min(n - 1, k + 25); q++) if (T.ev[q] > pv) pv = T.ev[q];
+    V.voiced = ve > Math.max(T.evThr, pv * 0.3) && !(nv && nv[j]) && V.inLine;
+    if (V.voiced) { V.lastVoice = now; V.level = clamp(ve / T.evLoud, 0, 1); V.dip = ve < pv * 0.45; }
+  } else {
+    V.voiced = e > T.thr && !(nv && nv[j]) && V.inLine;
+    if (V.voiced) { V.lastVoice = now; V.level = clamp((e - T.thr) / (T.loud - T.thr), 0, 1); V.dip = e < pk * 0.45; }
+  }
   if (V.voiced) {
-    V.lastVoice = now; V.level = clamp((e - T.thr) / (T.loud - T.thr), 0, 1);
-    const i0 = Math.max(0, Math.min(T.x.length - 2048, Math.round(t * T.sr) - 1024));
-    V.sh = LIPS.shape(LIPS.analyse(T.x.subarray(i0, i0 + 2048), T.sr));
-    V.dip = e < pk * 0.45;
+    const i0 = Math.max(0, Math.min(T.x.length - 2048, Math.round(t * T.sr) - 1024)), X = song ? T.xv : T.x;   // (a song: the voice's band of the middle)
+    V.sh = LIPS.shape(LIPS.analyse(X.subarray(i0, i0 + 2048), T.sr));
   } else { V.level = 0; V.sh = null; V.dip = false; }
 }
 function cameraOff() {
@@ -1587,6 +1598,7 @@ const FADE = { mouth:40, eye:40 };
 // steadily for a moment, and each shape stays up long enough to read. Closing for silence or M/B/P lands at once.
 const MH = [];   // recent shape requests (last ~80 ms)
 function settleMouth(want, now) {
+  if (window.__mlog) window.__want = want;   // (tests)
   MH.push([now, want]); while (MH.length && now - MH[0][0] > 80) MH.shift();
   // the shape asked for most over the last ~0.1 s wins, so jitter between two shapes can't flicker
   const tally = {}; for (const [, w] of MH) tally[w] = (tally[w] || 0) + 1;
@@ -2799,6 +2811,23 @@ async function vmEnvelope(file, grab) {
     const fl = pc(0.05), thr = Math.max(0.004, fl * 2, fl + (pc(0.95) - fl) * 0.1);
     const vo = sorted.filter(x => x > thr), loud = Math.max(thr * 1.5, vo[Math.floor(vo.length * 0.9)] || thr * 3);
     out.vt = { x:full, sr, e, thr, loud };
+    // the singing voice under a band: the middle of the stereo picture (where the singer is mixed) minus its sides (where
+    // most instruments spread), in the voice's own band (300 Hz to 3.4 kHz, so drums and bass hardly count)
+    try {
+      const bq = (y, type, f0) => {   // one 2nd-order filter, run over the whole track
+        const w = 2 * Math.PI * f0 / sr, al = Math.sin(w) / (2 * 0.707), c = Math.cos(w), a0 = 1 + al;
+        const b0 = type === 'lp' ? (1 - c) / 2 : (1 + c) / 2, b1 = type === 'lp' ? 1 - c : -(1 + c), b2 = b0, a1 = -2 * c, a2 = 1 - al;
+        const o = new Float32Array(y.length); let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+        for (let i = 0; i < y.length; i++) { const x0 = y[i], v = (b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0; o[i] = v; x2 = x1; x1 = x0; y2 = y1; y1 = v; }
+        return o; };
+      const band = y => bq(bq(bq(bq(y, 'hp', 300), 'hp', 300), 'lp', 3400), 'lp', 3400);
+      const mid = band(full), side = chs.length > 1 ? band(chs[0].map((v, i) => (v - chs[1][i]) / 2)) : null;
+      const ev = new Float32Array(n100);
+      for (let k = 0; k < n100; k++) { const c = Math.round(k * h100), i0 = Math.max(0, c - 80 * sr / 1000 | 0), i1 = Math.min(b.length, c + 80 * sr / 1000 | 0); let m2 = 0, s2 = 0;
+        for (let i = i0; i < i1; i++) { m2 += mid[i] * mid[i]; if (side) s2 += side[i] * side[i]; } const nn = Math.max(1, i1 - i0); ev[k] = Math.max(0, Math.sqrt(m2 / nn) - Math.sqrt(s2 / nn)); }
+      const sv = Array.from(ev).sort((x, y) => x - y), pv = q => sv[Math.min(sv.length - 1, Math.floor(sv.length * q))] || 0;
+      Object.assign(out.vt, { ev, xv:mid, evThr:Math.max(1e-4, pv(0.25)), evLoud:Math.max(2e-4, pv(0.92)) });
+    } catch (e) {}
     out.nov = await vmSoundKinds(b);
     return out;
   } catch (e) { return null; }
@@ -3750,11 +3779,18 @@ function edGrab(e, l, el) {
       for (const o of others()) if (t < o.t1 && t + len > o.t0) t = (a0 + dt) < (o.t0 + o.t1) / 2 - len / 2 ? o.t0 - len : o.t1;
       l.t0 = Math.max(0, Math.min(VM.dur - len, t)); l.t1 = l.t0 + len;
     }
-    ED.lane = l.who; edDraw();
+    ED.lane = l.who; paint();
   };
-  const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+  // while dragging only the dragged block moves (once a frame): rebuilding the whole timeline on every move made it jump,
+  // and on a phone it lost the finger. The timeline is drawn again when the finger lifts.
+  let raf = 0; const pps = ED.pps;
+  const paint = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0;
+    el.classList.add('sel', 'drag'); el.style.left = (l.t0 * pps) + 'px'; el.style.width = Math.max(6, (l.t1 - l.t0) * pps) + 'px';
+    el.style.transform = l.who !== w0 ? `translateY(${(l.who - w0) * rowH}px)` : ''; el.style.background = LANE_COL[l.who % LANE_COL.length]; }); };
+  try { el.setPointerCapture(e.pointerId); } catch (er) {}
+  const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); cancelAnimationFrame(raf);
     if (!moved) { ED.sel = l; ED.lane = l.who; ED.v.currentTime = l.t0; } vmLinesToTimeline(); edDraw(); };
-  addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+  addEventListener('pointermove', mv, { passive:true }); addEventListener('pointerup', up); addEventListener('pointercancel', up);
 }
 // Split: the picked line (or the one under the red line) cut in two where the red line is
 function edSplit() {
@@ -3781,6 +3817,16 @@ function edAdd() {
 function edDel() { if (!ED.sel) return edHint('Tap a block first, then 🗑 takes it out.'); vmMark(); VM.lines.splice(VM.lines.indexOf(ED.sel), 1); ED.sel = null; vmLinesToTimeline(); edDraw(); }
 
 // the face reading for person p at time t (the nearest one the tracker caught, if it's recent)
+// how much this person's lips move around time t (the spread of their openness over nearly a second). Lips that hardly move
+// while there's a voice (a face half hidden, small or blurry, a singer behind a mask), or lips stuck open, say nothing
+// about the words: then the voice moves the mouth instead
+function vmLipAct(p, t) {
+  const a = VM.people[p].smp; if (!a || !a.length) return 0;
+  let lo = 0, hi = a.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m].t < t - 0.45) lo = m + 1; else hi = m; }
+  const w = []; for (let i = lo; i < a.length && a[i].t <= t + 0.45; i++) w.push(a[i].open);
+  if (w.length < 3) return 1;   // (too few readings to tell: trust them as before)
+  w.sort((x, y) => x - y); return w[w.length - 2] - w[0];   // (the second widest: one odd reading alone isn't movement)
+}
 function vmSample(p, t) {
   const a = VM.people[p].smp; let lo = 0, hi = a.length - 1;
   while (lo < hi) { const m = (lo + hi + 1) >> 1; if (a[m].t <= t) lo = m; else hi = m - 1; }
@@ -3903,7 +3949,7 @@ function vmBackRow(now, t, p) {
 // everyone sings, the voice too (a moment behind, a little softer, so they aren't a perfect copy of the lead); held ~0.1 s a shape
 function vmBackMouth(i, t, now, sing, quiet) {
   const P = VM.people, st = VM.bm || (VM.bm = {}), b = st[i] || (st[i] = { cur:0, t:0 });
-  let r = 0; const x = P[i] && vmSample(i, t + VM_LEAD); if (x && P[i].moScale) r = clamp(x.mo / P[i].moScale, 0, 1.2);
+  let r = 0; const x = P[i] && vmSample(i, t + VM_LEAD); if (x && P[i].moScale && vmLipAct(i, t + VM_LEAD) >= 0.12) r = clamp(x.mo / P[i].moScale, 0, 1.2);   // (lips stuck open or barely seen: no)
   if (!quiet && (sing || VM.sing || VM.group === 'sing') && VM.env && VM.env.vt) {
     const T = VM.env.vt, tt = t + VM_LEAD - 0.04 - (i % 3) * 0.03, k = Math.max(0, Math.min(T.e.length - 1, Math.round(tt * 100))), nv = VM.env.nov;
     const talk = !VM.talk || VM.talk[Math.floor(tt / 0.05)], quiet = nv && nv[Math.floor(tt * 50)];
@@ -3948,8 +3994,10 @@ function vmFrame(now) {
   if (x) { Object.assign(f, x); f.seen = true; if (x.bu > t * 1000) S.blinkUntil = now + (x.bu - t * 1000);
     // a face running off the edge of the picture, or a small one far back (a choir), can't be read for its mouth's shape
     // (lips that look pressed on a blur would shut the mouth while they sing): the voice picks the shape
-    f.live = !(x.edge || x.s < 0.13) && P[p].lipOk !== false;
-    if (!f.live) Object.assign(f, { round:0, wide:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0 }); }
+    const still = vmLipAct(p, t + VM_LEAD) < 0.12;
+    f.live = !(x.edge || x.s < 0.13) && P[p].lipOk !== false && !still;
+    if (!f.live) Object.assign(f, { round:0, wide:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0 });
+    if (still) { f.open = 0; f.jaw = 0; } }
   else {   // not seen right now: a resting face, the voice still moves the mouth, an easy blink now and then
     Object.assign(f, { open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0, blink:0, brow:0, browUp:0, eyeWide:0, live:false }); f.seen = true;
     if (now > (VM.nb || 0)) { S.blinkUntil = now + 170; VM.nb = now + 2800 + Math.random() * 2600; }
@@ -3969,6 +4017,7 @@ function vmFrame(now) {
   }
   if (mir) { ctx.translate(stage.width, 0); ctx.scale(-1, 1); }
   drawNibble(now); ctx.restore(); S.solo = false;
+  if (window.__mlog) window.__mlog.push([+t.toFixed(3), p, S.mouth.cur, +(f.open || 0).toFixed(2), +(f.jaw || 0).toFixed(2), !!f.live, !!V.voiced, !!V.loudish, window.__want, +(V.level || 0).toFixed(2), !!V.dip]);   // (tests)
   vmText(); vmCaption(t);
   const pr = $('vmProg'); if (pr) pr.style.width = (100 * t / VM.dur).toFixed(1) + '%';
   // the end: phones don't always send the video's "ended" event, so the last frame (or a stall right at the end) finishes it too
