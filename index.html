@@ -197,7 +197,7 @@ header .credit b{font-weight:400}
 .vm.rendering{align-items:flex-start;background:none;pointer-events:none}
 .vm.rendering .vm-card{pointer-events:auto;margin-top:max(8px,env(safe-area-inset-top));padding:10px 14px 12px}
 .vm.rendering .vm-x,.vm.rendering .vm-i{display:none}
-.vm-card{position:relative;width:100%;max-width:440px;max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain;background:var(--paper);border:3px solid var(--ink);border-radius:22px;box-shadow:5px 6px 0 var(--ink);padding:14px 16px 16px}
+.vm-card{position:relative;width:100%;min-width:0;max-width:440px;max-height:calc(100dvh - 32px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;background:var(--paper);border:3px solid var(--ink);border-radius:22px;box-shadow:5px 6px 0 var(--ink);padding:14px 16px 16px}
 .vm-card h3{margin:2px 84px 8px 0;font:400 22px/1.05 var(--display);letter-spacing:.02em}
 .vm-card p{margin:6px 0}
 .vm-x{position:absolute;top:10px;right:10px;width:34px;height:34px;border:2.5px solid var(--ink);border-radius:50%;background:var(--paper);font:700 16px/1 var(--body);cursor:pointer}
@@ -245,7 +245,7 @@ header .credit b{font-weight:400}
 .ed-bar{display:flex;align-items:center;gap:8px;margin:8px 0 6px}
 .ed-pp{width:40px;height:40px;border:2.5px solid var(--ink);border-radius:50%;background:var(--gold);font:700 15px/1 var(--body);cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
 .ed-time{font:700 13px/1 ui-monospace,Menlo,monospace}
-.ed-tl{display:grid;grid-template-columns:62px 1fr;border:2.5px solid var(--ink);border-radius:12px;overflow:hidden;background:#fbf8f0}
+.ed-tl{display:grid;grid-template-columns:62px minmax(0,1fr);min-width:0;border:2.5px solid var(--ink);border-radius:12px;overflow:hidden;background:#fbf8f0}
 .ed-heads{border-right:2.5px solid var(--ink);background:var(--paper)}
 .ed-hrul{height:20px;border-bottom:1.5px solid #ccc}.ed-hstrip{height:46px;border-bottom:1.5px solid #ccc}
 .ed-head{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:100%;height:56px;border:0;border-bottom:1.5px solid #ddd;background:none;padding:2px;cursor:pointer}
@@ -254,7 +254,7 @@ header .credit b{font-weight:400}
 .ed-head .circ{width:34px;height:34px;margin:0;border-width:2px;box-shadow:none}
 .ed-head .lbl{font-size:8.5px;max-width:58px}
 .ed-head.on{background:var(--c)}
-.ed-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+.ed-scroll{min-width:0;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
 .ed-inner{position:relative;padding-right:24px}
 .ed-rul{position:relative;height:20px;border-bottom:1.5px solid #ccc;touch-action:none;cursor:pointer}
 .ed-rul i{position:absolute;top:0;height:7px;border-left:1.5px solid #999;font:600 9px/1 var(--body);font-style:normal;padding:8px 0 0 2px;white-space:nowrap}
@@ -468,7 +468,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261117-2030';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261118-0830';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -3258,8 +3258,17 @@ function vmShowDefaults() {
   for (const l of VM.lines || []) {
     if (l.show) continue;
     const ts = []; for (let t = l.t0; t < l.t1; t += 0.2) ts.push(t);
-    const both = l.t1 - l.t0 < 1 ? [] : cast.filter(j => j !== l.who && ts.length && ts.filter(t => seen(j, t) && seen(l.who, t)).length >= ts.length * 0.5);
-    if (both.length) { l.show = 'both'; l.with = both[0]; l.face = 'each'; l.together = ((VM.env && VM.env.nov && VM.env.nov.music) || 0) > 0.3; }
+    // two side by side only when the other one is singing or talking too in that part (lips moving about as much as the
+    // speaker's): someone just standing in the shot while the other sings stays out (the speaker alone)
+    const act = (i, at) => { const v = at.map(t => vmLipAct(i, t)); return v.length ? v.reduce((a, x) => a + x, 0) / v.length : 0; };
+    const both = l.t1 - l.t0 < 1 ? [] : cast.filter(j => {
+      if (j === l.who || !ts.length) return false;
+      const sh = ts.filter(t => seen(j, t) && seen(l.who, t)); if (sh.length < ts.length * 0.5) return false;
+      // (a face too small or at the edge can't show whether it sings: then it isn't counted as singing)
+      const big = sh.filter(t => { const x = vmSample(j, t); return x && !x.edge && x.s >= 0.13; }).length >= sh.length * 0.6 && P[j].lipOk !== false;
+      const aj = act(j, sh), aw = act(l.who, sh); if (window.__nf) (window.__nf.duoDbg = window.__nf.duoDbg || []).push([+l.t0.toFixed(1), j, +aj.toFixed(2), +aw.toFixed(2), big]);
+      return big && aj >= 0.2 && aj >= aw * 0.6; });
+    if (both.length) { l.show = 'both'; l.with = both[0]; l.face = 'each'; l.together = true; }
     else l.show = VM.crowd && VM.group === 'all' ? 'all' : 'solo';
   }
 }

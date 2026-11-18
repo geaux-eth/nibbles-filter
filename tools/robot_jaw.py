@@ -5,7 +5,7 @@ import sys, numpy as np
 from PIL import Image
 from scipy import ndimage
 
-ID = 3159; X0, Y0, X1, Y1 = 464, 548, 851, 805          # the mouth box (layout "mb"), frames are this crop
+ID = 3159; X0, Y0, X1, Y1 = 464, 548, 851, 860          # the mouth box (layout "mb"), frames are this crop
 out_dir = sys.argv[1] if len(sys.argv) > 1 else f'faces/{ID}'
 base = np.array(Image.open(f'faces/{ID}/base.webp').convert('RGBA')).astype(np.float32)
 H, W = base.shape[:2]
