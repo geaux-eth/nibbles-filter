@@ -259,7 +259,7 @@ header .credit b{font-weight:400}
 .ed-rul{position:relative;height:20px;border-bottom:1.5px solid #ccc;touch-action:none;cursor:pointer}
 .ed-rul i{position:absolute;top:0;height:7px;border-left:1.5px solid #999;font:600 9px/1 var(--body);font-style:normal;padding:8px 0 0 2px;white-space:nowrap}
 .ed-strip{position:relative;height:46px;overflow:hidden;background:#222;border-bottom:1.5px solid #ccc;touch-action:pan-x pan-y;cursor:pointer}
-.ed-strip canvas{position:absolute;top:1px;height:44px;opacity:.9}
+.ed-strip canvas,.ed-strip img{position:absolute;top:1px;height:44px;opacity:.9;pointer-events:none}
 .ed-lane{position:relative;height:56px;border-bottom:1.5px solid #ddd}
 .ed-lane.on{background:rgba(255,210,63,.18)}
 .ed-blk{position:absolute;top:8px;height:40px;border:2.5px solid var(--ink);border-radius:9px;touch-action:pan-x pan-y;cursor:grab;box-sizing:border-box}
@@ -468,7 +468,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261118-0830';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261118-1400';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1016,6 +1016,7 @@ async function kitPrepare(id) {
       res.face = FACE_AT[ref];
       res.traits = B.findTraits(cut.canvas, res, kind, cut.bg, { halo:/halo/i.test(String(a.Accessory || '')), fire:/fire/i.test(String(a.Eyes || '')), laser:/laser/i.test(String(a.Eyes || '')) });
       const exp = await B.exportFiles(res, cut.canvas), files = {};
+      const drop = () => { for (const c of [cut.canvas, ...(res.frames || []), ...(res.eyes || [])]) if (c && c.getContext) c.width = c.height = 0; };
       for (const k in exp.files) files[k] = URL.createObjectURL(exp.files[k]);
       NIBBLES[id] = { bg:cut.bg, fullFace:true, files, layout:exp.layout, jiggle:exp.layout.jig, kit:ref };
       const grp = groupOf(a);
@@ -1024,6 +1025,7 @@ async function kitPrepare(id) {
       // dark magic: #8549's moving magic (the one made for it by hand), fitted onto the collection picture's own magic
       if (/lump/i.test(String(a.Accessory || '')) && !NIBBLES[id].trait) NIBBLES[id].lump = true;   // its stars spin (unLump)
       if (kind === 'Gnome' && /dark magic/i.test(String(a.Accessory || '')) && !NIBBLES[id].trait) NIBBLES[id].trait = { frames:20, fps:6.67, from:8549, box:[-24, -18, 1020, 1020], darkMagic:true };
+      if (res.faceMask && res.faceMask.getContext) res.faceMask.width = res.faceMask.height = 0; drop();
       FACE_AT[id] = exp.layout.at; delete ART[id]; addOption(id, kind);
       setStatus('x', `${kind} #${id} is ready.`, '', 1500);
       return true;
@@ -1140,7 +1142,27 @@ const ART_KEEP = 5, ART_USED = [];   // only the last few Nibbles stay in memory
 // let go of it late otherwise), unless it's still on screen or in the video being made
 function freeArt(x) {
   if (!x || !x.art || x.art === S.art || (typeof VM !== 'undefined' && ((VM.keep && VM.keep.art === x.art) || (VM.arts && Object.values(VM.arts).includes(x))))) return;
-  const A = x.art; for (const c of [A.base, ...(A.eyes || []), ...(A.mouths || []), ...(A.jig || [])]) if (c && c.getContext) c.width = c.height = 0;
+  const A = x.art; for (const c of [A.base, ...(A.eyes || []), ...(A.mouths || []), ...(A.jig || [])]) { if (c && c.getContext) c.width = c.height = 0; else if (c && c._u) { URL.revokeObjectURL(c._u); c._u = null; } }
+}
+// a 1000px canvas holds 4 MB that Safari never lets go of while it's kept (and all canvases together are capped: past the
+// cap new ones come out blank, the preview freezes). Each finished frame becomes a picture instead (PNG in memory), and
+// its canvas is emptied. Safari can drop a picture's pixels when short of memory and read them again when drawn.
+async function slimArt(art) {
+  const seen = new Map();
+  const slim = async c => {
+    if (!c || !c.getContext || c.width < 400) return c;
+    if (seen.has(c)) return seen.get(c);
+    const p = (async () => {
+      const blob = await new Promise(r => { try { c.toBlob(r, 'image/png'); } catch (e) { r(null); } }); if (!blob) return c;
+      const u = URL.createObjectURL(blob), im = new Image(); im.src = u; im._u = u;
+      try { await im.decode(); } catch (e) { URL.revokeObjectURL(u); return c; }
+      im.width = c.width; im.height = c.height; c.width = c.height = 0; return im;
+    })(); seen.set(c, p); return p;
+  };
+  art.base = await slim(art.base);
+  art.mouths = await Promise.all(art.mouths.map(slim));
+  if (art.eyes) art.eyes = await Promise.all(art.eyes.map(slim));
+  if (art.jig) art.jig = await Promise.all(art.jig.map(slim));
 }
 function fetchNibble(id) {
   const u = ART_USED.indexOf(String(id)); if (u >= 0) ART_USED.splice(u, 1); ART_USED.push(String(id));
@@ -1225,6 +1247,8 @@ function fetchNibble(id) {
     art.outline = [];   // the character's real shape, row by row (its left and right edge), in art pixels
     for (let y = 0; y < 250; y += 2) { let a = -1, b = -1; for (let x = 0; x < 250; x++) if (d[(y * 250 + x) * 4 + 3] > 40) { if (a < 0) a = x; b = x; }
       if (a >= 0) art.outline.push([a * 4, y * 4], [(b + 1) * 4, y * 4]); }
+    pc.width = pc.height = 0;
+    await slimArt(art);
     READY[id] = art;
     return { art, trait };
   })();
@@ -2402,6 +2426,7 @@ async function vmTranscribe(msg) {
     const words = (out.chunks || []).map(c => ({ w:String(c.text || '').trim(), t0:c.timestamp[0], t1:c.timestamp[1] ?? c.timestamp[0] + 0.3 })).filter(w => w.w && isFinite(w.t0));
     vmMark(); C.words = words; C.on = true;
   } catch (e) { console.warn('captions', e); C.err = String(e && e.message || e).slice(0, 120); }
+  try { const p = ASR && await ASR; ASR = null; if (p && p.dispose) await p.dispose(); } catch (e) {}   // (its memory back: loaded again if asked again)
   C.busy = false;
 }
 // the words grouped into captions: a pause, the end of a sentence, or enough words starts a new one
@@ -2937,6 +2962,7 @@ async function vmAnalyse(file, grab) {
     if (who.people.length) {
       vmMsg(who.people.length > 1 ? 'Following everyone who talks…' : 'Following the main person…');
       await vmFollow(v, who, p => vmProg(60 + p * 38));
+      try { VM.lmi && VM.lmi.close(); } catch (e) {} VM.lmi = null;   // (its memory back for the Nibbles: made again for the next video)
       if (VM.cancel) return;
     }
     vmProg(100);
@@ -3584,6 +3610,7 @@ function vmTimingTab(el) {
     <div class="ed-tools">
       <button class="chipb seg" id="edSplit" type="button">✂︎ Split</button><button class="chipb seg" id="edAdd" type="button">＋ Line</button>
       <button class="chipb seg" id="edDel" type="button">🗑 Delete</button><button class="chipb seg" id="edBg" type="button">🖼 Background</button></div>
+    <div class="ed-tools"><button class="chipb seg" id="edAddP" type="button">👤＋ Speaker</button><button class="chipb seg" id="edRmP" type="button">👤✕ Remove</button></div>
     <p class="ed-hint" id="edHint"></p>`;
   const v = ED.v;
   const jump = t => { v.currentTime = t; const sc = $('edScroll'); sc.scrollTo({ left:t <= 0 ? 0 : sc.scrollWidth, behavior:'smooth' }); edTick(); };
@@ -3591,6 +3618,14 @@ function vmTimingTab(el) {
   $('edZi').onclick = () => { ED.pps = Math.min(160, ED.pps * 1.5); edDraw(); };
   $('edZo').onclick = () => { ED.pps = Math.max(8, ED.pps / 1.5); edDraw(); };
   $('edSplit').onclick = edSplit; $('edAdd').onclick = edAdd; $('edDel').onclick = edDel;
+  // a new speaker row (someone the video missed, or a voice off camera: drag blocks into it, or ＋ Line); the highlighted
+  // row's speaker taken out (their blocks go to the main person)
+  $('edAddP').onclick = () => { vmMark(); vmAddVoice(); ED.sel = null; vmLinesToTimeline(); edDraw();
+    edHint(`${pName(ED.lane)} added (a row of their own, highlighted). Drag a block into it, or put the red line where they talk and tap ＋ Line. Their Nibble is on the People tab.`, true); };
+  $('edRmP').onclick = () => { const i = ED.lane, P = VM.people;
+    if (P.length < 2 || !P[i]) return edHint('There has to be at least one speaker.');
+    const nm = pName(i); vmMark(); vmRemovePerson(i); ED.lane = Math.min(VM.main, VM.people.length - 1); ED.sel = null; edDraw();
+    edHint(`${nm} taken out: their parts went to ${pName(VM.main)}. ↶ Undo brings them back.`, true); };
   $('edBg').onclick = () => { const l = ED.sel; if (!l) return edHint('Tap a block first, then 🖼 sets the background for just that part.');
     pickBackground(l.bg || VM.bg, name => vmDo(() => { if (name === VM.bg) delete l.bg; else l.bg = name; vmLinesToTimeline(); })); };
   edDraw(); edHint();
@@ -3703,7 +3738,7 @@ function edDraw() {
   const st = document.createElement('div'); st.className = 'ed-strip'; st.style.width = W + 'px';
   const shots = VM.strip || []; if (shots.length) { const tw = shots[0].c.width * 0.8;
     for (let x = 0; x < W; x += tw) { const t = x / pps; let b = shots[0]; for (const s of shots) { if (s.t <= t) b = s; else break; }
-      const im = document.createElement('canvas'); im.width = b.c.width; im.height = b.c.height; im.getContext('2d').drawImage(b.c, 0, 0); im.style.left = x + 'px'; im.style.width = tw + 'px'; st.appendChild(im); } }
+      const im = document.createElement('img'); if (!b.url) try { b.url = b.c.toDataURL('image/jpeg', 0.7); } catch (e) {} im.src = b.url || ''; im.alt = ''; im.style.left = x + 'px'; im.style.width = tw + 'px'; st.appendChild(im); } }
   inner.appendChild(st);
   const seekAt = e => { const r = inner.getBoundingClientRect(), t = Math.max(0, Math.min(VM.dur, (e.clientX - r.left) / pps)); ED.v.currentTime = t; edTick(); };
   // the ruler scrubs. On a phone the filmstrip and the lines swipe the timeline sideways (a tap still moves the playhead);
@@ -3739,6 +3774,7 @@ function edDraw() {
   });
   const ph = document.createElement('div'); ph.className = 'ed-ph'; ph.id = 'edPh'; inner.appendChild(ph);
   $('edDel').disabled = !ED.sel;
+  { const r = $('edRmP'); if (r) { r.disabled = VM.people.length < 2; r.textContent = '👤✕ Remove ' + pName(ED.lane); } }
   edTick(); edHint(); edShowPanel();
 }
 // the whole video at once (People tab): one at a time, two side by side, or everyone. A part changed on its own on the
@@ -3972,7 +4008,7 @@ function vmBackRow(now, t, p) {
   if (rc.width !== W || rc.height !== H) { rc.width = W; rc.height = H; }
   const rg = rc.getContext('2d'); rg.setTransform(1, 0, 0, 1, 0, 0); rg.clearRect(0, 0, W, H);
   for (const { i, x, up } of placed) {
-    const id = +VM.cast[i], a = VM.arts[id], ps = VM.ps[i]; if (!a || !ps) continue;
+    const id = +VM.cast[i], a = VM.arts[id], ps = VM.ps[i] || (VM.ps[i] = newPS()); if (!a) continue;
     S.id = id; S.art = a.art; S.trait = a.trait; S.mouth = ps.mouth; S.eye = ps.eye; S.face = ps.face; S.tracking = false; S.solo = true;
     S.forceMouth = vmBackMouth(i, t, now); S.forceEye = null;
     // drawn on its own sheet first, so its lower part can fade away behind the people in front (no cut-off body bottoms)
@@ -4022,6 +4058,7 @@ function vmDuoOther(now, t, i, x, s, turned, sing) {
 function vmFrame(now) {
   const v = VM.v, t = v.currentTime, P = VM.people;
   const p = VM.timeline[Math.min(VM.timeline.length - 1, Math.floor(t / 0.05))] ?? VM.main;
+  if (!VM.ps[p]) { VM.ps[p] = newPS(); VM.cur = -1; }   // (someone was just added or taken out: everyone's state starts again)
   if (p !== VM.cur || VM.curId !== +VM.cast[p]) {   // a cut (or, in the preview, a Nibble just changed)
     let id = +VM.cast[p], a = VM.arts[id];
     if (!VM.ps[p]) VM.ps[p] = newPS();

@@ -5,7 +5,9 @@
 
 const N = 1000;
 const cv = () => { const c = document.createElement('canvas'); c.width = c.height = N; return c; };
-const data = img => { const c = cv(), g = c.getContext('2d', { willReadFrequently:true }); g.drawImage(img, 0, 0, N, N); return g.getImageData(0, 0, N, N).data; };
+// one working canvas for reading pictures (a new 4 MB canvas per picture read piled up on phones)
+let SCR = null;
+const data = img => { const c = SCR || (SCR = cv()), g = c.getContext('2d', { willReadFrequently:true }); g.clearRect(0, 0, N, N); g.drawImage(img, 0, 0, N, N); return g.getImageData(0, 0, N, N).data; };
 const bin = (r, g, b) => ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
 const dist = (a, i, b, j) => Math.abs(a[i] - b[j]) + Math.abs(a[i + 1] - b[j + 1]) + Math.abs(a[i + 2] - b[j + 2]);
 const lum = (d, i) => d[i] + d[i + 1] + d[i + 2];
