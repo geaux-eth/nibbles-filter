@@ -483,6 +483,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
+const CODE = document.documentElement.dataset.code || '';   // (the beta copy keeps its own code in beta/; art and data are shared)
 const ART_V = '20261119-1500';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
@@ -1028,7 +1029,7 @@ async function kitPrepare(id) {
     const a = t.a, kind = a.Character;
     setStatus('x', `Getting ${kind} #${id} ready…`, '', 20000);
     try {
-      const [B, K] = await Promise.all([import('./builder.js?v=' + ART_V), import('./kit.js?v=' + ART_V)]);
+      const [B, K] = await Promise.all([import('./' + CODE + 'builder.js?v=' + ART_V), import('./' + CODE + 'kit.js?v=' + ART_V)]);
       const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
       const cut = B.cutOriginal(im), { art } = await fetchNibble(ref), donor = await donorFor(id, a, B);
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop),
@@ -1216,7 +1217,7 @@ function fetchNibble(id) {
     if (art.laser && cfg.layout) art.mouths.forEach(c => c.getContext && c.getContext('2d').drawImage(art.laser.img, 0, 0, 1000, 1000));
     // traits that move on their own (fx.js): bees, coins, light rays, steam, propellers, spinning eyes, robot lights, beating hearts
     try {
-      const tr = /^\d+$/.test(String(id)) ? await traitsOf(+id) : null, FX = FXM || (FXM = await import('./fx.js?v=' + ART_V)), hand = FX.FX_HAND[id];
+      const tr = /^\d+$/.test(String(id)) ? await traitsOf(+id) : null, FX = FXM || (FXM = await import('./' + CODE + 'fx.js?v=' + ART_V)), hand = FX.FX_HAND[id];
       if (FX.wantsFx(tr ? tr.a : {}, hand)) {
         const fx = FX.prepareFx(art.base, tr ? tr.a : {}, hand);
         if (fx.erase) {   // the moving pieces leave the still frames, so they never show twice
@@ -4483,7 +4484,7 @@ function addNibble() {
   if (AN.cut) $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg));
   $('anPic').onchange = async e => {
     const f = e.target.files && e.target.files[0]; if (!f) return;
-    const B = await import('./builder.js?v=' + ART_V);
+    const B = await import('./' + CODE + 'builder.js?v=' + ART_V);
     try { const im = await B.loadImage(f); AN.cut = B.cutOriginal(im); AN.cutOrig = null; AN.picAuto = 0; $('anPrev').innerHTML = ''; $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg)); }
     catch (err) { setStatus('x', 'That picture wouldn\'t open. Try another one.', 'err'); }
   };
@@ -4497,7 +4498,7 @@ function addNibble() {
     AN.metaLine = `${kind} #${id}: ${words}`; $('anMeta').textContent = AN.metaLine;
     // its picture comes straight from the collection's image server, unless they added their own
     if (!AN.cut || (AN.picAuto && AN.picAuto !== id)) {
-      try { const B = await import('./builder.js?v=' + ART_V), im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
+      try { const B = await import('./' + CODE + 'builder.js?v=' + ART_V), im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
         if (+$('anTok').value !== id) return;
         AN.cut = B.cutOriginal(im); AN.cutOrig = null; AN.picAuto = id; $('anPrev').innerHTML = ''; $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg));
         $('anPicNote').textContent = `Found ${kind} #${id}'s picture. Not the right one? Add your own.`; }
@@ -4558,7 +4559,7 @@ async function addBuild() {
   if (!AN.f1 || !AN.f2 || (!AN.f3 && !AN.noEyes)) { setStatus('x', 'Add all the pictures first.', 'err'); return; }
   vmShow('Building…', `<div class="vm-bar"><i id="vmProg" style="width:100%;animation:anPulse 1.2s ease-in-out infinite"></i></div><p class="note" id="anMsg">Getting started…</p>`);
   try {
-    const B = await import('./builder.js?v=' + ART_V);
+    const B = await import('./' + CODE + 'builder.js?v=' + ART_V);
     // any layout Gemini chose (a row, a grid), read from the sheet's green gutters; extra panels are dropped
     AN.layoutNotes = [];
     const read = async (f, want, cols, rows) => { const im = await B.loadImage(f), g = B.gridOf(im); let n = g.cols * g.rows;
