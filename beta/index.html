@@ -2988,14 +2988,20 @@ async function vmAnalyse(file, grab) {
     if (VM.soundWait) { vmMsg('Listening to the sound…');
       while (VM.soundWait && !VM.cancel) { const g = VM.grabV; vmProg(4 + (g && g.duration ? 12 * g.currentTime / g.duration : 0)); await new Promise(r => setTimeout(r, 200)); } }
     vmMsg('Seeing who’s in it…');
-    const scan = await vmScan(v, fa, p => vmProg(4 + p * 56));
+    // (tests: a saved first look and saved face readings stand in for reading the video again; see vmTestHooks)
+    const T = window.__T, scan = T && T.scanIn ? vmScanLoad(T.scanIn) : await vmScan(v, fa, p => vmProg(4 + p * 56));
     if (VM.cancel || !scan) return;
+    if (T) T.scan = vmScanSave(scan);
     vmMsg('Working out who’s who…'); VM.env = await envP;
     const who = vmWho(scan, (VM.env && VM.env.nov && VM.env.nov.music) || 0);
     if (fa) { try { fa.nets.faceRecognitionNet.dispose(); } catch (e) {} FACEID = null; }   // its memory back (phones need it for the Nibbles)
-    if (who.people.length) {
+    const sig = p => p.tracks.map(tr => tr.faces[0].n + ':' + Math.round(tr.faces[0].cx * 100)).sort().join(',');
+    const saved = T && T.followIn && who.people.length && who.people.every(p => T.followIn[sig(p)]);
+    if (saved) who.people.forEach(p => Object.assign(p, T.followIn[sig(p)]));
+    else if (who.people.length) {
       vmMsg(who.people.length > 1 ? 'Following everyone who talks…' : 'Following the main person…');
       await vmFollow(v, who, p => vmProg(60 + p * 38));
+      if (T) { T.follow = {}; for (const p of who.people) T.follow[sig(p)] = { smp:p.smp, lipOk:p.lipOk, spans:p.spans, moLo:p.moLo, moHi:p.moHi }; }
       try { VM.lmi && VM.lmi.close(); } catch (e) {} VM.lmi = null;   // (its memory back for the Nibbles: made again for the next video)
       if (VM.cancel) return;
     }
@@ -3005,13 +3011,25 @@ async function vmAnalyse(file, grab) {
     VM.crowd = who.crowd.n ? who.crowd : null; VM.whoStep = who.step;
     vmTimeline();
     VM.like = {}; VM.mine = S.chosen && NIBBLES[S.id] ? +S.id : null;
-    vmMsg('Picking Nibbles that look like them…'); try { await Promise.race([vmLookalikes(true), new Promise(r => setTimeout(r, 25000))]); } catch (e) {}
+    if (!(T && T.noLike)) { vmMsg('Picking Nibbles that look like them…'); try { await Promise.race([vmLookalikes(true), new Promise(r => setTimeout(r, 25000))]); } catch (e) {} }
     vmDefaults();
     vmStudio();
   } catch (e) {
     console.warn('analyse', e);
     vmShow('Nibble a Video', `<p>${e === 'long' ? 'That video is longer than 90 seconds. Trim it and try again.' : 'That video wouldn’t open here. Try another file (MP4 or MOV).'}</p>`);
   } finally { if (v) v.remove(); }
+}
+// (tests) the first look as plain data and back: faces once each (their numbers as plain lists), samples and tracks by id
+function vmScanSave(scan) {
+  const ids = new Map(), faces = [];
+  const id = f => { if (!ids.has(f)) { ids.set(f, faces.length); const o = {}; for (const k in f) { const x = f[k]; if (k === 'L') continue; o[k] = x && x.length && typeof x !== 'string' ? Array.from(x) : x; } faces.push(o); } return ids.get(f); };
+  return { step:scan.step, fw:scan.fw, fh:scan.fh, cutT:VM.cutT.slice(), samples:scan.samples.map(sm => ({ t:sm.t, n:sm.n, cut:sm.cut, faces:sm.faces.map(id) })),
+    tracks:scan.tracks.map(tr => ({ faces:tr.faces.map(id), last:tr.last, best:tr.best })), faces };
+}
+function vmScanLoad(d) {
+  const faces = d.faces.map(o => ({ ...o, desc:o.desc ? new Float32Array(o.desc) : o.desc, look:o.look ? new Float32Array(o.look) : o.look }));
+  VM.cutT = d.cutT || [];
+  return { step:d.step, fw:d.fw, fh:d.fh, samples:d.samples.map(sm => ({ ...sm, faces:sm.faces.map(i => faces[i]) })), tracks:d.tracks.map(tr => ({ ...tr, faces:tr.faces.map(i => faces[i]), thumb:null })) };
 }
 // The first look: faces every half second, in the whole picture and in pieces of it, each with its recognition numbers.
 // Faces in one shot that follow on from each other are one person already (a track).
