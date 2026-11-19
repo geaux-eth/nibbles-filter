@@ -170,7 +170,7 @@ header .credit b{font-weight:400}
 .pk-grid{overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px 10px;padding:14px 14px 18px}
 .pk-t{display:flex;flex-direction:column;align-items:center;gap:6px;border:0;background:none;padding:0;cursor:pointer;min-width:0}
 .pk-img{position:relative;width:100%;aspect-ratio:1;border:2.5px solid var(--ink);border-radius:16px;background:#eee center/cover no-repeat;box-shadow:2px 2px 0 var(--ink)}
-.pk-t.on .pk-img{box-shadow:0 0 0 3px var(--paper),0 0 0 6px var(--red)}
+.pk-t.on .pk-img{box-shadow:0 0 0 3px var(--paper),0 0 0 7px var(--gold),0 0 0 9.5px var(--ink)}
 .pk-t:active .pk-img{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
 .pk-n{font:400 13px/1.1 var(--display);letter-spacing:.02em;text-align:center;max-width:100%;overflow-wrap:anywhere}
 .pk-plus{display:flex;align-items:center;justify-content:center;background:var(--cream);font:400 54px/1 var(--display);color:var(--ink);border-style:dashed}
@@ -478,7 +478,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261119-1300';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261119-1400';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -843,7 +843,7 @@ $('pkX').onclick = pkClose;
 $('pk').addEventListener('pointerdown', e => { if (e.target === $('pk')) pkClose(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('pk').hidden) pkClose(); });
 // Nibbles for the video cast: the same collection browser as the main Nibble button (all 8,888)
-const pickNibble = (cur, onPick) => collection(onPick);
+const pickNibble = (cur, onPick) => collection(onPick, cur);
 // ---------- the whole collection: browse all 8,888 by kind, token number or trait
 const THUMB = id => `thumbs/${id}.webp`;
 let TRAITS_M = null;
@@ -851,7 +851,7 @@ async function traitIndex() { if (!TRAITS) await traitsOf(1);
   if (!RANKS) RANKS = await fetch('data/rarity.json?v=' + ART_V).then(r => r.ok ? r.json() : null).catch(() => null);
   return TRAITS_M = await TRAITS; }
 function pkTile(id, onPick, ready = !!NIBBLES[id]) {
-  const b = document.createElement('button'); b.type = 'button'; b.className = 'pk-t' + (id === S.id ? ' on' : '');
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'pk-t' + (id === (PK_CUR ?? S.id) ? ' on' : ''); b.dataset.id = id;
   const im = document.createElement('span'); im.className = 'pk-img'; im.style.backgroundImage = `url(${THUMB(id)})`;
   const n = document.createElement('span'); n.className = 'pk-n'; n.textContent = '#' + id;
   b.append(im, n); b.onclick = () => onPick(id); return b;
@@ -891,9 +891,12 @@ function fillGrid(list, open, m, label = id => '#' + id) {
     if (at < list.length) g.appendChild(sent); else sent.remove(); };
   const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) more(); }, { root:g, rootMargin:'400px' }); io.observe(sent);
   more();
+  const k = PK_CUR != null ? list.indexOf(PK_CUR) : -1;   // the one picked now: shown, in the middle
+  if (k >= 0) { while (at <= k && at < list.length) more(); const el = g.querySelector(`.pk-t[data-id="${PK_CUR}"]`); if (el) requestAnimationFrame(() => el.scrollIntoView({ block:'center' })); }
 }
-function collection(onPick) {
-  const kinds = KINDS;
+let PK_CUR = null;   // the Nibble picked now: the picker opens on it, ringed in gold
+function collection(onPick, cur) {
+  const kinds = KINDS; PK_CUR = cur === undefined ? +S.id : cur == null ? null : +cur;   // (null: start from all the kinds)
   const open = async id => { if (NIBBLES[id]) { pkClose(); onPick(id); return; }
     const t = await traitsOf(id); if (kitFor(t)) { pkClose(); if (await kitPrepare(id)) onPick(id); } else tokenCard(id); };
   const home = async () => {
@@ -965,7 +968,9 @@ function collection(onPick) {
     g.appendChild(c);
     if ($('pkMake')) $('pkMake').onclick = () => { pkClose(); if (AN.token !== id) { for (const x in AN) delete AN[x]; } AN.token = id; AN.kind = KINDS.includes(k) ? k : AN.kind; addNibble(); const i = $('anTok'); if (i) i.dispatchEvent(new Event('input')); };
   };
-  home();
+  // straight to the current Nibble's kind, it ringed in gold (Back goes to all the kinds)
+  (async () => { const t = PK_CUR ? await traitsOf(PK_CUR).catch(() => null) : null, k = t && t.a && t.a.Character;
+    if (k && KINDS.includes(k)) kindView(k, {}); else home(); })();
 }
 // ---------- kits: any Nibble of a kind talks with its kind's kit (see kit.js). Kinds are added as their kits are checked.
 const KIT_REF = { Wolf:271, Bear:1680, Cock:310, Gecko:6965, Raccoon:1992, Ghost:757, Gnome:67, Beaver:929 };
@@ -4237,7 +4242,7 @@ function vmDuoOther(now, t, i, x, s, turned, sing) {
   const ps = VM.ps[i]; S.id = id; S.art = a.art; S.trait = a.trait; S.mouth = ps.mouth; S.eye = ps.eye; S.face = ps.face; S.tracking = false; S.solo = true;
   S.forceMouth = vmBackMouth(i, t, now, !!sing, !sing); S.forceEye = null;
   const W = stage.width, H = stage.height; ctx.save(); ctx.translate(x * W - W * s / 2, H * (1 - s)); ctx.scale(s, s);
-  if ((!!VM.mirror[i]) !== turned) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+  if (turned) { ctx.translate(W, 0); ctx.scale(-1, 1); }   // (turned: mirrored or not, worked out by the caller)
   try { drawNibble(now + i * 1700); } finally { ctx.restore(); }
   S.solo = false; S.id = keep.id; S.art = keep.art; S.trait = keep.trait; S.mouth = keep.mouth; S.eye = keep.eye; S.face = keep.face; S.tracking = keep.tracking; S.forceMouth = keep.fm; S.forceEye = keep.fe; S.blinkUntil = keep.bu;
 }
@@ -4282,9 +4287,13 @@ function vmFrame(now) {
   let mir = !!VM.mirror[p];
   if (duo) {   // two side by side: the cast's first on the left; facing each other (the right one turned round) or the same way
     const left = Math.min(p, sh.with), other = sh.with, D = DUO[S.shape] || DUO.Square, W = stage.width, H = stage.height, x = D.xs[p === left ? 0 : 1];
-    vmDuoOther(now, t, other, D.xs[other === left ? 0 : 1], D.s, sh.face !== 'same' && other !== left, sh.together);
+    // facing each other: the left one looks right (as drawn), the right one is turned to look left, whatever ⇆ says
+    // (a two-person video starts with the second one turned round, which flipped them back to the same way);
+    // the same way: both as the left one stands
+    const mirOf = i => sh.face === 'same' ? !!VM.mirror[left] : i !== left;
+    vmDuoOther(now, t, other, D.xs[other === left ? 0 : 1], D.s, mirOf(other), sh.together);
     ctx.translate(x * W - W * D.s / 2, H * (1 - D.s)); ctx.scale(D.s, D.s); S.solo = true;
-    mir = (!!VM.mirror[p]) !== (sh.face !== 'same' && p !== left);
+    mir = mirOf(p);
   }
   if (mir) { ctx.translate(stage.width, 0); ctx.scale(-1, 1); }
   drawNibble(now); ctx.restore(); S.solo = false;

@@ -282,6 +282,11 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
   { let ey0 = N, ey1 = 0; if (ref.eyes && ref.eyes[4]) { const E = data(ref.eyes[4]); for (let p = 0; p < N * N; p++) if (E[p * 4 + 3] > 20) { const y = (p / N) | 0; if (y < ey0) ey0 = y; if (y > ey1) ey1 = y; } }
     if (ey1 > ey0) for (let p = ey0 * N; p < (ey1 + 1) * N; p++) { const i = p * 4; if (T[i + 3] > 200 && lum(T, i) >= 75) tfc[bin(T[i], T[i + 1], T[i + 2])]++; } }
   const tBotP = palette(tb, 400, 1), tFaceP = palette(tfc, 300, 1);
+  // this Nibble's clothes (colours along the bottom of its picture that its face doesn't have), and the ink lines next to them
+  // (not a mouth colour, and far from what this Nibble's skin would be there: something it wears)
+  const tCloth = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) { if (!Zd[p] || ((p / N) | 0) <= zy) continue; const i = p * 4; if (T[i + 3] < 200 || lum(T, i) < 100 || R[i + 3] < 200 || !isSkin(R, i) || isMouthC(T[i], T[i + 1], T[i + 2])) continue;
+    const m = mapped(R, i); if (m && Math.abs(m[0] - T[i]) + Math.abs(m[1] - T[i + 1]) + Math.abs(m[2] - T[i + 2]) > 110 && !(tFaceP && inPal(tFaceP, T[i], T[i + 1], T[i + 2]))) tCloth[p] = 1; }
+  const tClothNear = grow(tCloth, 8);
   // where this Nibble's own mouth area differs from the reference (its own mouth trait): talking replaces it.
   // Only on the face: a different outfit or collar near the jaw stays this Nibble's own.
   const own = new Uint8Array(N * N);
@@ -401,7 +406,10 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     for (let p = 0; p < N * N; p++) { if (!useG[p] || hole[p] || subst.has(p)) continue; const i = p * 4; if (D[i + 3] < 200) continue;
       const mouthy = isMouthC(D[i], D[i + 1], D[i + 2]);
       // unchanged by this mouth: this Nibble's own, except where its own mouth is being replaced
-      if (sameDR(i) && T[i + 3] < 40) { keepT[p] = 1; continue; }   // this Nibble has nothing here (the reference's backpack edge isn't its)
+      if (sameDR(i) && T[i + 3] < 40) { keepT[p] = 1; continue; }
+      // below the mouth, outside the mouth itself, unchanged by this mouth: this Nibble's own clothes and their lines stay
+      // (a naked reference's neck fur was painted over a tank top's neckline)
+      if (sameDR(i) && ((p / N) | 0) > zy && T[i + 3] > 200 && (tCloth[p] || (lum(T, i) < 100 && tClothNear[p]))) { keepT[p] = 1; continue; }   // this Nibble has nothing here (the reference's backpack edge isn't its)
       if (sameDR(i) && (!ownG[p] || (R[i + 3] > 200 && lum(R, i) >= 260 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2])))) { keepT[p] = 1; continue; }   // (a grey line edge isn't clothes)
       // skin: drawn in this Nibble's matching colour; a skin colour with no match here (a chin its hoodie hides) is filled from its own picture
       if (mouthy || isSkin(D, i)) { if (mouthy) continue; const mm = lum(D, i) >= 75 ? map(D[i], D[i + 1], D[i + 2]) : 1, m = mapped(D, i);
@@ -433,7 +441,11 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       const f = donor && (hole[p] || fill.has(p)) ? [T[i], T[i + 1], T[i + 2]] : fill.get(p);
       // teeth stay white: a white the mouth draws where the reference had no white there is teeth, never recoloured as skin
       const teeth = !f && !keepT[p] && wt[p] && teethM[p];
-      let m = f ? f : teeth ? [D[i], D[i + 1], D[i + 2]] : subst.has(p) ? subst.get(p) : keepT[p] ? [T[i], T[i + 1], T[i + 2]] : (mapped(D, i) || [T[i], T[i + 1], T[i + 2]]); const da = f ? 255 : keepT[p] ? T[i + 3] : D[i + 3];
+      // the reference's dark neck fur under its chin, drawn where this Nibble wears clothes (a tank top's neckline): this
+      // Nibble's clothes stay (the reference is naked there; a shadow in its fur colour covered the shirt)
+      const clothesT = !f && !teeth && !keepT[p] && !subst.has(p) && ((p / N) | 0) > zy && T[i + 3] > 200 && D[i + 3] > 200 && lum(D, i) < 330 && lum(D, i) >= 75 && isSkin(D, i)
+        && !isMouthC(D[i], D[i + 1], D[i + 2]) && tBotP && inPal(tBotP, T[i], T[i + 1], T[i + 2]) && !inPal(tFaceP, T[i], T[i + 1], T[i + 2]) && !isSkin(R, i) === false && dist(T, i, R, i) > 60;
+      let m = f ? f : teeth ? [D[i], D[i + 1], D[i + 2]] : subst.has(p) ? subst.get(p) : keepT[p] || clothesT ? [T[i], T[i + 1], T[i + 2]] : (mapped(D, i) || [T[i], T[i + 1], T[i + 2]]); const da = f ? 255 : keepT[p] || clothesT ? T[i + 3] : D[i + 3];
       const shine = lum(D, i) >= 630 && Math.max(D[i], D[i + 1], D[i + 2]) - Math.min(D[i], D[i + 1], D[i + 2]) < 40 && !teethM[p];   // white, but not a block of teeth
       if (!f && !teeth && !keepT[p] && !subst.has(p) && D[i + 3] > 200 && lum(D, i) >= 160 && (shine || !isMouthC(D[i], D[i + 1], D[i + 2]))) {
         // a shine a touch lighter than the face (a lip highlight) is this Nibble's face colour, a touch lighter
