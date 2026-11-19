@@ -242,6 +242,7 @@ header .credit b{font-weight:400}
 .vm-i[hidden]{display:none}
 .vm-tip{position:fixed;top:max(64px,calc(env(safe-area-inset-top) + 56px));left:50%;transform:translateX(-50%);width:min(400px,calc(100vw - 40px));max-height:70dvh;overflow:auto;z-index:40;background:#fffbe9;border:2.5px solid var(--ink);border-radius:14px;box-shadow:3px 4px 0 var(--ink);padding:12px 40px 12px 14px;font:500 14px/1.4 var(--body)}
 .vm-tip p{margin:0 0 8px}.vm-tip p:last-child{margin:0}
+.vm-rep{margin-top:10px;padding-top:10px;border-top:2px dashed #d8cdb4;font-size:13px}.vm-rep textarea{display:block;width:100%;box-sizing:border-box;margin:6px 0;border:2px solid var(--ink);border-radius:10px;padding:6px 8px;font:500 16px/1.3 var(--body);resize:vertical}#vmRepSaid{font-size:12px}
 .vm-tip .vm-x{top:8px;right:8px;width:28px;height:28px;font-size:13px}
 .ed-bar{display:flex;align-items:center;gap:8px;margin:8px 0 6px}
 .ed-pp{width:40px;height:40px;border:2.5px solid var(--ink);border-radius:50%;background:var(--gold);font:700 15px/1 var(--body);cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
@@ -2712,7 +2713,7 @@ function vmShow(title, html, info) { vmQuiet(); $('vm').hidden = false; $('vmTit
   // the how-to for this step lives behind the "i" button, not on the page
   const ib = $('vmInfo'); ib.hidden = !info; ib.onclick = () => { const old = $('vmTip'); if (old) { old.remove(); return; }
     const t = document.createElement('div'); t.className = 'vm-tip'; t.id = 'vmTip'; t.innerHTML = (typeof info === 'function' ? info() : info) + '<button class="vm-x" type="button" aria-label="Close">✕</button>';
-    t.querySelector('.vm-x').onclick = () => t.remove(); ib.after(t); }; const old = $('vmTip'); if (old) old.remove(); }
+    t.querySelector('.vm-x').onclick = () => t.remove(); ib.after(t); if ($('vmRepGo')) vmReportWire(); }; const old = $('vmTip'); if (old) old.remove(); }
 // closing the window silences it: the finished video loops with its sound, and hidden it would go on playing
 function vmQuiet() { document.querySelectorAll('#vm video, #vm audio').forEach(m => { try { m.pause(); } catch (e) {} }); }
 function vmHide() { vmQuiet(); $('vm').hidden = true; const cs = $('capSheet'); if (cs) cs.remove(); }
@@ -2992,6 +2993,7 @@ async function vmAnalyse(file, grab) {
     const T = window.__T, scan = T && T.scanIn ? vmScanLoad(T.scanIn) : await vmScan(v, fa, p => vmProg(4 + p * 56));
     if (VM.cancel || !scan) return;
     if (T) T.scan = vmScanSave(scan);
+  VM.noAV = !!(T && T.noAV);   // (tests: the old way, to compare)
     vmMsg('Working out who’s who…'); VM.env = await envP;
     const who = vmWho(scan, (VM.env && VM.env.nov && VM.env.nov.music) || 0);
     if (fa) { try { fa.nets.faceRecognitionNet.dispose(); } catch (e) {} FACEID = null; }   // its memory back (phones need it for the Nibbles)
@@ -3305,6 +3307,7 @@ function vmCut(v) {
 function vmTimeline() {
   const P = VM.people, dt = 0.05, n = Math.ceil(VM.dur / dt), env = VM.env;
   if (!P.length) { VM.timeline = []; return; }
+  for (const p of P) delete p.avC; VM.avDbg = { multi:0, changed:0 };
   const loud = t => env ? env[Math.min(env.length - 1, Math.floor(t * 50))] || 0 : 1;
   let floor = 0.002; if (env) { const s = Array.from(env).sort((a, b) => a - b); floor = Math.max(0.002, s[Math.floor(s.length * 0.15)] || 0); }
   for (const p of P) { const m = p.smp.map(x => x.mo).sort((a, b) => a - b); p.moScale = Math.max(0.01, m[Math.floor(m.length * 0.9)] || 0.01); }
@@ -3322,7 +3325,12 @@ function vmTimeline() {
     const t = k * dt, speech = !env || (env.nov ? loud(t) > Math.max(0.004, floor * 0.6) && !env.nov[Math.floor(t * 50)] : loud(t) > floor * 2.5);
     let who = -1, ba = 0.45, seen = false, top = 0;
     // talking = lips moving at least about half as much as that face does when it talks
-    if (speech) P.forEach((p, i) => { const a = activity(p, t); if (a < 0) return; seen = true; const rel = a / p.busy; top = Math.max(top, rel); if (rel > ba && a > 0.15) { ba = rel; who = i; } });
+    const cand = [];
+    if (speech) P.forEach((p, i) => { const a = activity(p, t); if (a < 0) return; seen = true; const rel = a / p.busy; top = Math.max(top, rel); if (rel > 0.45 && a > 0.15) cand.push([i, rel]); if (rel > ba && a > 0.15) { ba = rel; who = i; } });
+    // two or more mouths moving while someone talks (a listener nodding, laughing, chewing): the talker's mouth opens and
+    // shuts with the sound itself, so the one whose mouth follows the voice best takes it
+    if (cand.length > 1) { let bs = -9, w = who; for (const [i, rel] of cand) { const c = vmAVsync(i, t), sc = rel * (1 + 1.5 * Math.max(0, c)) - (c < -0.2 ? 0.3 : 0); if (sc > bs) { bs = sc; w = i; } }
+      VM.avDbg.multi++; if (w !== who) VM.avDbg.changed++; if (!VM.noAV) who = w; }
     // (the only face on screen while someone talks, its lips too small or hidden to read (a mic, a hand, glasses): theirs.
     // A podcast cuts to whoever's talking)
     if (speech && who < 0) { const on = P.map((p, i) => i).filter(i => activity(P[i], t) >= 0); if (on.length === 1 && P[on[0]].lipOk === false) who = on[0]; }
@@ -3486,12 +3494,14 @@ function vmDefaults() {
   VM.shape = VM.shape || S.shape || 'Square';
   vmRandom(true);
   const music = (VM.env && VM.env.nov && VM.env.nov.music) || 0, others = VM.people.filter(q => !q.off).length - 1;
-  VM.group = VM.crowd && (music > 0.3 || VM.crowd.n >= 3) ? 'all' : 'one';
+  // everyone together only for a real group behind (a choir, a band: two or more in a song, three or more otherwise).
+  // One other face in a song is someone standing by, not a row behind: making it 'everyone' made the end of a solo a duo
+  VM.group = VM.crowd && VM.crowd.n >= (music > 0.3 ? 2 : 3) ? 'all' : 'one';
   VM.sing = music > 0.3;
   VM.flip = null; vmFacing();
   for (let k = 3; k < 6; k++) VM.flip[CROWD0 + k] = true;
   (VM.lines || []).forEach(l => { delete l.show; }); vmShowDefaults();
-  VM.back = VM.crowd && music > 0.3 ? vmBackDefaults() : null; VM.backAll = false;
+  VM.back = VM.group === 'all' && music > 0.3 ? vmBackDefaults() : null; VM.backAll = false;
   vmLinesToTimeline();
   VM.hist = []; VM.start = vmSnap();
 }
@@ -3658,7 +3668,7 @@ function vmStudio() {
     <div id="vmTab"></div>
     <div class="vm-row st-hist"><button class="chipb seg" id="vmUndo" type="button">↶ Undo</button><button class="chipb seg" id="vmReset" type="button">Start over</button><span style="flex:1"></span><button class="chipb seg" id="vmNewVid" type="button">Another video</button></div>
     <button class="vm-go" id="edMake" type="button">Make my video</button>`,
-    vmHelp);
+    () => vmHelp() + vmReportHtml());
 
   document.querySelector('.vm-card').classList.add('studio');   // one steady height while editing (nothing jumps when a tab or panel changes size)
   const v = $('edVid'); v.src = VM.url; ED.v = v;
@@ -3689,6 +3699,35 @@ function vmHelp() {
   return top + `<p><b>Who's on screen</b> sets the whole video: one at a time, two side by side, or everyone (the row behind). To change one part, pick it on the Timing tab.</p>
     <p>Each person found → their Nibble. Tap the Nibble or <b>Change Nibble</b> to pick another, <b>⇆</b> turns it round. <b>⋯</b>: the same person found twice, or take someone out.</p>
     <p><b>🎲 New Nibbles</b> picks new ones that look a bit like the people (skin, glasses, hats). <b>＋ Add someone</b>: a face it found, someone it missed, or a voice off camera.</p>`;
+}
+// "Something off? Send a report": what the reading found and what was changed since, as text (no video, no pictures,
+// no faces, no caption words), so a bad reading can be looked at without anyone sending the clip
+const vmReportHtml = () => `<div class="vm-rep"><b>Something off?</b> Send us what it found (just the numbers: never your video).
+  <textarea id="vmRepNote" maxlength="1000" rows="2" placeholder="What's wrong? (optional) e.g. the man on the left never talks"></textarea>
+  <button class="chipb seg" id="vmRepGo" type="button">Send a report</button> <span id="vmRepSaid"></span></div>`;
+function vmReportData() {
+  const r1 = x => Math.round(x * 10) / 10, P = VM.people || [];
+  let first = null; try { first = JSON.parse(VM.start.j).lines.map(l => [r1(l.t0), r1(l.t1), l.who, l.show || 'solo']); } catch (e) {}
+  const nv = VM.env && VM.env.nov; let quiet = 0; if (nv) for (const x of nv) quiet += x;
+  return { dur:r1(VM.dur || 0), shape:VM.shape, screen:[innerWidth, innerHeight, devicePixelRatio], ua:navigator.userAgent.slice(0, 160),
+    people:P.map((p, i) => ({ nib:VM.cast[i], t0:r1(p.t0 || 0), t1:r1(p.t1 || 0), faces:p.n || 0, lipOk:p.lipOk, off:!!p.off, same:VM.same[i] })),
+    linesFirst:first, linesNow:(VM.lines || []).map(l => [r1(l.t0), r1(l.t1), l.who, l.show || 'solo']),
+    back:(VM.back || []).map(b => [r1(b.t0), r1(b.t1)]), crowd:VM.crowd ? VM.crowd.n : 0, group:VM.group, sing:VM.sing, found:(VM.found || []).length,
+    who:VM.whoDbg || null, follow:VM.diag || null, cuts:(VM.cutT || []).length,
+    sound:{ from:VM.soundFrom, err:VM.soundErr || null, grab:VM.grabInfo || null, classifier:nv ? 'ok' : 'none', noVoice:nv ? r1(quiet / 50) : null, music:nv ? +(nv.music || 0).toFixed(2) : null },
+    captions:VM.cap ? { on:!!VM.cap.on, words:(VM.cap.words || []).length } : null, err:VM.err ? String(VM.err).slice(0, 300) : null, edits:(VM.hist || []).length };
+}
+function vmReportWire() {
+  const go = $('vmRepGo'), said = $('vmRepSaid');
+  go.onclick = async () => {
+    go.disabled = true; said.textContent = 'Sending…';
+    try {
+      const body = { page:CODE ? 'beta' : 'live', version:ART_V, note:($('vmRepNote').value || '').trim().slice(0, 1000) || null, data:vmReportData() };
+      const r = await sbFetch('/rest/v1/nf_reports', { method:'POST', headers:{ 'Content-Type':'application/json', Prefer:'return=minimal' }, body:JSON.stringify(body) });
+      if (!r.ok) throw new Error(r.status);
+      said.textContent = 'Sent. Thank you!'; go.textContent = 'Sent ✓';
+    } catch (e) { go.disabled = false; said.textContent = "Couldn't send. Try again in a moment."; }
+  };
 }
 // after a change (or an undo): the tab, the preview's shape and Nibbles, the timeline
 function vmStudioSync() {
@@ -4174,6 +4213,22 @@ function edDel() { if (!ED.sel) return edHint('Tap a block first, then 🗑 take
 // how much this person's lips move around time t (the spread of their openness over nearly a second). Lips that hardly move
 // while there's a voice (a face half hidden, small or blurry, a singer behind a mask), or lips stuck open, say nothing
 // about the words: then the voice moves the mouth instead
+// how well a face's mouth follows the sound around time t (-1..1): the mouth's opening against the loudness at the same
+// moments (a little before or after: the mouth opens just ahead of the sound), over a second and a half
+function vmAVsync(i, t) {
+  const p = VM.people[i], env = VM.env; if (!env || !p.smp.length) return 0;
+  const key = Math.round(t * 10); p.avC = p.avC || {}; if (key in p.avC) return p.avC[key];
+  const tc = key / 10, a = p.smp; let lo = 0, hi = a.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m].t < tc - 0.75) lo = m + 1; else hi = m; }
+  const xs = []; for (let k = lo; k < a.length && a[k].t <= tc + 0.75; k++) xs.push(a[k]);
+  let best = 0;
+  if (xs.length >= 8) for (const lag of [-0.05, 0, 0.05, 0.1]) {
+    const e = xs.map(x => { let s = 0, c = 0; for (let j = Math.floor((x.t + lag - 0.04) * 50); j <= Math.floor((x.t + lag + 0.04) * 50); j++) if (j >= 0 && j < env.length) { s += env[j]; c++; } return c ? s / c : 0; });
+    const o = xs.map(x => x.mo), n = xs.length, me = e.reduce((s, x) => s + x, 0) / n, mo = o.reduce((s, x) => s + x, 0) / n;
+    let sxy = 0, sxx = 0, syy = 0; for (let k = 0; k < n; k++) { const dx = o[k] - mo, dy = e[k] - me; sxy += dx * dy; sxx += dx * dx; syy += dy * dy; }
+    const r = sxx > 1e-9 && syy > 1e-12 ? sxy / Math.sqrt(sxx * syy) : 0; if (Math.abs(r) > Math.abs(best)) best = r;
+  }
+  return p.avC[key] = best;
+}
 function vmLipAct(p, t) {
   const a = VM.people[p].smp; if (!a || !a.length) return 0;
   let lo = 0, hi = a.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m].t < t - 0.45) lo = m + 1; else hi = m; }
