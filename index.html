@@ -2683,7 +2683,7 @@ async function recordAudioTracks() {
 }
 
 // ---------------------------------------------------------------------------
-// Nibble a Video: add a clip (up to 60 s); every face in it is found and followed, the sound tells who is
+// Nibble a Video: add a clip (up to 90 s); every face in it is found and followed, the sound tells who is
 // talking when, you pick a Nibble for each person (or Random), and the filter plays the clip back as Nibbles:
 // it cuts to whoever is talking, the first speaker faces the usual way and everyone who answers is flipped to
 // face them, and when nobody talks it rests on the main character. All on the device; nothing is uploaded.
@@ -2701,7 +2701,7 @@ function vmHide() { vmQuiet(); $('vm').hidden = true; }
 $('vidBtn').onclick = () => {
   if (S.recorder) { setStatus('x', 'Stop recording first.'); return; }
   vmShow('Nibble a Video', `
-    <p>Add a video of up to 60 seconds. The filter finds everyone in it, you pick who becomes which Nibble,
+    <p>Add a video of up to 90 seconds. The filter finds everyone in it, you pick who becomes which Nibble,
     and it makes a Nibbled copy with the original sound. Nothing is uploaded: it all happens on this ${IS_MOBILE ? 'phone' : 'computer'}.</p>
     <label class="vm-go" style="display:block;text-align:center">Choose a video<input id="vmFile" type="file" accept="video/*" hidden></label>
     <p class="note">Works best when faces look toward the camera.</p>`);
@@ -2958,7 +2958,7 @@ async function vmAnalyse(file, grab) {
     v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none;z-index:-1';
     document.body.appendChild(v);
     await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej('load'); });
-    if (!isFinite(v.duration) || v.duration > 61) throw 'long';
+    if (!isFinite(v.duration) || v.duration > 91) throw 'long';
     VM.dur = v.duration; VM.vw = v.videoWidth; VM.vh = v.videoHeight;
     const envP = vmEnvelope(file, grab); vmCut.prev = null; vmCut.hist = null; VM.cutT = []; VM.strip = [];
     const idP = faceIdNet();
@@ -2992,7 +2992,7 @@ async function vmAnalyse(file, grab) {
     vmStudio();
   } catch (e) {
     console.warn('analyse', e);
-    vmShow('Nibble a Video', `<p>${e === 'long' ? 'That video is longer than 60 seconds. Trim it and try again.' : 'That video wouldn’t open here. Try another file (MP4 or MOV).'}</p>`);
+    vmShow('Nibble a Video', `<p>${e === 'long' ? 'That video is longer than 90 seconds. Trim it and try again.' : 'That video wouldn’t open here. Try another file (MP4 or MOV).'}</p>`);
   } finally { if (v) v.remove(); }
 }
 // The first look: faces every half second, in the whole picture and in pieces of it, each with its recognition numbers.
@@ -3164,7 +3164,7 @@ function vmBoxAt(p, t, step) {
 }
 // The second look: close up around each person's face, often, for their Nibble's mouth, blinks and head turns.
 async function vmFollow(v, who, prog) {
-  const P = who.people, step = VM.dur <= 20 ? 1 / 12 : VM.dur <= 40 ? 1 / 10 : 1 / 8, fw = who.fw, fh = who.fh;
+  const P = who.people, step = VM.dur <= 20 ? 1 / 12 : VM.dur <= 40 ? 1 / 10 : VM.dur <= 60 ? 1 / 8 : 1 / 7, fw = who.fw, fh = who.fh;
   const fc = document.createElement('canvas'); fc.width = fw; fc.height = fh; const fg = fc.getContext('2d');
   const cc = document.createElement('canvas'); cc.width = cc.height = 256; const cg = cc.getContext('2d');
   for (const p of P) { p.smp = []; p.raw = []; p.f = { roll:0, yaw:0, pitch:0, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 }; p.H = {}; p.spans = []; }
