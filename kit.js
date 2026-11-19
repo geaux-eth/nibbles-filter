@@ -186,7 +186,9 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     for (let p = 0; p < N * N; p++) { const i = p * 4; if (R[i + 3] < 220) continue; const k = bin(R[i], R[i + 1], R[i + 2]); if (!cnt.has(k)) continue; all.set(k, (all.get(k) || 0) + 1); if (nearZ[p]) by.set(k, (by.get(k) || 0) + 1); }
     return [...cnt].filter(([k, n]) => n > tot * 0.03 && (by.get(k) || 0) >= (all.get(k) || 1) * 0.6).map(([k]) => k); })();
   const notMouth = k => !isMouthC(((k >> 10) << 3) + 4, (((k >> 5) & 31) << 3) + 4, ((k & 31) << 3) + 4);
-  const skin = [...new Set([...snout, ...jaw.filter(notMouth), ...(eyeRing ? eyeSkin.filter(k => !snout.includes(k) && notMouth(k)) : [])])];
+  // (never the ink: near-black learned as 'skin' from a dark-furred reference turned every outline into fur colour)
+  const kLum = k => ((k >> 10) << 3) + (((k >> 5) & 31) << 3) + ((k & 31) << 3) + 12;
+  const skin = [...new Set([...snout, ...jaw.filter(notMouth), ...(eyeRing ? eyeSkin.filter(k => !snout.includes(k) && notMouth(k)) : [])])].filter(k => kLum(k) >= 100 || k === snout[0]);
   const lumSkin = snout.length ? ((snout[0] >> 10) << 3) + (((snout[0] >> 5) & 31) << 3) + ((snout[0] & 31) << 3) + 12 : 600;
   const isSkinC = (r0, g0, b0) => { for (const k of skin) { const r = (k >> 10) << 3, g = ((k >> 5) & 31) << 3, b = (k & 31) << 3; if (Math.abs(r0 - r - 4) + Math.abs(g0 - g - 4) + Math.abs(b0 - b - 4) < 42) return true; } return false; };
   const isSkin = (S, i) => { for (const k of skin) { const r = (k >> 10) << 3, g = ((k >> 5) & 31) << 3, b = (k & 31) << 3; if (Math.abs(S[i] - r - 4) + Math.abs(S[i + 1] - g - 4) + Math.abs(S[i + 2] - b - 4) < 42) return true; } return false; };
@@ -259,7 +261,11 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
   const faceFix = (r, g, b, m) => { if (!faceOwn || Math.abs(r - faceOwn.ref[0]) + Math.abs(g - faceOwn.ref[1]) + Math.abs(b - faceOwn.ref[2]) > 60) return m;
     const sc = Math.max(0.55, Math.min(1.04, (r + g + b) / faceOwn.lum)), c = faceOwn.c.map(v => Math.max(0, Math.min(255, Math.round(v * sc))));
     return !m || Math.abs(m[0] - c[0]) + Math.abs(m[1] - c[1]) + Math.abs(m[2] - c[2]) > 80 ? c : m; };
-  const mapped = (S, i) => { if (S[i + 3] < 8) return null; if (lum(S, i) >= 160 && !isSkinC(S[i], S[i + 1], S[i + 2]) && inPal(mouthP, S[i], S[i + 1], S[i + 2]) && mouthHue(S[i], S[i + 1], S[i + 2])) return [S[i], S[i + 1], S[i + 2]]; const m = faceFix(S[i], S[i + 1], S[i + 2], jawFix(S[i], S[i + 1], S[i + 2], isSkinC(S[i], S[i + 1], S[i + 2]) || lum(S, i) < 260 ? map(S[i], S[i + 1], S[i + 2]) : null)); return m || [S[i], S[i + 1], S[i + 2]]; };
+  const mapped = (S, i) => { if (S[i + 3] < 8) return null; if (lum(S, i) >= 160 && !isSkinC(S[i], S[i + 1], S[i + 2]) && inPal(mouthP, S[i], S[i + 1], S[i + 2]) && mouthHue(S[i], S[i + 1], S[i + 2])) return [S[i], S[i + 1], S[i + 2]]; const m = faceFix(S[i], S[i + 1], S[i + 2], jawFix(S[i], S[i + 1], S[i + 2], isSkinC(S[i], S[i + 1], S[i + 2]) || lum(S, i) < 260 ? map(S[i], S[i + 1], S[i + 2]) : null));
+    // ink and the dark inside of the mouth stay dark: a reference with dark fur (a navy wolf) teaches 'dark becomes light'
+    // for a white Nibble, which turned outlines into pale gaps and the inside of a pucker white
+    if (m && m[0] + m[1] + m[2] - lum(S, i) > 200 && (lum(S, i) < 100 || (isMouthC(S[i], S[i + 1], S[i + 2]) && mouthHue(S[i], S[i + 1], S[i + 2])))) return [S[i], S[i + 1], S[i + 2]];
+    return m || [S[i], S[i + 1], S[i + 2]]; };
   // the reference's own clothes near the mouth: when a closing jaw shows them, this Nibble's clothes are filled in instead
   const cloth = new Set(); { const cc = new Map(); let ct = 0;
     for (let p = 0; p < N * N; p++) { if (!ring[p] || ((p / N) | 0) < zy) continue; const i = p * 4; if (R[i + 3] < 220 || lum(R, i) < 75 || isSkin(R, i)) continue; const k = bin(R[i], R[i + 1], R[i + 2]); cc.set(k, (cc.get(k) || 0) + 1); ct++; }
@@ -388,20 +394,24 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     // nothing of the reference's own body may come through: where this mouth leaves the reference's clothes or
     // accessories as they were, this Nibble keeps its own; where it shows them moved, or shows any colour this Nibble
     // doesn't have that isn't a mouth colour, it is filled from this Nibble's own picture
+    // unchanged by this mouth: the same colour AND both there (an ink line the mouth draws past the reference's outline,
+    // where the reference is see-through black, isn't 'unchanged': it was being dropped, leaving gaps in the outline)
+    const sameDR = i => dist(D, i, R, i) <= 30 && Math.abs(D[i + 3] - R[i + 3]) <= 60;
     const keepT = new Uint8Array(N * N), foreign = new Uint8Array(N * N), subst = subst0;
     for (let p = 0; p < N * N; p++) { if (!useG[p] || hole[p] || subst.has(p)) continue; const i = p * 4; if (D[i + 3] < 200) continue;
       const mouthy = isMouthC(D[i], D[i + 1], D[i + 2]);
       // unchanged by this mouth: this Nibble's own, except where its own mouth is being replaced
-      if (dist(D, i, R, i) <= 30 && T[i + 3] < 40) { keepT[p] = 1; continue; }   // this Nibble has nothing here (the reference's backpack edge isn't its)
-      if (dist(D, i, R, i) <= 30 && (!ownG[p] || (R[i + 3] > 200 && lum(R, i) >= 260 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2])))) { keepT[p] = 1; continue; }   // (a grey line edge isn't clothes)
+      if (sameDR(i) && T[i + 3] < 40) { keepT[p] = 1; continue; }   // this Nibble has nothing here (the reference's backpack edge isn't its)
+      if (sameDR(i) && (!ownG[p] || (R[i + 3] > 200 && lum(R, i) >= 260 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2])))) { keepT[p] = 1; continue; }   // (a grey line edge isn't clothes)
       // skin: drawn in this Nibble's matching colour; a skin colour with no match here (a chin its hoodie hides) is filled from its own picture
       if (mouthy || isSkin(D, i)) { if (mouthy) continue; const mm = lum(D, i) >= 75 ? map(D[i], D[i + 1], D[i + 2]) : 1, m = mapped(D, i);
         const onJaw = onJawR(i);
         if (chinT && (!mm || (onJaw && !inPal(faceP, m[0], m[1], m[2])))) { const sc = Math.min(1.1, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); continue; }
         if (!mm || !inPal(ownP, m[0], m[1], m[2])) foreign[p] = 1; continue; }
-      if (dist(D, i, R, i) <= 30) continue;
+      if (sameDR(i)) continue;
       // another colour of the reference's body (a lighter lip) that this Nibble has no match for: its own chin colour
       if (chinT && inPal(refP, D[i], D[i + 1], D[i + 2]) && !inPal(clothP, D[i], D[i + 1], D[i + 2]) && !map(D[i], D[i + 1], D[i + 2])) { const sc = Math.min(1.1, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); continue; }
+      if (R[i + 3] < 60 && T[i + 3] < 200) continue;   // the mouth drawn past both outlines (a pucker's chin): drawn, not left see-through
       if (!(R[i + 3] > 200 && isSkin(R, i))) { keepT[p] = 1; continue; }
       if (chinT && !inPal(clothP, D[i], D[i + 1], D[i + 2]) && !map(D[i], D[i + 1], D[i + 2])) { const sc = Math.min(1.1, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); continue; }   // over the reference's skin: a lip shade with no match here
       if (inPal(clothP, D[i], D[i + 1], D[i + 2]) || !inPal(ownP, D[i], D[i + 1], D[i + 2])) foreign[p] = 1; }
@@ -415,7 +425,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       if ((onJawR(i) || (R[i + 3] > 200 && isSkin(R, i) && ((p / N) | 0) > zy)) && D[i + 3] > 200 && lum(D, i) >= 300 && !inPal(botP, D[i], D[i + 1], D[i + 2])) {
         hole[p] = 0; const sc = Math.min(1.1, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); } }
     const fill = inpaint(T, grow(hole, 1), useG);
-    if (dbg) { const c = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) c[p] = !useG[p] ? 0 : hole[p] ? 3 : keepT[p] ? 2 : 1; (dbg.cls = dbg.cls || [])[k] = c; }
+    if (dbg) { const c = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) c[p] = !useG[p] ? 0 : hole[p] ? 3 : keepT[p] ? 2 : subst.has(p) ? 4 : 1; (dbg.cls = dbg.cls || [])[k] = c; }
     const a = soft(useG), c = cv(), g = c.getContext('2d'), id = g.createImageData(N, N), o = id.data;
     for (let p = 0; p < N * N; p++) { const i = p * 4, w = a[p];
       if (w <= 0) { o[i] = T[i]; o[i + 1] = T[i + 1]; o[i + 2] = T[i + 2]; o[i + 3] = T[i + 3]; continue; }

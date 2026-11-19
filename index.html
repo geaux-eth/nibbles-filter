@@ -470,7 +470,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261118-1400';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261118-2230';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -2141,7 +2141,7 @@ function drawNibble(t) {
   const A = S.art; if (!A) return;
   const W = stage.width, H = stage.height;
   // Square on a wide screen (desktop): the Nibble stands a little smaller so there's room above its head for text
-  let size = (S.shape === 'Square' && W > H * 1.05 ? H * 0.82 : Math.min(W, H)) * (S.fit || 1);
+  let size = (S.shape === 'Square' && W > H * 1.05 ? H * (typeof TX !== 'undefined' && TX.on ? 0.82 : 0.95) : Math.min(W, H)) * (S.fit || 1);   // (no text: no room needed above its head)
   const f = S.face, live = S.tracking && f.seen;
   const fp = S.forcePose;   // (tests)
   const roll = live ? f.roll : fp ? fp.roll : Math.sin(t/1400) * 0.03;
@@ -2171,7 +2171,10 @@ function drawNibble(t) {
   const pad = size * 0.06;   // a little past the frame edge, so head turns and tilts don't reveal it
   // and it sits a little low, so a tilt only ever swings in more of its own picture: the bottom edge (and the plain rows
   // a body is stretched from) stays below the frame, never a gap or streaks under a lifted shoulder
-  const solo = S.solo, x = !solo && A.edgeL && !A.edgeR ? -pad : !solo && A.edgeR && !A.edgeL ? W - size + pad : (W - size)/2, y = H - size + size * SINK;
+  // ...unless the frame is only a little wider than the Nibble (a square on a computer screen): then it stands in the middle
+  // and its cut side carries on to the frame's edge (stretched from its own edge, as below it), never stuck in a corner
+  const mid = (W - size) / 2, nearMid = mid <= size * (window.__edgeMid ?? 0.5);
+  const solo = S.solo, x = !solo && A.edgeL && !A.edgeR && !nearMid ? -pad : !solo && A.edgeR && !A.edgeL && !nearMid ? W - size + pad : mid, y = H - size + size * SINK;
   S.charAt = { x, y, size, W, H, b:A.bounds, o:A.outline, id:S.id };
   if (S.trait && S.trait.holeImg) drawLoopBody(t, x, y, size);   // a moving body (fire, slime) with the talking face set into it
   else if (NIBBLES[S.id].fullFace) {
@@ -2184,8 +2187,9 @@ function drawNibble(t) {
   const lift = tr && tr.holeImg ? size * 0.022 : 0;
   ctx.drawImage(strip, 0, 0, 1000, 1, x, y + size - lift, size, size * 0.3 + lift);
   const ec = A.edgeCols && ext === A.base ? A.edgeCols : null;   // a laser Nibble's sides are stretched without the beam
-  if (A.edgeL && !solo) { ctx.drawImage(ec || ext, 0, 0, 2, 1000, x - size*0.5 + 1, y, size*0.5, size); ctx.drawImage(strip, 0, 0, 2, 1, x - size*0.5 + 1, y + size - 1, size*0.5, size*0.3); }
-  if (A.edgeR && !solo) { ctx.drawImage(ec || ext, ec ? 2 : 998, 0, 2, 1000, x + size - 1, y, size*0.5, size); ctx.drawImage(strip, 998, 0, 2, 1, x + size - 1, y + size - 1, size*0.5, size*0.3); }
+  const sw = Math.max(size * 0.5, x + size * 0.1), swR = Math.max(size * 0.5, W - x - size + size * 0.1);   // (as far as the frame's edge, and a little past it for a tilt)
+  if (A.edgeL && !solo) { ctx.drawImage(ec || ext, 0, 0, 2, 1000, x - sw + 1, y, sw, size); ctx.drawImage(strip, 0, 0, 2, 1, x - sw + 1, y + size - 1, sw, size*0.3); }
+  if (A.edgeR && !solo) { ctx.drawImage(ec || ext, ec ? 2 : 998, 0, 2, 1000, x + size - 1, y, swR, size); ctx.drawImage(strip, 998, 0, 2, 1, x + size - 1, y + size - 1, swR, size*0.3); }
   if (A.laser && A.laser.ext) { const k = size / 1000; for (const e of A.laser.ext) ctx.drawImage(e.c, x + e.x * k, y + e.y * k, e.c.width * k, e.c.height * k); }
 
   const cfg = NIBBLES[S.id], under = S.trait && S.trait.under, looped = S.trait && S.trait.holeImg;
