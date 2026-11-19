@@ -327,6 +327,11 @@ header .credit b{font-weight:400}
 .vm-sw i{position:relative;display:block;width:40px;height:24px;border:2.5px solid var(--ink);border-radius:999px;background:#e4ded2}
 .vm-sw i::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border:2px solid var(--ink);border-radius:50%;background:#fff;transition:left .15s}
 .vm-sw.on i{background:var(--gold)}.vm-sw.on i::after{left:17px}
+.cap-sheet{position:relative;z-index:3;margin:2px 0 10px;background:#fffdf5;border:3px solid var(--ink);border-radius:16px;box-shadow:3px 4px 0 var(--ink);padding:8px 10px 4px}
+.cap-top{display:flex;align-items:center;justify-content:space-between;font:400 14px/1 var(--display);letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}.cap-top .vm-x{position:static;width:30px;height:30px}
+.cap-sheet textarea{width:100%;box-sizing:border-box;font:600 16px/1.3 var(--body);padding:8px 10px;border:2.5px solid var(--ink);border-radius:12px;resize:none;margin-bottom:6px}
+.cap-t{display:grid;grid-template-columns:52px 38px 1fr 38px auto;gap:6px;align-items:center;margin:0 0 6px;font:700 12px/1 var(--body)}.cap-t output{text-align:center;font:700 14px/1 ui-monospace,Menlo,monospace}.cap-t .chipb{padding:7px 0 5px;text-align:center}.cap-t .chipb:last-child{padding:7px 10px 5px}
+.cap-row{display:grid;grid-template-columns:48px 1fr;gap:8px;align-items:center;width:100%;text-align:left;border:2px solid rgba(22,22,22,.18);border-radius:10px;background:#fff;padding:7px 9px;cursor:pointer;font:600 14px/1.25 var(--body)}.cap-row span{font:700 11px/1 var(--body);opacity:.65}.cap-row b{font-weight:600}
 .cap-list{display:grid;gap:6px;max-height:260px;overflow:auto;margin:6px 0}.cap-list label{display:grid;grid-template-columns:44px 1fr;gap:6px;align-items:center;font:700 11px/1 var(--body)}.cap-list input{font:600 14px/1.2 var(--body);padding:7px 9px;border:2px solid var(--ink);border-radius:10px;min-width:0}
 #vmCap .chipb.on{background:var(--gold);box-shadow:2px 2px 0 var(--ink)}.note.warn{color:#b3261e;font-weight:700}
 .ed-show .vm-row{margin:4px 0}.ed-show .chipb.on{background:var(--gold);box-shadow:2px 2px 0 var(--ink)}
@@ -478,7 +483,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261119-1400';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261119-1500';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -2444,16 +2449,22 @@ async function vmTranscribe(msg) {
     const a16 = await vmAudio16(); if (!a16) throw 'no sound';
     const out = await pipe(a16, { return_timestamps:'word', chunk_length_s:30, stride_length_s:5 });
     const words = (out.chunks || []).map(c => ({ w:String(c.text || '').trim(), t0:c.timestamp[0], t1:c.timestamp[1] ?? c.timestamp[0] + 0.3 })).filter(w => w.w && isFinite(w.t0));
+    // the word reader often stretches a word back over the quiet before it (the first word 'starting' at 0:00): each word
+    // starts where the voice is first heard inside it
+    const T = VM.env && VM.env.vt;
+    if (T) for (const w of words) { const song = VM.env.nov && VM.env.nov.music > 0.3 && T.ev, E = song ? T.ev : T.e, thr = song ? T.evThr * 1.6 : T.thr;
+      let k = Math.round(w.t0 * 100); const end = Math.min(E.length - 1, Math.round(w.t1 * 100) - 8); while (k < end && E[k] < thr) k++;
+      if (k / 100 > w.t0 + 0.15) w.t0 = k / 100; }
     vmMark(); C.words = words; C.on = true;
   } catch (e) { console.warn('captions', e); C.err = String(e && e.message || e).slice(0, 120); }
   try { const p = ASR && await ASR; ASR = null; if (p && p.dispose) await p.dispose(); } catch (e) {}   // (its memory back: loaded again if asked again)
   C.busy = false;
 }
 // the words grouped into captions: a pause, the end of a sentence, or enough words starts a new one
-function capLines() {
-  const C = VM.cap, max = C.style === 'line' ? 7 : 3, out = []; let cur = null;
+function capLines(full) {
+  const C = VM.cap, max = full || C.style === 'line' ? 7 : 3, out = []; let cur = null;
   for (const w of C.words || []) {
-    if (!cur || w.t0 - cur.t1 > 0.6 || cur.words.length >= max || /[.!?]$/.test(cur.words[cur.words.length - 1].w)) { cur = { t0:w.t0, t1:w.t1, words:[] }; out.push(cur); }
+    if (!cur || w.br || w.t0 - cur.t1 > 0.6 || cur.words.length >= max || /[.!?]$/.test(cur.words[cur.words.length - 1].w)) { cur = { t0:w.t0, t1:w.t1, words:[] }; out.push(cur); }
     cur.words.push(w); cur.t1 = w.t1;
   }
   return out;
@@ -2702,7 +2713,7 @@ function vmShow(title, html, info) { vmQuiet(); $('vm').hidden = false; $('vmTit
     t.querySelector('.vm-x').onclick = () => t.remove(); ib.after(t); }; const old = $('vmTip'); if (old) old.remove(); }
 // closing the window silences it: the finished video loops with its sound, and hidden it would go on playing
 function vmQuiet() { document.querySelectorAll('#vm video, #vm audio').forEach(m => { try { m.pause(); } catch (e) {} }); }
-function vmHide() { vmQuiet(); $('vm').hidden = true; }
+function vmHide() { vmQuiet(); $('vm').hidden = true; const cs = $('capSheet'); if (cs) cs.remove(); }
 $('vidBtn').onclick = () => {
   if (S.recorder) { setStatus('x', 'Stop recording first.'); return; }
   vmShow('Nibble a Video', `
@@ -3346,7 +3357,12 @@ function vmTimeline() {
   // gaps where the mouth stayed shut and many small blocks to fix)
   for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 2.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
   for (let i = lines.length - 1; i >= 0; i--) if (lines[i].t1 - lines[i].t0 < 0.2) lines.splice(i, 1);
-  VM.lines = lines; vmShowDefaults(); vmLinesToTimeline();
+  VM.lines = lines;
+  // someone it found, given no lines (their lips couldn't be read, the voice went to the speaker before): the parts where
+  // they're on screen and the speaker isn't are theirs (a podcast cuts to whoever is talking)
+  P.forEach((p, i) => { if (p.off || i === VM.main || lines.some(l => l.who === i) || !p.smp.length) return;
+    vmSeenParts(i, p.smp.filter((x, k) => k % 2 === 0).map(x => x.t), 0.2); });
+  vmShowDefaults(); vmLinesToTimeline();
 }
 // Who's on screen in each part, from the video itself: two of the cast in the picture together for most of a line -> both
 // of them (facing each other); a song with a crowd -> everyone; otherwise just the one singing or talking.
@@ -3566,8 +3582,12 @@ function vmAddOnScreen(fi) {
   const used = new Set(Object.values(VM.cast).map(Number)), free = NIB_NAMES().map(x => x[0]).filter(id => !used.has(id));
   VM.cast[i] = free.length ? free[Math.floor(Math.random() * free.length)] : NIB_NAMES()[0][0]; ED.lane = i;
   if (!F) return i;
-  // their parts: where they're in the picture (a run of looks) and whoever has the line isn't
-  const step = VM.whoStep || 0.5, runs = []; for (const f of F.faces) { const r = runs[runs.length - 1]; if (r && f.t - r[1] <= step * 1.6) r[1] = f.t; else runs.push([f.t, f.t]); }
+  vmSeenParts(i, F.faces.map(f => f.t), VM.whoStep || 0.5);
+  return i;
+}
+// someone's parts: where they're in the picture (runs of looks) and whoever has the line there isn't
+function vmSeenParts(i, times, step) {
+  const runs = []; for (const t of times) { const r = runs[runs.length - 1]; if (r && t - r[1] <= step * 1.6) r[1] = t; else runs.push([t, t]); }
   for (const [a0, b0] of runs) { const a = Math.max(0, a0 - step / 2), b = Math.min(VM.dur, b0 + step / 2); if (b - a < 0.4) continue;
     for (const l of VM.lines.slice()) { if (l.bk || l.t1 <= a || l.t0 >= b) continue;
       let seen = 0, n = 0; for (let t = Math.max(a, l.t0); t < Math.min(b, l.t1); t += 0.1) { n++; if (vmSample(l.who, t)) seen++; }
@@ -3577,7 +3597,6 @@ function vmAddOnScreen(fi) {
       if (x1 < rest.t1 - 0.2) VM.lines.push({ ...rest, t0:x1, t1:rest.t1 });
     } }
   VM.lines.sort((x, y) => x.t0 - y.t0); vmShowDefaults();
-  return i;
 }
 // the choice: a face it found, someone it missed, or a voice off camera (People tab and Timing tab)
 function vmAddPicker(el, after) {
@@ -3761,23 +3780,67 @@ function vmLookTab(el) {
 }
 function vmCapPanel() {
   const el = $('vmCap'); if (!el) return; const C = VM.cap;
-  const opt = (k, label, on) => `<button type="button" class="chipb seg${on ? ' on' : ''}" data-k="${k}">${label}</button>`;
+  const opt = (k, label) => `<button type="button" class="chipb seg" data-k="${k}">${label}</button>`;
   if (C.busy) { el.innerHTML = `<p class="note" id="vmCapMsg">${esc(C.msg || 'Starting…')}</p>`; return; }
-  if (!C.words) { el.innerHTML = `<div class="vm-row">${opt('make', '💬 Add captions', false)}</div>` + (C.err ? `<p class="note warn">That didn't work (${esc(C.err)}). Try again.</p>` : ''); }
-  else {
-    const L = capLines();
-    el.innerHTML = `<div class="vm-capr">${selRow('Show', 'cap', [['off', 'Off'], ['pop', 'Pop words'], ['line', 'Full lines']], !C.on ? 'off' : C.style === 'line' ? 'line' : 'pop')}${opt('make', '↻', false)}</div>` +
-      (L.length ? `<div class="cap-list">${L.map((l, i) => `<label><span>${fmtT(l.t0)}</span><input type="text" data-i="${i}" value="${esc(l.words.map(w => w.w).join(' '))}"></label>`).join('')}</div>` : '<p class="note">No words were heard in this video.</p>');
-  }
-  el.querySelectorAll('button').forEach(b => b.onclick = async () => { const k = b.dataset.k;
+  const L = C.words ? capLines(true) : [];   // (listed as whole lines; pop words splits them further on the video)
+  el.innerHTML = (C.words ? `<div class="vm-capr">${selRow('Show', 'cap', [['off', 'Off'], ['pop', 'Pop words'], ['line', 'Full lines']], !C.on ? 'off' : C.style === 'line' ? 'line' : 'pop')}${opt('make', '↻')}</div>` : '') +
+    (C.err ? `<p class="note warn">That didn't work (${esc(C.err)}). Try again.</p>` : '') +
+    (L.length ? `<div class="cap-list">${L.map((l, k) => `<button type="button" class="cap-row" data-l="${k}"><span>${fmtT(l.t0)}</span><b>${esc(l.words.map(w => w.w).join(' '))}</b></button>`).join('')}</div>` : C.words ? '<p class="note">No words were heard in this video.</p>' : '') +
+    `<div class="vm-row">${C.words ? '' : opt('make', '💬 Add captions')}${opt('add', '＋ Caption at the red line')}</div>`;
+  el.querySelectorAll('button[data-k]').forEach(b => b.onclick = async () => { const k = b.dataset.k;
     if (k === 'make') { C.msg = 'Starting…'; vmCapPanel(); await vmTranscribe(m => { C.msg = m; const x = $('vmCapMsg'); if (x) x.textContent = m; }); vmFit(); vmCapPanel(); return; }
-    vmDo(() => { if (k === 'on') C.on = !C.on; else if (k.startsWith('style:')) C.style = k.slice(6); }); vmFit(); vmCapPanel(); });
+    if (k === 'add') capAdd(); });
+  el.querySelectorAll('.cap-row').forEach(b => b.onclick = () => capEdit(+b.dataset.l));
   el.querySelectorAll('select[data-s="cap"]').forEach(sel => sel.onchange = () => { vmDo(() => { const v = sel.value; C.on = v !== 'off'; if (v !== 'off') C.style = v; }); vmFit(); vmCapPanel(); });
-  // a corrected line: its new words share its time, in proportion to their length
-  el.querySelectorAll('.cap-list input').forEach(inp => inp.onchange = () => vmDo(() => {
-    const l = capLines()[+inp.dataset.i]; if (!l) return; const ws = inp.value.trim().split(/\s+/).filter(Boolean), i0 = C.words.indexOf(l.words[0]);
-    const tot = ws.reduce((a, w) => a + w.length + 1, 0) || 1; let t = l.t0; const nw = ws.map(w => { const d = (l.t1 - l.t0) * (w.length + 1) / tot, o = { w, t0:t, t1:t + d }; t += d; return o; });
-    C.words.splice(i0, l.words.length, ...nw); }));
+}
+// a caption's words, put back: spread over its time in proportion to their length, starting a line of their own (and the
+// caption after it starts its own line too)
+function capPut(i0, n, text, t0, t1) {
+  const C = VM.cap, ws = String(text).trim().split(/\s+/).filter(Boolean);
+  const tot = ws.reduce((a, w) => a + w.length + 1, 0) || 1; let t = t0;
+  const nw = ws.map((w, k) => { const d = (t1 - t0) * (w.length + 1) / tot, o = { w, t0:t, t1:t + d, br:k === 0 }; t += d; return o; });
+  C.words.splice(i0, n, ...nw); const after = C.words[i0 + nw.length]; if (after) after.br = true;
+  C.words.sort((a, b) => a.t0 - b.t0);
+}
+function capAdd() {
+  const C = VM.cap; C.words = C.words || []; const t = Math.round(edNow() * 10) / 10;
+  const L = capLines(true), next = L.find(l => l.t0 > t + 0.05), prev = L.filter(l => l.t0 <= t).pop();
+  if (prev && prev.t1 > t + 0.1) return capEdit(L.indexOf(prev));   // the red line is inside a caption: that one
+  const t1 = Math.min(VM.dur, next ? next.t0 : t + 1.5, t + 1.5);
+  if (t1 - t < 0.2) return capEdit(L.indexOf(next));   // (a caption starts right there: that one)
+  vmMark(); capPut(C.words.length, 0, '…', t, t1); C.on = true; vmFit();
+  capEdit(capLines(true).findIndex(l => Math.abs(l.t0 - t) < 0.01), true);
+}
+// one caption, edited in a sheet at the top of the screen (above the phone's keyboard): its words, when it starts and
+// ends (nudged, or set to the red line), play it, delete it
+function capEdit(k, fresh) {
+  const C = VM.cap, old = $('capSheet'); if (old) old.remove();
+  const L = capLines(true), l = L[k]; if (!l) return;
+  let t0 = l.t0, t1 = l.t1; const prev = L[k - 1], next = L[k + 1], lo = prev ? prev.t1 : 0, hi = next ? next.t0 : VM.dur;
+  const d = document.createElement('div'); d.className = 'cap-sheet'; d.id = 'capSheet';
+  d.innerHTML = `<div class="cap-top"><b>Caption</b><button type="button" class="vm-x" data-a="x" aria-label="Close">✕</button></div>
+    <textarea id="capTxt" rows="2" autocomplete="off" autocapitalize="sentences" enterkeyhint="done">${esc(fresh ? '' : l.words.map(w => w.w).join(' '))}</textarea>
+    <div class="cap-t"><span>Starts</span><button type="button" class="chipb seg" data-a="s-">−</button><output id="capS"></output><button type="button" class="chipb seg" data-a="s+">+</button><button type="button" class="chipb seg" data-a="s=">Red line</button></div>
+    <div class="cap-t"><span>Ends</span><button type="button" class="chipb seg" data-a="e-">−</button><output id="capE"></output><button type="button" class="chipb seg" data-a="e+">+</button><button type="button" class="chipb seg" data-a="e=">Red line</button></div>
+    <div class="vm-row"><button type="button" class="chipb seg" data-a="play">▶ Play it</button><button type="button" class="chipb seg" data-a="del">🗑 Delete</button><span style="flex:1"></span><button type="button" class="chipb seg on" data-a="ok">Done</button></div>`;
+  // right under the picture (which stays in view on top), so the caption is seen on the video while it's timed
+  const tab = $('vmTab'); if (tab) { tab.prepend(d); const card = document.querySelector('.vm-card'); if (card) card.scrollTo(0, 0); } else document.body.appendChild(d);
+  const show = () => { $('capS').textContent = fmtT(t0); $('capE').textContent = fmtT(t1); };
+  const v = ED.v; if (v) { v.pause(); v.currentTime = t0 + 0.02; edTick(); }
+  show(); if (fresh) setTimeout(() => $('capTxt').focus(), 50);
+  const save = () => { const txt = $('capTxt').value.trim(), i0 = C.words.indexOf(l.words[0]);
+    vmMark(); if (!txt) C.words.splice(i0, l.words.length); else capPut(i0, l.words.length, txt, t0, t1); vmFit(); };
+  $('capTxt').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('capTxt').blur(); } };
+  d.querySelectorAll('[data-a]').forEach(b => b.onclick = () => { const a = b.dataset.a, now = Math.round(edNow() * 10) / 10;
+    if (a === 's-') t0 = Math.max(lo, +(t0 - 0.1).toFixed(2)); if (a === 's+') t0 = Math.min(t1 - 0.2, +(t0 + 0.1).toFixed(2));
+    if (a === 'e-') t1 = Math.max(t0 + 0.2, +(t1 - 0.1).toFixed(2)); if (a === 'e+') t1 = Math.min(hi, +(t1 + 0.1).toFixed(2));
+    if (a === 's=') { if (now < t1 - 0.2) t0 = Math.max(lo, now); else { t0 = Math.max(lo, now); t1 = Math.min(hi, t0 + Math.max(0.6, l.t1 - l.t0)); } }
+    if (a === 'e=') { if (now > t0 + 0.2) t1 = Math.min(hi, now); }
+    if (a === 'play' && v) { v.currentTime = t0; edAudio(); v.play().catch(() => {}); const stop = () => { if (v.currentTime >= t1 + 0.2) { v.pause(); v.removeEventListener('timeupdate', stop); } }; v.addEventListener('timeupdate', stop); }
+    if (a === 'del') { vmMark(); C.words.splice(C.words.indexOf(l.words[0]), l.words.length); d.remove(); vmCapPanel(); return; }
+    if (a === 'ok') { save(); d.remove(); vmCapPanel(); return; }
+    if (a === 'x') { if (fresh) { C.words.splice(C.words.indexOf(l.words[0]), l.words.length); } d.remove(); vmCapPanel(); return; }
+    show(); if (v && a[0] === 's') { v.currentTime = t0 + 0.02; edTick(); } if (v && a[0] === 'e') { v.currentTime = Math.max(t0, t1 - 0.05); edTick(); } });
 }
 function vmTimingTab(el) {
   el.innerHTML = `<div class="ed-tl"><div class="ed-heads" id="edHeads"></div><div class="ed-scroll" id="edScroll"><div class="ed-inner" id="edInner"></div></div></div>
