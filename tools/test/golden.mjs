@@ -29,8 +29,13 @@ const CLIPS = {
     ['2 people', real(r).length === 2],
     ['they take turns (both have lines)', [0, 1].every(w => r.lines.some(l => l[2] === w))],
     ['ending (after 21.6 s): just the one singing on screen (not 2, not everyone)', r.lines.filter(l => l[0] >= 21.5).every(l => l[3] === 'solo')]] },
-  turtle:{ file:'tt/turtle.webm', checks:r => [['read without errors', r.lines.length > 0]] },
-  macho:{ file:'rs/macho.webm', checks:r => [['read without errors', r.lines.length > 0]] },
+  turtle:{ file:'tt/turtle.webm', checks:r => [
+    ['the kid on screen + the reporter as a voice off camera', real(r).length === 1 && r.people.filter(p => p.off).length === 1],
+    ['they take turns (4+ changes of speaker)', r.lines.filter((l, i) => i && l[2] !== r.lines[i - 1][2]).length >= 4]] },
+  macho:{ file:'rs/macho.webm', checks:r => [
+    ['1 person (the one with the mic), no made-up extras', real(r).length === 1 && !r.people.some(p => p.off)],
+    ['talks right through (1–2 lines)', r.lines.length >= 1 && r.lines.length <= 2]] },
+  podcast10mp4:{ file:'wk/r10.mp4', checks:r => [['host talks from ~4.2 s', r.lines.length >= 1 && Math.abs(r.lines[0][0] - 4.2) < 0.4 && r.lines[0][2] === 0]] },
   robotsEnd:{ file:'duo/rob_end.webm', checks:r => [
     ['ending: only the main robot sings → just them on screen (not 2, not everyone)', r.lines.filter(l => l[0] >= 3).every(l => l[3] === 'solo')]] },
 };

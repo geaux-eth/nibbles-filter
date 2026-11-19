@@ -1292,7 +1292,8 @@ loadNibble(4075); showNibbleThumb(4075);   // others load when picked (each Nibb
 // ---------------------------------------------------------------------------
 // MediaPipe's face tracker (loaded once); numFaces 1 for the camera, more for an uploaded video
 let VISION = null;
-async function makeLandmarker(numFaces, conf = 0.5, mode = 'VIDEO') {
+const OFF_GL2 = (() => { try { return typeof OffscreenCanvas !== 'undefined' && !!new OffscreenCanvas(1, 1).getContext('webgl2'); } catch (e) { return false; } })();
+async function makeLandmarker(numFaces, conf = 0.5, mode = 'VIDEO', cpu = false) {
   if (!VISION) VISION = (async () => {
     const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`);
     const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`);
@@ -1301,9 +1302,23 @@ async function makeLandmarker(numFaces, conf = 0.5, mode = 'VIDEO') {
   const { vision, files } = await VISION;
   const opts = { baseOptions:{ modelAssetPath:MP_MODEL, delegate: IN_WALLET ? 'CPU' : 'GPU' }, runningMode:mode, numFaces, outputFaceBlendshapes:true,
     minFaceDetectionConfidence:conf, minFacePresenceConfidence:conf, minTrackingConfidence:conf };
-  try { return await vision.FaceLandmarker.createFromOptions(files, opts); }
-  catch (e) { opts.baseOptions.delegate = 'CPU'; return await vision.FaceLandmarker.createFromOptions(files, opts); }
+  if (cpu) opts.baseOptions.delegate = 'CPU';
+  // MediaPipe draws each picture with WebGL on a hidden canvas of its own (an OffscreenCanvas). Where that kind of canvas
+  // can't do WebGL 2 (iPhones before iOS 17, some other browsers) it finds no faces at all, on the GPU or the CPU: give it
+  // an ordinary canvas instead
+  if (!OFF_GL2) opts.canvas = document.createElement('canvas');
+  let lm; try { lm = await vision.FaceLandmarker.createFromOptions(files, opts); }
+  catch (e) { opts.baseOptions.delegate = 'CPU'; opts.canvas = opts.canvas || document.createElement('canvas'); return await vision.FaceLandmarker.createFromOptions(files, opts); }
+  // the graphics chip can say yes and then fail on the first picture (no WebGL, or a phone that took it back): try one
+  // small picture now, and use the slower CPU way if it fails, rather than finding no faces at all
+  if (opts.baseOptions.delegate === 'GPU') try { const c = document.createElement('canvas'); c.width = c.height = 64; c.getContext('2d').fillRect(0, 0, 64, 64);
+    if (mode === 'VIDEO') lm.detectForVideo(c, performance.now()); else lm.detect(c); }
+  catch (e) { try { lm.close(); } catch (e2) {} opts.baseOptions.delegate = 'CPU'; opts.canvas = opts.canvas || document.createElement('canvas'); lm = await vision.FaceLandmarker.createFromOptions(files, opts); lm.cpu = true; }
+  return lm;
 }
+// the video's face reader failed part way (a phone can take the graphics chip back mid-video): once, made again on the CPU
+async function vmLmiAgain(e) { VM.err = String(e); if (VM.lmiRetried) return false; VM.lmiRetried = true;
+  try { VM.lmi && VM.lmi.close(); } catch (e2) {} VM.lmi = await makeLandmarker(6, 0.3, 'IMAGE', true); return true; }
 async function cameraOn() {
   $('camToggle').classList.add('busy');
   try {
@@ -2966,7 +2981,7 @@ const vmSeek = (v, t) => new Promise(res => {
 const vmProg = p => { const e = $('vmProg'); if (e) e.style.width = Math.max(0, Math.min(100, p)).toFixed(1) + '%'; };
 const vmMsg = s => { const e = $('vmMsg'); if (e) e.textContent = s; };
 async function vmAnalyse(file, grab) {
-  Object.assign(VM, { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, soundFrom:null, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null, found:[], like:{} });
+  Object.assign(VM, { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, soundFrom:null, lmiRetried:false, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null, found:[], like:{} });
   vmShow('Watching your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`);
   let v = null;
   try {
@@ -3079,14 +3094,15 @@ async function vmScan(v, fa, prog) {
       if (found.some(g => Math.hypot((g.cx - f.cx) * fw, (g.cy - f.cy) * fh) < 0.45 * Math.max(g.sp, f.sp))) return;   // seen in another piece already
       found.push(f);
     });
-    try {
+    const pics = () => {
       for (const [x, y, w, h] of tiles) {
         const sx = x * fw, sy = y * fh, sw = w * fw, sh = h * fh, up = Math.max(1, 320 / Math.min(sw, sh));
         tc.width = Math.round(sw * up); tc.height = Math.round(sh * up); tg.drawImage(fc, sx, sy, sw, sh, 0, 0, tc.width, tc.height);
         take({ res:VM.lmi.detect(tc), ox:sx, oy:sy, sw, sh });
       }
       take({ res:VM.lmi.detect(fc), ox:0, oy:0, sw:fw, sh:fh });   // and the whole picture, for a face too big for any piece
-    } catch (e) { VM.err = String(e); }
+    };
+    try { pics(); } catch (e) { if (await vmLmiAgain(e)) { found.length = 0; try { pics(); } catch (e2) { VM.err = String(e2); } } }
     // which track each face carries on (the one it's nearest, in this shot, a picture or two ago)
     const open = cut ? [] : tracks.filter(tr => n - tr.last <= 2), used = new Set();
     for (const f of found.sort((a, b) => b.s - a.s)) {
@@ -3221,7 +3237,7 @@ async function vmFollow(v, who, prog) {
       cg.fillStyle = '#808080'; cg.fillRect(0, 0, 256, 256); cg.drawImage(fc, ox, oy, side, side, 0, 0, 256, 256);
       { const px = cg.getImageData(96, 96, 64, 64).data; let h = 0; for (let i = 0; i < px.length; i += 16) h = (h * 31 + px[i]) | 0;   // (diagnostics: the same picture again?)
         D.looks++; if (h === p.lastH) D.same++; p.lastH = h; }
-      let r; try { r = VM.lmi.detect(cc); } catch (e) { VM.err = String(e); D.err = String(e).slice(0, 80); continue; }
+      let r; try { r = VM.lmi.detect(cc); } catch (e) { D.err = String(e).slice(0, 80); vmLmiAgain(e); continue; }   // (made again on the CPU for the pictures after this)
       if (!(r.faceLandmarks || []).length) D.miss++;
       let best = null, bd = 0.3;
       (r.faceLandmarks || []).forEach((L, i) => { const d = Math.hypot(L[1].x - 0.5, L[1].y - 0.5); if (d < bd) { bd = d; best = i; } });
