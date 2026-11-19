@@ -3084,7 +3084,10 @@ async function vmScan(v, fa, prog) {
         if (used.has(tr)) continue; const g = tr.faces[tr.faces.length - 1], r = f.sp / g.sp;
         if (r < 0.62 || r > 1.6) continue;
         const d = Math.hypot((f.cx - g.cx) * fw, (f.cy - g.cy) * fh) / Math.max(f.sp, g.sp);
-        if (f.desc && g.desc) { let e = 0; for (let i = 0; i < 128; i++) e += (f.desc[i] - g.desc[i]) ** 2; if (Math.sqrt(e) > 0.55) continue; }   // close by, but not the same face (a camera move)
+        let fd = 0; if (f.desc && g.desc) { for (let i = 0; i < 128; i++) fd += (f.desc[i] - g.desc[i]) ** 2; fd = Math.sqrt(fd); if (fd > 0.55) continue; }   // close by, but not the same face (a camera move)
+        // a cut the picture check missed (two shots alike: same backdrop, both in caps and sunglasses): the look around
+        // the face and the face numbers both jump at once; within one shot they barely move
+        if (f.look && g.look) { let e = 0; for (let i = 0; i < 64; i++) e += Math.abs(f.look[i] - g.look[i]); if (e > 0.6 || (e > 0.4 && fd > 0.4)) continue; }
         if (d < (n - tr.last === 1 ? 0.7 : 1) && d < bd) { bd = d; best = tr; }
       }
       if (!best) { best = { faces:[], last:-9, best:0, thumb:null }; tracks.push(best); }
@@ -3120,7 +3123,7 @@ function vmWho(scan, music) {
       if (s < bd) { bd = s; best = [i, j]; }
     }
     if (!best) break;
-    { const a0 = ids[best[0]], b0 = ids[best[1]]; (VM.lookDbg = VM.lookDbg || []).push(['join', +bd.toFixed(2), a0.look && b0.look ? +lookD(a0.look, b0.look).toFixed(2) : null]); }
+    { const a0 = ids[best[0]], b0 = ids[best[1]]; (VM.lookDbg = VM.lookDbg || []).push(['join', +bd.toFixed(2), a0.look && b0.look ? +lookD(a0.look, b0.look).toFixed(2) : null, a0.tracks.map(tr => [tr.faces[0].t, tr.faces[tr.faces.length - 1].t, tr.faces.length, +(tr.faces.reduce((x, f) => x + f.s, 0) / tr.faces.length).toFixed(2), +(tr.faces.reduce((x, f) => x + f.cx, 0) / tr.faces.length).toFixed(2)]), b0.tracks.map(tr => [tr.faces[0].t, tr.faces[tr.faces.length - 1].t, tr.faces.length, +(tr.faces.reduce((x, f) => x + f.s, 0) / tr.faces.length).toFixed(2), +(tr.faces.reduce((x, f) => x + f.cx, 0) / tr.faces.length).toFixed(2)])]); }
     const [i, j] = best, a = ids[i], b = ids[j]; a.tracks.push(...b.tracks); b.ns.forEach(n => a.ns.add(n)); a.descs.push(...b.descs); a.look = meanLook(a.tracks.flatMap(tr => tr.faces)); ids.splice(j, 1);
   }
   // how much each person is what the video's about: every time they're seen, how big and how near the middle (the biggest
@@ -3628,7 +3631,7 @@ function vmStudio() {
   vmShow('Make it yours', `
     <div class="st-top">
       <div class="ed-view nib wait" id="edView"><video class="ed-vid" id="edVid" playsinline preload="auto"></video><canvas class="ed-prev" id="edPrev" width="2" height="2"></canvas><div class="ed-load" id="edLoad">Getting the Nibbles ready…</div></div>
-      <div class="ed-bar"><button class="ed-pp" id="edPP" type="button" aria-label="Play">▶</button><input class="ed-scrub" id="edScrub" type="range" min="0" max="${VM.dur.toFixed(2)}" step="0.05" value="0" aria-label="Where in the video"><span class="ed-time" id="edTime">0:00.0</span>
+      <div class="ed-bar"><button class="ed-pp" id="edPP" type="button" aria-label="Play">▶</button><input class="ed-scrub" id="edScrub" type="range" min="0" max="${VM.dur.toFixed(2)}" step="0.05" value="0" aria-label="Where in the video"><span class="ed-time" id="edTime">${fmtT(0)} / ${fmtT(VM.dur)}</span>
         <button class="chipb seg" id="edOrig" type="button" aria-label="Show the original video">🎞</button></div>
       <div class="vm-tabs" role="tablist"><button type="button" data-tab="people">People</button><button type="button" data-tab="look">Look</button><button type="button" data-tab="timing">Timing</button></div>
     </div>
