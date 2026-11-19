@@ -252,6 +252,8 @@ header .credit b{font-weight:400}
 .ed-sw{position:absolute;left:4px;top:50%;width:22px;height:22px;margin-top:-11px;border:2px solid var(--ink);border-radius:6px;background:#fff center/cover no-repeat;pointer-events:none}
 .ed-sw.same{border-style:dashed}
 .ed-head .circ{width:34px;height:34px;margin:0;border-width:2px;box-shadow:none}
+.ed-bstack{position:relative;display:block;width:44px;height:34px}.ed-bstack .circ{position:absolute;top:4px;width:26px;height:26px}.ed-bstack .circ:nth-child(1){left:0}.ed-bstack .circ:nth-child(2){left:9px;top:0}.ed-bstack .circ:nth-child(3){left:18px}
+.ed-back{background:repeating-linear-gradient(135deg,transparent 0 10px,rgba(120,80,200,.06) 10px 20px)}
 .ed-head .lbl{font-size:8.5px;max-width:58px}
 .ed-head.on{background:var(--c)}
 .ed-scroll{min-width:0;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
@@ -1417,6 +1419,7 @@ function vmVoice(now, t) {
   let pk = 0; for (let j = Math.max(0, k - 12); j <= Math.min(n - 1, k + 12); j++) if (T.e[j] > pk) pk = T.e[j];
   const nv = VM.env.nov, j = Math.floor(t * 50);
   V.inLine = !VM.talk || !!VM.talk[Math.floor(t / 0.05)];   // inside one of the lines (who talks when)
+  if (VM.backT && !VM.backAll && VM.backT[Math.floor(t / 0.05)] && !VM.frontLive && (VM.tlShow && VM.tlShow[Math.floor(t / 0.05)] || {}).show === 'all') V.inLine = false;   // (a backing part, lips unseen: the choir sings, not him)
   // in a song the voice sits under the music, so its level alone can't say when someone sings: where the sound
   // classifier hears a voice, a much quieter level still counts (the dips between syllables still shut the mouth)
   // in a song the voice sits under the music, so the mix's level can't say when someone sings or where the syllables are:
@@ -2880,7 +2883,7 @@ async function vmSoundKinds(b) {
     const oc = new OfflineAudioContext(1, Math.ceil(b.duration * 16000), 16000), src = oc.createBufferSource(); src.buffer = b; src.connect(oc.destination); src.start();
     const mono = (await oc.startRendering()).getChannelData(0), res = cl.classify(mono, 16000); try { cl.close(); } catch (e) {}
     if (!res || !res.length) return null;
-    const n = Math.ceil(b.duration * 50), out = new Uint8Array(n), win = []; let sung = 0;
+    const n = Math.ceil(b.duration * 50), out = new Uint8Array(n), win = [], choir = new Float32Array(n); let sung = 0;
     res.forEach((r, k) => {
       const cats = (r.classifications && r.classifications[0] && r.classifications[0].categories) || [];
       let v = 0, sg = 0; for (const c of cats) { const nm = c.categoryName || c.displayName || ''; if (VOX.speech.test(nm) || VOX.sing.test(nm)) v = Math.max(v, c.score); else if (VOX.genre.test(nm)) v = Math.max(v, c.score * 0.5);
@@ -2891,13 +2894,14 @@ async function vmSoundKinds(b) {
       let top = 0, musical = false; for (const c of cats) { const nm = c.categoryName || c.displayName || ''; if (VOX.speech.test(nm) || VOX.sing.test(nm)) continue; if (c.score > top) { top = c.score; musical = /music|guitar|drum|piano|keyboard|bass|synth|instrument|orchestra|strum|bell|hip hop|rock|pop|jazz|soul|gospel|electronic|scratch/i.test(nm); } }
       const t0 = r.timestampMs != null ? r.timestampMs / 1000 : k * 0.975;
       const voice = v >= 0.3 || v >= top || (musical && v >= 0.011);
-      win.push({ t0, none:!voice, hard:!voice && !musical });   // (a voice weaker than a horn or traffic: the horn)
+      win.push({ t0, none:!voice, hard:!voice && !musical, ch:cats.reduce((m, c) => /^(Choir|A capella|Chant)$/.test(c.categoryName || c.displayName || '') ? Math.max(m, c.score) : m, 0) });   // (a voice weaker than a horn or traffic: the horn; ch: how much it sounds like a choir)
       if (window.__soundDbg) window.__soundDbg.push([+t0.toFixed(2), +v.toFixed(3), cats.slice(0, 4).map(c => (c.categoryName || '').slice(0, 14) + ':' + c.score.toFixed(2)).join(' ')]);
     });
     win.forEach((w, k) => { w.t1 = k + 1 < win.length ? win[k + 1].t0 : w.t0 + 0.975; });
     // no voice: a stretch that's clearly something else (a car, a horn), or a second or more of music with no voice in it
     win.forEach((w, k) => { if (w.none && (w.hard || (win[k - 1] && win[k - 1].none) || (win[k + 1] && win[k + 1].none))) for (let j = Math.floor(w.t0 * 50); j < Math.min(n, Math.ceil(w.t1 * 50)); j++) out[j] = 1; });
     out.music = res.length ? sung / res.length : 0;   // how much of the clip is singing or music (a song: the crowd sings along)
+    win.forEach(w => { for (let j = Math.floor(w.t0 * 50); j < Math.min(n, Math.ceil(w.t1 * 50)); j++) choir[j] = w.ch; }); out.choir = choir;
     return out;
   } catch (e) { console.warn('sound kinds', e); return null; }
 }
@@ -2968,7 +2972,7 @@ async function vmAnalyse(file, grab) {
     vmProg(100);
     VM.people = who.people.map(p => ({ smp:p.smp, thumb:p.thumb, t0:p.smp.length ? p.smp[0].t : p.t0, t1:p.smp.length ? p.smp[p.smp.length - 1].t : p.t1, n:p.smp.length, spans:p.spans, lipOk:p.lipOk }));
     if (!VM.people.length) VM.people.push({ smp:[], thumb:null, t0:0, t1:VM.dur, n:0, noface:true });   // no face found: one Nibble, moving with the sound
-    VM.crowd = who.crowd.n ? who.crowd : null;
+    VM.crowd = who.crowd.n ? who.crowd : null; VM.whoStep = who.step;
     vmTimeline();
     vmDefaults();
     vmStudio();
@@ -3091,6 +3095,13 @@ function vmWho(scan, music) {
   const cutaway = p => { if (p.faces.some(f => castN.has(f.n))) return false; const m = p.faces.map(f => f.mo || 0).sort((a, b) => a - b); return m[Math.floor(m.length * 0.9)] - m[Math.floor(m.length * 0.1)] < 0.02; };   // (lips that don't move: open or shut)
   const crowd = others.filter(p => !featured.includes(p) && p.faces.length >= 3 && p.faces.length * step >= 1.5 && !cutaway(p));
   [main, ...featured].forEach(p => keepT.add(p.thumb)); crowd.slice(0, 8).forEach(p => keepT.add(p.thumb)); done();
+  // the crowd's mouths at each look: each face's lip gap against its own shut and its own widest, averaged over the
+  // crowd faces in that picture (a choir singing opens many mouths at once). For when the backing vocals come in.
+  const sing = [], byN = new Map();
+  for (const p of crowd) { const m = p.faces.map(f => f.mo || 0).sort((a, b) => a - b), lo = m[Math.floor(m.length * 0.1)], hi = m[Math.floor(m.length * 0.9)];
+    if (hi - lo < 0.012) continue; for (const f of p.faces) { const a = byN.get(f.n) || []; a.push(Math.max(0, Math.min(1, ((f.mo || 0) - lo) / (hi - lo)))); byN.set(f.n, a); } }
+  for (const sm of samples) { const a = byN.get(sm.n); sing.push({ t:sm.t, v:a && a.length ? a.reduce((x, y) => x + y, 0) / a.length : null, k:a ? a.length : 0 }); }
+  VM.crowdSing = sing;
   VM.whoDbg = ids.map(p => ({ n:p.faces.length, score:+p.score.toFixed(2), t0:p.t0, t1:p.t1, role:p === main ? 'main' : featured.includes(p) ? 'featured' : crowd.includes(p) ? 'crowd' : 'left out' }));
   return { people:[main, ...featured], crowd:{ n:crowd.length, thumbs:crowd.slice(0, 8).map(p => p.thumb).filter(Boolean) }, step, fw, fh };
 }
@@ -3347,6 +3358,7 @@ function vmLinesToTimeline() {
     const sl = on || (hold ? lastShow : null); shows[k] = sl && sl.show ? { show:sl.show, with:sl.with, face:sl.face, together:!!sl.together } : VM.crowd && VM.group === 'all' ? { show:'all' } : null;
   }
   VM.timeline = tl; VM.tlBg = bgs; VM.tlShow = shows; VM.first = L.length ? L[0].who : VM.main;
+  VM.backT = null; if (VM.back) { VM.backT = new Uint8Array(n); for (const b of VM.back) for (let k = Math.max(0, Math.floor(b.t0 / dt)); k < Math.min(n, Math.ceil(b.t1 / dt)); k++) VM.backT[k] = 1; }
   // the mouth only talks inside a line (a line taken out in the editor, over music say, keeps the mouth shut there)
   // (a gap under a second and a half between lines is a breath, not a stop: the voice there still moves it)
   const talk = L.length ? new Uint8Array(n) : null;
@@ -3380,8 +3392,31 @@ function vmDefaults() {
   VM.sing = music > 0.3;
   VM.flip = null; vmFacing();
   for (let k = 3; k < 6; k++) VM.flip[CROWD0 + k] = true;
-  (VM.lines || []).forEach(l => { delete l.show; }); vmShowDefaults(); vmLinesToTimeline();
+  (VM.lines || []).forEach(l => { delete l.show; }); vmShowDefaults();
+  VM.back = VM.crowd && music > 0.3 ? vmBackDefaults() : null; VM.backAll = false;
+  vmLinesToTimeline();
   VM.hist = []; VM.start = vmSnap();
+}
+// Backing vocals (a choir behind a lead singer): the parts where the row behind sings, apart from the lead's own lines.
+// Sung (the singing voice is heard) and either the crowd's mouths are open, or the crowd isn't in the picture and the
+// lead's lips are still (someone's singing, and it isn't him). Breaths under half a second are joined; bits under 0.4 s go.
+function vmBackDefaults() {
+  const T = VM.env && VM.env.vt, nv = VM.env && VM.env.nov, CS = VM.crowdSing || []; if (!T) return [];
+  const dt = 0.05, n = Math.ceil(VM.dur / dt), on = new Uint8Array(n), lead = vmRoot(VM.main), step = VM.whoStep || 0.5;
+  const ev = T.ev || T.e, thr = T.ev ? T.evThr * 1.6 : T.thr;
+  const crowdAt = t => { let b = null; for (const c of CS) if (Math.abs(c.t - t) <= step * 0.75 && (!b || Math.abs(c.t - t) < Math.abs(b.t - t))) b = c; return b; };
+  for (let k = 0; k < n; k++) {
+    const t = k * dt, i = Math.min(ev.length - 1, Math.round(t * 100)); let pk = 0; for (let q = Math.max(0, i - 15); q <= Math.min(ev.length - 1, i + 15); q++) pk = Math.max(pk, ev[q]);
+    const voice = pk > thr && !(nv && nv[Math.floor(t * 50)]); if (!voice) continue;
+    const c = crowdAt(t), x = vmSample(lead, t), leadSings = x && vmLipAct(lead, t) >= 0.12 && x.open > 0.25;
+    if (nv && nv.choir && nv.choir[Math.floor(t * 50)] >= 0.2) on[k] = 1;   // (it sounds like a choir: a capella, a big chorus)
+    else if (c && c.v != null && c.k >= 2) on[k] = c.v >= 0.4 ? 1 : 0;
+    else on[k] = x && !leadSings ? 1 : 0;
+  }
+  const seg = []; let a = -1;
+  for (let k = 0; k <= n; k++) { if (k < n && on[k]) { if (a < 0) a = k; } else if (a >= 0) { seg.push([a * dt, k * dt]); a = -1; } }
+  const out = []; for (const [t0, t1] of seg) { const l = out[out.length - 1]; if (l && t0 - l.t1 < 0.5) l.t1 = t1; else out.push({ t0, t1 }); }
+  return out.filter(x => x.t1 - x.t0 >= 0.4).map(x => ({ t0:+x.t0.toFixed(2), t1:+Math.min(VM.dur, x.t1).toFixed(2), bk:true }));
 }
 function vmRandom(keepMain) {
   const mine = keepMain && NIBBLES[S.id] ? +S.id : null;   // the Nibble picked on the main screen plays the main person
@@ -3392,11 +3427,11 @@ function vmRandom(keepMain) {
 }
 // Undo: every change first saves how things were. "Start over" goes back to the first choices.
 function vmSnap() {
-  return { j:JSON.stringify({ cap:{ on:VM.cap.on, style:VM.cap.style, words:VM.cap.words }, cast:VM.cast, same:VM.same, flip:VM.flip, group:VM.group, sing:VM.sing, bg:VM.bg, music:VM.music, shape:VM.shape, text:VM.text, textAt:VM.textAt, lines:VM.lines, main:VM.main }),
+  return { j:JSON.stringify({ cap:{ on:VM.cap.on, style:VM.cap.style, words:VM.cap.words }, cast:VM.cast, same:VM.same, flip:VM.flip, group:VM.group, sing:VM.sing, bg:VM.bg, music:VM.music, shape:VM.shape, text:VM.text, textAt:VM.textAt, lines:VM.lines, main:VM.main, back:VM.back || null, backAll:!!VM.backAll }),
     people:VM.people.slice() };
 }
 function vmRestoreSnap(s) {
-  const J = JSON.parse(s.j); VM.cap = Object.assign(VM.cap || {}, J.cap || {}); delete J.cap; Object.assign(VM, J); VM.people = s.people.slice(); VM.ps = {}; ED.sel = null; ED.lane = Math.min(ED.lane, VM.people.length - 1);
+  const J = JSON.parse(s.j); VM.cap = Object.assign(VM.cap || {}, J.cap || {}); delete J.cap; Object.assign(VM, J); VM.people = s.people.slice(); VM.ps = {}; ED.sel = null; ED.lane = Math.min(ED.lane, VM.people.length - 1); if (ED.lane < 0 && !VM.back) ED.lane = 0;
   vmLinesToTimeline(); vmStudioSync();
 }
 function vmMark() { VM.hist.push(vmSnap()); if (VM.hist.length > 60) VM.hist.shift(); vmUndoBtns(); }
@@ -3623,10 +3658,11 @@ function vmTimingTab(el) {
   $('edAddP').onclick = () => { vmMark(); vmAddVoice(); ED.sel = null; vmLinesToTimeline(); edDraw();
     edHint(`${pName(ED.lane)} added (a row of their own, highlighted). Drag a block into it, or put the red line where they talk and tap ＋ Line. Their Nibble is on the People tab.`, true); };
   $('edRmP').onclick = () => { const i = ED.lane, P = VM.people;
+    if (i < 0) return edHint('Tap a speaker’s row first (the Backing row stays: 🗑 takes out its parts).');
     if (P.length < 2 || !P[i]) return edHint('There has to be at least one speaker.');
     const nm = pName(i); vmMark(); vmRemovePerson(i); ED.lane = Math.min(VM.main, VM.people.length - 1); ED.sel = null; edDraw();
     edHint(`${nm} taken out: their parts went to ${pName(VM.main)}. ↶ Undo brings them back.`, true); };
-  $('edBg').onclick = () => { const l = ED.sel; if (!l) return edHint('Tap a block first, then 🖼 sets the background for just that part.');
+  $('edBg').onclick = () => { const l = ED.sel; if (!l || l.bk) return edHint(l ? 'Backgrounds go with a speaker’s part: tap a block in a speaker’s row, then 🖼.' : 'Tap a block first, then 🖼 sets the background for just that part.');
     pickBackground(l.bg || VM.bg, name => vmDo(() => { if (name === VM.bg) delete l.bg; else l.bg = name; vmLinesToTimeline(); })); };
   edDraw(); edHint();
 }
@@ -3634,7 +3670,8 @@ function vmTimingTab(el) {
 function edHint(msg, ok) {
   const h = $('edHint'); if (!h) return;
   h.classList.toggle('warn', !!msg && !ok);
-  h.textContent = msg || (ED.sel ? `Picked: ${pName(ED.sel.who)}, ${fmtT(ED.sel.t0)}–${fmtT(ED.sel.t1)}. ✂︎ Split cuts it in two at the red line, so part of it can go to someone else.`
+  h.textContent = msg || (ED.sel && ED.sel.bk ? `Picked: backing vocals, ${fmtT(ED.sel.t0)}–${fmtT(ED.sel.t1)}. ✂︎ Split cuts it at the red line; 🗑 takes out a part where the row behind doesn't sing.`
+    : ED.sel ? `Picked: ${pName(ED.sel.who)}, ${fmtT(ED.sel.t0)}–${fmtT(ED.sel.t1)}. ✂︎ Split cuts it in two at the red line, so part of it can go to someone else.`
     : 'Tap a block to pick it. ✂︎ Split cuts a block in two at the red line. ＋ Line adds one for the highlighted Nibble where the red line is.');
 }
 // ---------------------------------------------------------------------------
@@ -3643,6 +3680,7 @@ function edHint(msg, ok) {
 // else); drag its yellow ends to trim it, like trimming a clip on iPhone. Split, add and delete at the playhead.
 // When it's made, every block becomes a cut to that speaker's Nibble.
 // ---------------------------------------------------------------------------
+const BACK_COL = '#d9c2ff';   // the backing vocals' row
 const LANE_COL = ['#8ee26b', '#9fe3fb', '#f48aa8', '#ffd23f', '#c9a7ff', '#ffb36b', '#7fe0d0'];
 const ED = { pps:40, sel:null, lane:0 };
 const fmtT = x => `${Math.floor(x / 60)}:${(x % 60).toFixed(1).padStart(4, '0')}`;
@@ -3759,6 +3797,23 @@ function edDraw() {
     lane.addEventListener('click', e => { if (e.target !== lane) return; ED.lane = i; ED.sel = null; seekAt(e); edDraw(); });   // a tap (a swipe scrolls)
     inner.appendChild(lane);
   });
+  // the backing vocals: a row of their own (when the video has a crowd that sings)
+  if (VM.back) {
+    const h = document.createElement('button'); h.type = 'button'; h.className = 'ed-head' + (ED.lane === -1 ? ' on' : ''); h.style.setProperty('--c', BACK_COL);
+    const st = document.createElement('span'); st.className = 'ed-bstack'; vmCrowdKeys().slice(0, 3).forEach(k => { const c = document.createElement('span'); c.className = 'circ'; nibThumb(c, VM.cast[k]); st.appendChild(c); });
+    const nm = document.createElement('span'); nm.className = 'lbl'; nm.textContent = 'Backing';
+    h.append(st, nm); h.onclick = () => { ED.lane = -1; ED.sel = null; edDraw(); }; heads.appendChild(h);
+    const lane = document.createElement('div'); lane.className = 'ed-lane ed-back' + (ED.lane === -1 ? ' on' : ''); lane.style.width = W + 'px'; lane.dataset.lane = -1;
+    lane.addEventListener('click', e => { if (e.target !== lane) return; ED.lane = -1; ED.sel = null; seekAt(e); edDraw(); });
+    VM.back.forEach((l, k) => {
+      const b = document.createElement('div'); b.className = 'ed-blk' + (ED.sel === l ? ' sel' : ''); b.dataset.b = k;
+      b.style.left = (l.t0 * pps) + 'px'; b.style.width = Math.max(6, (l.t1 - l.t0) * pps) + 'px'; b.style.background = BACK_COL;
+      if (ED.sel === l) { const a = document.createElement('i'); a.className = 'ed-h ed-hl'; a.textContent = '‹'; const z = document.createElement('i'); z.className = 'ed-h ed-hr'; z.textContent = '›'; b.append(a, z); }
+      const m = document.createElement('i'); m.className = 'ed-mode'; m.textContent = '♪'; b.appendChild(m);
+      b.addEventListener('pointerdown', e => edGrab(e, l, b)); lane.appendChild(b);
+    });
+    inner.appendChild(lane);
+  }
   // the lines
   const lanes = inner.querySelectorAll('.ed-lane');
   L.forEach((l, k) => {
@@ -3774,7 +3829,7 @@ function edDraw() {
   });
   const ph = document.createElement('div'); ph.className = 'ed-ph'; ph.id = 'edPh'; inner.appendChild(ph);
   $('edDel').disabled = !ED.sel;
-  { const r = $('edRmP'); if (r) { r.disabled = VM.people.length < 2; r.textContent = '👤✕ Remove ' + pName(ED.lane); } }
+  { const r = $('edRmP'); if (r) { const ok = ED.lane >= 0 && VM.people[ED.lane]; r.disabled = VM.people.length < 2 || !ok; r.textContent = '👤✕ Remove' + (ok ? ' ' + pName(ED.lane) : ''); } }
   edTick(); edHint(); edShowPanel();
 }
 // the whole video at once (People tab): one at a time, two side by side, or everyone. A part changed on its own on the
@@ -3791,6 +3846,7 @@ function vmWhoPanel(el) {
     opt('solo', '🙂 One at a time', cur === 'solo') + (duo ? opt('both', '👯 Two side by side', cur === 'both') : '') + (all ? opt('all', '👥 Everyone', cur === 'all') : '') + `</div>` +
     (cur === 'both' && l0 ? `<div class="vm-row">${opt('face:each', '↔ Facing each other', l0.face !== 'same')}${opt('face:same', '→ → Same way', l0.face === 'same')}</div>
       <div class="vm-row">${opt('sing:one', 'Only the one talking moves', !l0.together)}${opt('sing:both', 'Both sing / talk at once', !!l0.together)}</div>` : '') +
+    (cur === 'all' && VM.back ? `<div class="vm-row">${['parts:🎶 Row behind sings in the Backing parts', 'always:Sings all the time', 'never:Never sings'].map(x => { const [k, lb] = x.split(':'), on = k === 'never' ? !VM.sing : VM.sing && (k === 'always') === !!VM.backAll; return opt('bs:' + k, lb, on); }).join('')}</div>` : '') +
     `<p class="note">${cur === 'mixed' ? 'Mixed: some parts are set on their own. Pick one above to set every part, or ' : 'To change just one part, '}go to <b>Timing</b> and tap that part.</p>`;
   el.querySelectorAll('button').forEach(btn => btn.onclick = () => vmDo(() => {
     const k = btn.dataset.k;
@@ -3800,6 +3856,7 @@ function vmWhoPanel(el) {
       else if (k.startsWith('face:') && l.show === 'both') l.face = k.slice(5);
       else if (k.startsWith('sing:') && l.show === 'both') l.together = k === 'sing:both';
     }
+    if (k.startsWith('bs:')) { VM.sing = k !== 'bs:never'; VM.backAll = k === 'bs:always'; }
     vmLinesToTimeline();
   }));
 }
@@ -3807,7 +3864,10 @@ function vmWhoPanel(el) {
 // way), or everyone (the row behind singing along or not). "Every part" sets it for the whole video.
 function edShowPanel() {
   const el = $('edShow'); if (!el) return; const l = ED.sel;
-  if (!l) { el.innerHTML = `<div class="vm-h">On screen in each part</div><p class="note" style="margin:0 0 4px">Tap a coloured block to choose who's on screen in it: just that one, two side by side, or everyone. The badge on each block shows it (1, 2, 👥).</p>`; return; }
+  const backRow = () => VM.back ? `<div class="vm-h">Row behind sings</div><div class="vm-row">${['parts:🎶 In the Backing parts', 'always:All the time', 'never:Never'].map(x => { const [k, lb] = x.split(':'), on = k === 'never' ? !VM.sing : VM.sing && (k === 'always') === !!VM.backAll; return `<button type="button" class="chipb seg${on ? ' on' : ''}" data-bs="${k}">${lb}</button>`; }).join('')}</div>` : '';
+  const wireBack = () => el.querySelectorAll('[data-bs]').forEach(b => b.onclick = () => vmDo(() => { const k = b.dataset.bs; VM.sing = k !== 'never'; VM.backAll = k === 'always'; }));
+  if (l && l.bk) { el.innerHTML = `<div class="vm-h">Backing vocals <span>(${fmtT(l.t0)}–${fmtT(l.t1)})</span></div><p class="note" style="margin:0 0 6px">The row behind sings in the purple parts, the lead in his own row. Drag the ends to fit, ✂︎ to cut, 🗑 where they don't sing, ＋ Line (Backing row highlighted) to add a part.</p>${backRow()}`; wireBack(); return; }
+  if (!l) { el.innerHTML = `<div class="vm-h">On screen in each part</div><p class="note" style="margin:0 0 4px">Tap a coloured block to choose who's on screen in it: just that one, two side by side, or everyone. The badge on each block shows it (1, 2, 👥).${VM.back ? ' The purple Backing row is when the row behind sings.' : ''}</p>${backRow()}`; wireBack(); return; }
   const P = VM.people, cast = P.map((q, i) => i).filter(i => !P[i].off && vmRoot(i) === i), others = cast.filter(i => i !== l.who);
   const cur = l.show || 'solo', all = VM.crowd || cast.length > 2;
   const opt = (key, label, on) => `<button type="button" class="chipb seg${on ? ' on' : ''}" data-k="${key}">${label}</button>`;
@@ -3818,9 +3878,10 @@ function edShowPanel() {
     (cur === 'both' ? `<div class="vm-row">${opt('sing:one', 'Only ' + pName(l.who) + ' sings / talks', !l.together)}${opt('sing:both', 'Both at once', !!l.together)}</div>
       <div class="vm-row">${opt('face:each', '↔ Facing each other', l.face !== 'same')}${opt('face:same', '→ → Same way', l.face === 'same')}</div>
       <p class="note" style="margin:2px 0 4px">Both stay on screen. To switch who's talking, split the part (✂︎) and drag one half to the other's row.</p>` : '') +
-    (cur === 'all' ? `<div class="vm-row">${opt('sing', VM.sing ? '✓ Row behind sings along' : 'Row behind sings along', VM.sing)}</div>` : '') +
+    (cur === 'all' ? (VM.back ? backRow() : `<div class="vm-row">${opt('sing', VM.sing ? '✓ Row behind sings along' : 'Row behind sings along', VM.sing)}</div>`) : '') +
     `<div class="vm-row"><button type="button" class="chipb seg" data-k="every">Use this for every part</button></div>`;
-  el.querySelectorAll('button').forEach(b => b.onclick = () => vmDo(() => {
+  wireBack();
+  el.querySelectorAll('button[data-k]').forEach(b => b.onclick = () => vmDo(() => {
     const k = b.dataset.k;
     if (k === 'solo' || k === 'all') { l.show = k; delete l.with; }
     else if (k.startsWith('both:')) { l.show = 'both'; l.with = +k.slice(5); l.face = l.face || 'each'; }
@@ -3838,45 +3899,45 @@ function edGrab(e, l, el) {
   if (ED.sel !== l && e.pointerType !== 'mouse') {
     const x0 = e.clientX, y0 = e.clientY;
     const up = ev => { el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel);
-      if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 10) { ED.sel = l; ED.lane = l.who; ED.v.currentTime = l.t0; edDraw(); } };
+      if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 10) { ED.sel = l; ED.lane = l.bk ? -1 : l.who; ED.v.currentTime = l.t0; edDraw(); } };
     const cancel = () => { el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel); };
     el.addEventListener('pointerup', up); el.addEventListener('pointercancel', cancel); return;
   }
   e.preventDefault(); e.stopPropagation();
   const mode = e.target.classList.contains('ed-hl') ? 'l' : e.target.classList.contains('ed-hr') ? 'r' : 'm';
-  if (ED.sel !== l && mode === 'm') { ED.sel = l; ED.lane = l.who; }
+  if (ED.sel !== l && mode === 'm') { ED.sel = l; ED.lane = l.bk ? -1 : l.who; }
   const x0 = e.clientX, y0 = e.clientY, a0 = l.t0, b0 = l.t1, w0 = l.who, rowH = el.parentElement.offsetHeight, snap = t => Math.round(t * 20) / 20;
   let moved = false;
-  const others = () => VM.lines.filter(o => o !== l && o.who === l.who);
+  const others = () => l.bk ? VM.back.filter(o => o !== l) : VM.lines.filter(o => o !== l && o.who === l.who);
   const mv = ev => {
     const dt = (ev.clientX - x0) / ED.pps, dy = ev.clientY - y0;
-    if (!moved && Math.hypot(ev.clientX - x0, dy) < 5) return; if (!moved) { const now = { t0:l.t0, t1:l.t1, who:l.who }; Object.assign(l, { t0:a0, t1:b0, who:w0 }); vmMark(); Object.assign(l, now); } moved = true;
+    if (!moved && Math.hypot(ev.clientX - x0, dy) < 5) return; if (!moved) { const now = { t0:l.t0, t1:l.t1 }; Object.assign(l, { t0:a0, t1:b0 }); if (!l.bk) { now.who = l.who; l.who = w0; } vmMark(); Object.assign(l, now); } moved = true;
     if (mode === 'l') { let t = snap(Math.min(b0 - 0.2, Math.max(0, a0 + dt))); for (const o of others()) if (o.t1 <= b0 && o.t1 > t) t = o.t1; l.t0 = t; }
     else if (mode === 'r') { let t = snap(Math.max(a0 + 0.2, Math.min(VM.dur, b0 + dt))); for (const o of others()) if (o.t0 >= a0 && o.t0 < t) t = o.t0; l.t1 = t; }
     else {
-      l.who = Math.max(0, Math.min(VM.people.length - 1, w0 + Math.round(dy / rowH)));
+      if (!l.bk) l.who = Math.max(0, Math.min(VM.people.length - 1, w0 + Math.round(dy / rowH)));
       const len = b0 - a0; let t = snap(Math.max(0, Math.min(VM.dur - len, a0 + dt)));
       // never on top of another line of the same speaker
       for (const o of others()) if (t < o.t1 && t + len > o.t0) t = (a0 + dt) < (o.t0 + o.t1) / 2 - len / 2 ? o.t0 - len : o.t1;
       l.t0 = Math.max(0, Math.min(VM.dur - len, t)); l.t1 = l.t0 + len;
     }
-    ED.lane = l.who; paint();
+    ED.lane = l.bk ? -1 : l.who; paint();
   };
   // while dragging only the dragged block moves (once a frame): rebuilding the whole timeline on every move made it jump,
   // and on a phone it lost the finger. The timeline is drawn again when the finger lifts.
   let raf = 0; const pps = ED.pps;
   const paint = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0;
     el.classList.add('sel', 'drag'); el.style.left = (l.t0 * pps) + 'px'; el.style.width = Math.max(6, (l.t1 - l.t0) * pps) + 'px';
-    el.style.transform = l.who !== w0 ? `translateY(${(l.who - w0) * rowH}px)` : ''; el.style.background = LANE_COL[l.who % LANE_COL.length]; }); };
+    el.style.transform = !l.bk && l.who !== w0 ? `translateY(${(l.who - w0) * rowH}px)` : ''; el.style.background = l.bk ? BACK_COL : LANE_COL[l.who % LANE_COL.length]; }); };
   try { el.setPointerCapture(e.pointerId); } catch (er) {}
   const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); cancelAnimationFrame(raf);
-    if (!moved) { ED.sel = l; ED.lane = l.who; ED.v.currentTime = l.t0; } vmLinesToTimeline(); edDraw(); };
+    if (!moved) { ED.sel = l; ED.lane = l.bk ? -1 : l.who; ED.v.currentTime = l.t0; } vmLinesToTimeline(); edDraw(); };
   addEventListener('pointermove', mv, { passive:true }); addEventListener('pointerup', up); addEventListener('pointercancel', up);
 }
 // Split: the picked line (or the one under the red line) cut in two where the red line is
 function edSplit() {
   const t = edNow(), inside = x => t > x.t0 + 0.1 && t < x.t1 - 0.1;
-  const l = ED.sel && inside(ED.sel) ? ED.sel : VM.lines.find(x => x.who === ED.lane && inside(x)) || VM.lines.find(inside);
+  const l = ED.sel && inside(ED.sel) ? ED.sel : ED.lane === -1 ? (VM.back || []).find(inside) : VM.lines.find(x => x.who === ED.lane && inside(x)) || VM.lines.find(inside);
   if (!l) {
     if (ED.sel) {   // a line is picked but the red line isn't inside it: put it in the middle, to show where a cut would go
       const m = (ED.sel.t0 + ED.sel.t1) / 2; ED.v.currentTime = m; const sc = $('edScroll'); if (sc) sc.scrollLeft = m * ED.pps - sc.clientWidth / 2; edTick();
@@ -3885,17 +3946,20 @@ function edSplit() {
     return edHint('Split cuts a block in two at the red line, but the red line isn’t inside a block. Tap a block first, or drag the ruler to move the red line into one.');
   }
   vmMark();
+  if (l.bk) { const n = { t0:Math.round(t * 20) / 20, t1:l.t1, bk:true }; l.t1 = n.t0; VM.back.push(n); VM.back.sort((a, b) => a.t0 - b.t0); ED.sel = n; vmLinesToTimeline(); edDraw();
+    return edHint(`Cut in two at ${fmtT(n.t0)}. The second half is picked: 🗑 takes it out if the row behind doesn't sing there.`, true); }
   const n = { t0:Math.round(t * 20) / 20, t1:l.t1, who:l.who, bg:l.bg, show:l.show, with:l.with, face:l.face, together:l.together }; for (const k of Object.keys(n)) if (n[k] == null) delete n[k]; l.t1 = n.t0; VM.lines.push(n); ED.sel = n; vmLinesToTimeline(); edDraw();
   edHint(`Cut in two at ${fmtT(n.t0)}. The second half is picked: drag it up or down to give it to someone else.`, true);
 }
 function edAdd() {
-  const t = edNow(), who = ED.lane, mine = VM.lines.filter(x => x.who === who).sort((a, b) => a.t0 - b.t0);
+  const t = edNow(), who = ED.lane, bk = who === -1 && VM.back, mine = (bk ? VM.back : VM.lines.filter(x => x.who === who)).slice().sort((a, b) => a.t0 - b.t0);
   let a = Math.round(t * 20) / 20, b = Math.min(VM.dur, a + 1.5);
   for (const o of mine) { if (a >= o.t0 && a < o.t1) a = o.t1; if (o.t0 >= a && o.t0 < b) b = o.t0; }
-  if (b - a < 0.2) return edHint(`${pName(who)} already talks there. Move the red line to a gap in their row.`);
-  vmMark(); const n = { t0:a, t1:b, who }; VM.lines.push(n); ED.sel = n; vmLinesToTimeline(); edDraw();
+  if (b - a < 0.2) return edHint(bk ? 'The row behind already sings there. Move the red line to a gap in the Backing row.' : `${pName(who)} already talks there. Move the red line to a gap in their row.`);
+  vmMark(); if (bk) { const n = { t0:a, t1:b, bk:true }; VM.back.push(n); VM.back.sort((x, y) => x.t0 - y.t0); ED.sel = n; vmLinesToTimeline(); return edDraw(); }
+  const n = { t0:a, t1:b, who }; VM.lines.push(n); ED.sel = n; vmLinesToTimeline(); edDraw();
 }
-function edDel() { if (!ED.sel) return edHint('Tap a block first, then 🗑 takes it out.'); vmMark(); VM.lines.splice(VM.lines.indexOf(ED.sel), 1); ED.sel = null; vmLinesToTimeline(); edDraw(); }
+function edDel() { if (!ED.sel) return edHint('Tap a block first, then 🗑 takes it out.'); vmMark(); const A = ED.sel.bk ? VM.back : VM.lines; A.splice(A.indexOf(ED.sel), 1); ED.sel = null; vmLinesToTimeline(); edDraw(); }
 
 // the face reading for person p at time t (the nearest one the tracker caught, if it's recent)
 // how much this person's lips move around time t (the spread of their openness over nearly a second). Lips that hardly move
@@ -4031,13 +4095,17 @@ function vmBackRow(now, t, p) {
 function vmBackMouth(i, t, now, sing, quiet) {
   const P = VM.people, st = VM.bm || (VM.bm = {}), b = st[i] || (st[i] = { cur:0, t:0 });
   let r = 0; const x = P[i] && vmSample(i, t + VM_LEAD); if (x && P[i].moScale && vmLipAct(i, t + VM_LEAD) >= 0.12) r = clamp(x.mo / P[i].moScale, 0, 1.2);   // (lips stuck open or barely seen: no)
+  const parts = !sing && VM.back && !VM.backAll;   // (the row behind: only in the backing vocals' parts)
   if (!quiet && (sing || VM.sing || VM.group === 'sing') && VM.env && VM.env.vt) {
     const T = VM.env.vt, tt = t + VM_LEAD - 0.04 - (i % 3) * 0.03, k = Math.max(0, Math.min(T.e.length - 1, Math.round(tt * 100))), nv = VM.env.nov;
-    const talk = !VM.talk || VM.talk[Math.floor(tt / 0.05)], quiet = nv && nv[Math.floor(tt * 50)];
-    if (talk && !quiet && T.e[k] > T.thr) r = Math.max(r, clamp((T.e[k] - T.thr) / (T.loud - T.thr), 0, 1) * 0.85);
+    const talk = parts ? !!(VM.backT && VM.backT[Math.floor(tt / 0.05)]) : !VM.talk || VM.talk[Math.floor(tt / 0.05)], quiet = nv && nv[Math.floor(tt * 50)];
+    if (parts && T.ev) { if (talk && T.ev[k] > T.evThr) { let pk = 0; for (let q = Math.max(0, k - 20); q <= Math.min(T.ev.length - 1, k + 20); q++) pk = Math.max(pk, T.ev[q]);
+      r = Math.max(r, clamp(T.ev[k] / (pk || 1), 0, 1) * 0.95); } }
+    else if (talk && !quiet && T.e[k] > T.thr) r = Math.max(r, clamp((T.e[k] - T.thr) / (T.loud - T.thr), 0, 1) * 0.85);
   }
   const want = r > 0.62 ? (i % 2 ? 5 : 3) : r > 0.18 ? 2 : 0;
   if (want !== b.cur && now - b.t > 95) { b.cur = want; b.t = now; }
+  if (window.__mlog && i >= CROWD0) (window.__blog = window.__blog || []).push([+t.toFixed(2), i, b.cur]);   // (tests)
   return b.cur;
 }
 // one frame of the Nibbled video: who's on screen now, their face, their mouth (from the clip's sound), flipped if they answer
@@ -4084,6 +4152,7 @@ function vmFrame(now) {
     Object.assign(f, { open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0, blink:0, brow:0, browUp:0, eyeWide:0, live:false }); f.seen = true;
     if (now > (VM.nb || 0)) { S.blinkUntil = now + 170; VM.nb = now + 2800 + Math.random() * 2600; }
   }
+  VM.frontLive = !!(x && f.live);
   drawBackground();
   const sh = (VM.tlShow && VM.tlShow[k]) || null, duo = sh && sh.show === 'both' && P[sh.with] && sh.with !== p && VM.arts[+VM.cast[sh.with]];
   const grp = !duo && (sh ? sh.show === 'all' : false) && vmGrouped();
