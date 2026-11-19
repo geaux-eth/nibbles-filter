@@ -252,6 +252,9 @@ header .credit b{font-weight:400}
 .ed-sw{position:absolute;left:4px;top:50%;width:22px;height:22px;margin-top:-11px;border:2px solid var(--ink);border-radius:6px;background:#fff center/cover no-repeat;pointer-events:none}
 .ed-sw.same{border-style:dashed}
 .ed-head .circ{width:34px;height:34px;margin:0;border-width:2px;box-shadow:none}
+.ed-addh{display:block;width:100%;height:40px;border:0;border-top:1.5px dashed #bbb;background:#fffdf5;font:400 22px/1 var(--display);cursor:pointer}.ed-addpad{height:40px}
+.vm-addf{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}.vm-addb{display:grid;justify-items:center;gap:2px;border:0;background:none;padding:0;cursor:pointer;font:600 11px/1 var(--body)}.vm-addb canvas{width:56px;height:56px;border-radius:50%;border:2.5px solid var(--ink)}
+.vm-addbox:not(:empty){margin:8px 0;padding:6px 10px 2px;border:2px solid rgba(22,22,22,.15);border-radius:12px;background:#fffdf5}
 .ed-bstack{position:relative;display:block;width:44px;height:34px}.ed-bstack .circ{position:absolute;top:4px;width:26px;height:26px}.ed-bstack .circ:nth-child(1){left:0}.ed-bstack .circ:nth-child(2){left:9px;top:0}.ed-bstack .circ:nth-child(3){left:18px}
 .ed-back{background:repeating-linear-gradient(135deg,transparent 0 10px,rgba(120,80,200,.06) 10px 20px)}
 .ed-head .lbl{font-size:8.5px;max-width:58px}
@@ -470,7 +473,7 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const ART_V = '20261118-2330';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261119-1300';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -811,7 +814,7 @@ function showNibbleThumb(id) {
   showSceneThumb();
 }
 function showSceneThumb() { bgThumb($('bgFace'), S.bg); }
-$('nibbleSel').onchange = e => { loadNibble(+e.target.value); showNibbleThumb(+e.target.value); };
+$('nibbleSel').onchange = e => { S.chosen = true; loadNibble(+e.target.value); showNibbleThumb(+e.target.value); };
 // ---- pickers ----
 const NIB_LIST = () => Array.from($('nibbleSel').options).map(o => { const [kind, num] = o.textContent.split(' #'); return { id:+o.value, kind, num }; });
 function pkOpen(title, tiles, back) {
@@ -988,7 +991,7 @@ async function donorFor(id, a, B) {
 // things in front of the mouth, kept whole on top of every talking mouth (kit.js)
 const FRONT_MOUTH = /mustache|straw|match|bubbles/i;   // (dark magic isn't: its still wisps are replaced by the moving ones)
 const KIT_BUSY = {};
-window.__nf = { setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = k; }, setPose:p => { S.forcePose = p; }, faceAt:id => FACE_AT[id], setShape:n => setShape(n),
+window.__nf = { lookalikes:(feats, all) => { VM.people = feats.map(f => ({ feat:f, smp:[] })); VM.same = {}; VM.main = 0; VM.mine = null; return vmLookalikes(all !== false).then(() => VM.like); }, setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = k; }, setPose:p => { S.forcePose = p; }, faceAt:id => FACE_AT[id], setShape:n => setShape(n),
   groupShot:async (ids, shape, gl, slots) => {   // (tests) one frame of a group layout
     Object.assign(GLS[shape], gl || {}); if (slots) GLS[shape].slots = slots; setShape(shape);
     VM.people = ids.map(() => ({ smp:[] })); VM.cast = {}; ids.forEach((id, i) => VM.cast[i] = id); VM.same = {}; VM.flip = {}; VM.mirror = {}; VM.group = 'all'; VM.crowd = null; VM.arts = {};
@@ -1036,7 +1039,7 @@ async function kitPrepare(id) {
 }
 // a face to show on each kind's tile
 const KIND_FACE = { Bear:4248, Beaver:5502, Cock:8212, Gecko:2525, Ghost:4075, Gnome:3385, Raccoon:8102, Wolf:7996 };
-$('nibFace').onclick = () => collection(id => { if (S.recorder) return; $('nibbleSel').value = id; loadNibble(id); showNibbleThumb(id); });
+$('nibFace').onclick = () => collection(id => { if (S.recorder) return; S.chosen = true; $('nibbleSel').value = id; loadNibble(id); showNibbleThumb(id); });
 function bgThumb(el, name) {
   const pic = NFT_ART[name] ? nftThumb(name) : IMG_BGS[name] ? bgSrc(name) : null;
   el.style.backgroundImage = pic ? `url(${pic})` : 'none'; el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center';
@@ -2939,7 +2942,7 @@ const vmSeek = (v, t) => new Promise(res => {
 const vmProg = p => { const e = $('vmProg'); if (e) e.style.width = Math.max(0, Math.min(100, p)).toFixed(1) + '%'; };
 const vmMsg = s => { const e = $('vmMsg'); if (e) e.textContent = s; };
 async function vmAnalyse(file, grab) {
-  Object.assign(VM, { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, soundFrom:null, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null });
+  Object.assign(VM, { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, soundFrom:null, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null, found:[], like:{} });
   vmShow('Watching your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`);
   let v = null;
   try {
@@ -2974,10 +2977,12 @@ async function vmAnalyse(file, grab) {
       if (VM.cancel) return;
     }
     vmProg(100);
-    VM.people = who.people.map(p => ({ smp:p.smp, thumb:p.thumb, t0:p.smp.length ? p.smp[0].t : p.t0, t1:p.smp.length ? p.smp[p.smp.length - 1].t : p.t1, n:p.smp.length, spans:p.spans, lipOk:p.lipOk }));
+    VM.people = who.people.map(p => ({ feat:p.feat, smp:p.smp, thumb:p.thumb, t0:p.smp.length ? p.smp[0].t : p.t0, t1:p.smp.length ? p.smp[p.smp.length - 1].t : p.t1, n:p.smp.length, spans:p.spans, lipOk:p.lipOk }));
     if (!VM.people.length) VM.people.push({ smp:[], thumb:null, t0:0, t1:VM.dur, n:0, noface:true });   // no face found: one Nibble, moving with the sound
     VM.crowd = who.crowd.n ? who.crowd : null; VM.whoStep = who.step;
     vmTimeline();
+    VM.like = {}; VM.mine = S.chosen && NIBBLES[S.id] ? +S.id : null;
+    vmMsg('Picking Nibbles that look like them…'); try { await Promise.race([vmLookalikes(true), new Promise(r => setTimeout(r, 25000))]); } catch (e) {}
     vmDefaults();
     vmStudio();
   } catch (e) {
@@ -2992,6 +2997,26 @@ async function vmScan(v, fa, prog) {
   const k = Math.min(1, 1280 / Math.max(VM.vw, VM.vh)), fw = Math.round(VM.vw * k), fh = Math.round(VM.vh * k);
   const fc = document.createElement('canvas'); fc.width = fw; fc.height = fh; const fg = fc.getContext('2d');
   const tc = document.createElement('canvas'), tg = tc.getContext('2d'), dc = document.createElement('canvas'); dc.width = dc.height = 150; const dg = dc.getContext('2d');
+  // the look around a face (hat, hair, glasses, skin, collar): a small colour picture, to tell two people apart when the
+  // face numbers can't (both in sunglasses and caps)
+  const hc = document.createElement('canvas'); hc.width = hc.height = 12; const hg = hc.getContext('2d', { willReadFrequently:true });
+  // what the person looks like, roughly (for a Nibble that resembles them): skin lightness from the cheeks, dark lenses
+  // (eyes much darker than the cheeks), a hat (something that isn't skin or dark hair just above the forehead)
+  const px = (x, y, r = 2) => { const X = Math.round(x * fw), Y = Math.round(y * fh); if (X < r || Y < r || X >= fw - r || Y >= fh - r) return null;
+    const d = fg.getImageData(X - r, Y - r, 2 * r + 1, 2 * r + 1).data; let a = 0, b = 0, c = 0, n = 0; for (let i = 0; i < d.length; i += 4) { a += d[i]; b += d[i + 1]; c += d[i + 2]; n++; } return [a / n, b / n, c / n]; };
+  const featOf = (L, f) => { try {
+    const avg = (...ps) => { const v = ps.filter(Boolean); return v.length ? [0, 1, 2].map(k => v.reduce((a, q) => a + q[k], 0) / v.length) : null; };
+    const cheek = avg(px(L[50].x, L[50].y), px(L[280].x, L[280].y)); if (!cheek) return null;
+    const eye = avg(px((L[159].x + L[145].x) / 2, (L[159].y + L[145].y) / 2, 1), px((L[386].x + L[374].x) / 2, (L[386].y + L[374].y) / 2, 1));
+    const up = px(L[10].x, L[10].y - f.s * 0.12, 3), up2 = px(L[10].x, L[10].y - f.s * 0.3, 3);
+    const lum = q => (q[0] + q[1] + q[2]) / 765, sat = q => (Math.max(...q) - Math.min(...q)) / (Math.max(...q) + 1);
+    const far = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+    const glass = !!eye && (lum(eye) < lum(cheek) * 0.55 || far(eye, cheek) > 150 || (far(eye, cheek) > 80 && sat(eye) > sat(cheek) + 0.18));   // dark lenses, or mirrored / coloured ones
+    const capOf = q => !!q && far(q, cheek) > 70 && (lum(q) > 0.25 || sat(q) > 0.3);   // not skin, not dark hair
+    const hat = capOf(up) || capOf(up2);
+    return { skin:lum(cheek), glass, hat }; } catch (e) { return null; } };
+  const lookOf = f => { const w = f.sp * 1.5, x = f.cx * fw - w / 2, y = f.cy * fh - f.sp * 1.05; try { hg.drawImage(fc, x, y, w, f.sp * 1.7, 0, 0, 12, 12); } catch (e) { return null; }
+    const d = hg.getImageData(0, 0, 12, 12).data, h = new Float32Array(64); for (let i = 0; i < d.length; i += 4) h[(d[i] >> 6) * 16 + (d[i + 1] >> 6) * 4 + (d[i + 2] >> 6)] += 1 / 144; return h; };
   const land = fw > fh * 1.15, port = fh > fw * 1.15;
   const tiles = land ? [0, .275, .55].flatMap(x => [0, .4].map(y => [x, y, .45, .6])) : port ? [0, .4].flatMap(x => [0, .275, .55].map(y => [x, y, .6, .45])) : [0, .4].flatMap(x => [0, .4].map(y => [x, y, .6, .6]));
   const samples = [], tracks = [];
@@ -3032,6 +3057,7 @@ async function vmScan(v, fa, prog) {
       } catch (e) { VM.err = String(e); }
       f.score = f.s * (1 - Math.min(1, Math.abs(((L[1].x - L[234].x) / ((L[454].x - L[234].x) || 1e-6)) - 0.5) * 2));
       f.mo = dist(L[13], L[14]) / (dist(L[10], L[152]) || 1e-6);   // how far apart the lips are (still lips: someone not talking)
+      f.look = lookOf(f); f.feat = featOf(L, f);
       let best = null, bd = 1e9;
       for (const tr of open) {
         if (used.has(tr)) continue; const g = tr.faces[tr.faces.length - 1], r = f.sp / g.sp;
@@ -3058,7 +3084,10 @@ function vmWho(scan, music) {
   const { samples, tracks, step, fw, fh } = scan;
   const mean = fs => { const d = fs.filter(f => f.desc); if (!d.length) return null; const m = new Float32Array(128); for (const f of d) for (let i = 0; i < 128; i++) m[i] += f.desc[i] / d.length; return m; };
   const ed = (a, b) => { let s = 0; for (let i = 0; i < 128; i++) s += (a[i] - b[i]) ** 2; return Math.sqrt(s); };
-  let ids = tracks.map(tr => { const m = mean(tr.faces); return { tracks:[tr], ns:new Set(tr.faces.map(f => f.n)), descs:m ? [m] : [] }; });
+  VM.lookDbg = [];
+  const meanLook = fs => { const d = fs.filter(f => f.look); if (!d.length) return null; const m = new Float32Array(64); for (const f of d) for (let i = 0; i < 64; i++) m[i] += f.look[i] / d.length; return m; };
+  const lookD = (a, b) => { let s = 0; for (let i = 0; i < 64; i++) s += Math.abs(a[i] - b[i]); return s; };   // 0 alike .. 2 nothing in common
+  let ids = tracks.map(tr => { const m = mean(tr.faces); return { tracks:[tr], ns:new Set(tr.faces.map(f => f.n)), descs:m ? [m] : [], look:meanLook(tr.faces) }; });
   // joining: the closest two people first (the average distance between their tracks' numbers), while it's under 0.5
   for (;;) {
     let best = null, bd = 0.5;
@@ -3066,10 +3095,12 @@ function vmWho(scan, music) {
       const a = ids[i], b = ids[j]; if (!a.descs.length || !b.descs.length) continue;
       let shared = false; for (const n of a.ns) if (b.ns.has(n)) { shared = true; break; } if (shared) continue;   // in one picture together: two people
       let s = 0; for (const x of a.descs) for (const y of b.descs) s += ed(x, y); s /= a.descs.length * b.descs.length;
+      if (s < bd && a.look && b.look && (lookD(a.look, b.look) > 0.75 || (lookD(a.look, b.look) > 0.5 && s > 0.35))) { (VM.lookDbg = VM.lookDbg || []).push(['no', +s.toFixed(2), +lookD(a.look, b.look).toFixed(2)]); continue; }   // (the face numbers say alike, the hat, hair and clothes say two people)
       if (s < bd) { bd = s; best = [i, j]; }
     }
     if (!best) break;
-    const [i, j] = best, a = ids[i], b = ids[j]; a.tracks.push(...b.tracks); b.ns.forEach(n => a.ns.add(n)); a.descs.push(...b.descs); ids.splice(j, 1);
+    { const a0 = ids[best[0]], b0 = ids[best[1]]; (VM.lookDbg = VM.lookDbg || []).push(['join', +bd.toFixed(2), a0.look && b0.look ? +lookD(a0.look, b0.look).toFixed(2) : null]); }
+    const [i, j] = best, a = ids[i], b = ids[j]; a.tracks.push(...b.tracks); b.ns.forEach(n => a.ns.add(n)); a.descs.push(...b.descs); a.look = meanLook(a.tracks.flatMap(tr => tr.faces)); ids.splice(j, 1);
   }
   // how much each person is what the video's about: every time they're seen, how big and how near the middle (the biggest
   // face in the picture counts half again)
@@ -3079,6 +3110,8 @@ function vmWho(scan, music) {
     p.score = p.faces.reduce((a, f) => a + f.s * (1.25 - Math.min(1, Math.abs(f.cx - 0.5) * 1.6)) * (biggest.has(f) ? 1.5 : 1), 0);
     const th = p.tracks.filter(tr => tr.thumb).sort((a, b) => b.best - a.best); p.thumb = th.length ? th[0].thumb : null;
     p.t0 = p.faces[0].t; p.t1 = p.faces[p.faces.length - 1].t;
+    const fs = p.faces.map(f => f.feat).filter(Boolean);
+    p.feat = fs.length ? { skin:fs.reduce((a, x) => a + x.skin, 0) / fs.length, glass:fs.filter(x => x.glass).length > fs.length * 0.5, hat:fs.filter(x => x.hat).length > fs.length * 0.5 } : null;
   }
   ids = ids.filter(p => p.faces.length >= 2).sort((a, b) => b.score - a.score);
   const keepT = new Set(), done = () => { for (const tr of tracks) if (tr.thumb && !keepT.has(tr.thumb)) tr.thumb.width = tr.thumb.height = 0; };   // let go of the pictures not needed (phones have little room)
@@ -3098,7 +3131,10 @@ function vmWho(scan, music) {
   const castN = new Set([main, ...featured].flatMap(p => p.faces.map(f => f.n)));
   const cutaway = p => { if (p.faces.some(f => castN.has(f.n))) return false; const m = p.faces.map(f => f.mo || 0).sort((a, b) => a - b); return m[Math.floor(m.length * 0.9)] - m[Math.floor(m.length * 0.1)] < 0.02; };   // (lips that don't move: open or shut)
   const crowd = others.filter(p => !featured.includes(p) && p.faces.length >= 3 && p.faces.length * step >= 1.5 && !cutaway(p));
-  [main, ...featured].forEach(p => keepT.add(p.thumb)); crowd.slice(0, 8).forEach(p => keepT.add(p.thumb)); done();
+  // everyone else seen a while: offered on the People tab ('＋ Someone on screen'), with where their face was
+  const extra = others.filter(p => !featured.includes(p) && p.faces.length >= 3 && p.thumb).slice(0, 8);
+  [main, ...featured].forEach(p => keepT.add(p.thumb)); crowd.slice(0, 8).forEach(p => keepT.add(p.thumb)); extra.forEach(p => keepT.add(p.thumb)); done();
+  VM.found = extra.map(p => ({ feat:p.feat, thumb:p.thumb, t0:p.t0, t1:p.t1, faces:p.faces.map(f => ({ t:f.t, cx:f.cx, s:f.s, mo:f.mo || 0 })) }));
   // the crowd's mouths at each look: each face's lip gap against its own shut and its own widest, averaged over the
   // crowd faces in that picture (a choir singing opens many mouths at once). For when the backing vocals come in.
   const sing = [], byN = new Map();
@@ -3202,6 +3238,10 @@ async function vmFollow(v, who, prog) {
         mo, cx:r.cx, s:r.s, edge:L.some(q => q.x < 0.01 || q.x > 0.99 || q.y < 0.01 || q.y > 0.99) });
     }
     p.raw = null;
+    for (const key of ['roll', 'yaw', 'pitch']) {
+      const v = p.smp.map(x => x[key] || 0), m = v.map((_, i) => { const w = v.slice(Math.max(0, i - 2), i + 3).sort((a, b) => a - b); return w[w.length >> 1]; });
+      p.smp.forEach((x, i) => { let a = 0, n = 0; for (let j = Math.max(0, i - 2); j <= Math.min(m.length - 1, i + 2); j++) { const w = 3 - Math.abs(i - j); a += m[j] * w; n += w; } x[key] = a / n; });
+    }
   }
 }
 // a camera cut: the whole picture changes at once (then nobody carries over from the last shot)
@@ -3239,6 +3279,9 @@ function vmTimeline() {
     let who = -1, ba = 0.45, seen = false, top = 0;
     // talking = lips moving at least about half as much as that face does when it talks
     if (speech) P.forEach((p, i) => { const a = activity(p, t); if (a < 0) return; seen = true; const rel = a / p.busy; top = Math.max(top, rel); if (rel > ba && a > 0.15) { ba = rel; who = i; } });
+    // (the only face on screen while someone talks, its lips too small or hidden to read (a mic, a hand, glasses): theirs.
+    // A podcast cuts to whoever's talking)
+    if (speech && who < 0) { const on = P.map((p, i) => i).filter(i => activity(P[i], t) >= 0); if (on.length === 1 && P[on[0]].lipOk === false) who = on[0]; }
     raw.push({ speech, who, still:speech && who < 0 && seen && top < 0.3 });   // talking, a face is on screen, but its mouth is still
     if (VM.dbgT) VM.dbgT.push([+t.toFixed(2), speech ? 1 : 0, P.map(p => +(activity(p, t) / p.busy).toFixed(2)), 0]);
   }
@@ -3289,7 +3332,9 @@ function vmTimeline() {
   lines.forEach((l, i) => { if (l.who < 0) l.who = i ? lines[i - 1].who : -1; });
   const firstKnown = lines.find(l => l.who >= 0); lines.forEach(l => { if (l.who < 0) l.who = firstKnown ? firstKnown.who : VM.main; });
   // one speaker's lines a breath apart are one line; a blip on its own (a clap, a note) isn't a line
-  for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 0.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
+  // (a pause of up to 2.5 s with nobody else talking: a storyteller's breaths, a beat for effect. Splitting there left
+  // gaps where the mouth stayed shut and many small blocks to fix)
+  for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 2.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
   for (let i = lines.length - 1; i >= 0; i--) if (lines[i].t1 - lines[i].t0 < 0.2) lines.splice(i, 1);
   VM.lines = lines; vmShowDefaults(); vmLinesToTimeline();
 }
@@ -3422,11 +3467,38 @@ function vmBackDefaults() {
   const out = []; for (const [t0, t1] of seg) { const l = out[out.length - 1]; if (l && t0 - l.t1 < 0.5) l.t1 = t1; else out.push({ t0, t1 }); }
   return out.filter(x => x.t1 - x.t0 >= 0.4).map(x => ({ t0:+x.t0.toFixed(2), t1:+Math.min(VM.dur, x.t1).toFixed(2), bk:true }));
 }
+// A Nibble that looks a bit like a person, picked at random from the whole collection (any that can talk): fur or skin as
+// light or dark as theirs, glasses if they wear dark glasses, a hat if they wear one. Never the gold ones; a Nibble
+// already playing someone else isn't picked again. Made ready (its talking faces built) before it's shown.
+const LIKE_SKIN = { light:/^(Light|Albino|White|Pale|Yellow|Mime|Pink)$/, mid:/^(Brown|Orange|Leopard|Grey|Stone|Wood|Teal|Blue|Lime Green|Pimples|Roughed Up)$/, dark:/^(Black|Dark|Brown)$/ };
+const HAT = /cap|beanie|hat|toque|bonnet|crown|hood|nightcap|nighcap|helmet/i, GLASS = /glasses|goggles|visor|shades/i;
+async function vmLookalikes(all) {
+  VM.like = all ? {} : (VM.like || {});
+  let M; try { M = await traitIndex(); } catch (e) { return; } if (!M) return;
+  const col = name => M.k.indexOf(name), val = (id, name) => { const j = col(name), row = M.t[id - 1]; return row && row[j] >= 0 ? String(M.v[j][row[j]]) : ''; };
+  const taken = new Set(Object.values(VM.like).map(Number)); if (VM.mine) taken.add(VM.mine);
+  for (let i = 0; i < VM.people.length; i++) {
+    const p = VM.people[i]; if (p.off || VM.like[i] || (VM.mine && i === VM.main) || vmRoot(i) !== i) continue;
+    const f = p.feat, tone = !f ? null : f.skin > 0.5 ? 'light' : f.skin > 0.3 ? 'mid' : 'dark';
+    const score = id => { if (taken.has(id) || !readyId(M, id)) return -1; const sk = val(id, 'Skin'); if (/gold/i.test(sk)) return -1;
+      let s = Math.random() * 2;
+      if (tone && LIKE_SKIN[tone].test(sk)) s += 3;
+      const acc = val(id, 'Accessory'), eyes = val(id, 'Eyes'), g = GLASS.test(eyes) || GLASS.test(acc), h = HAT.test(acc);
+      if (f) { if (f.glass === g) s += g ? 4 : 1; if (f.hat === h) s += h ? 3 : 1; }
+      return s; };
+    let best = -1, bs = -1; for (let n = 0; n < 900; n++) { const id = 1 + Math.floor(Math.random() * M.t.length), sc = score(id); if (sc > bs) { bs = sc; best = id; } }
+    if (best < 0) continue;
+    try { if (NIBBLES[best] || await kitPrepare(best)) { VM.like[i] = best; taken.add(best); } } catch (e) {}
+  }
+}
 function vmRandom(keepMain) {
-  const mine = keepMain && NIBBLES[S.id] ? +S.id : null;   // the Nibble picked on the main screen plays the main person
+  const mine = keepMain && S.chosen && NIBBLES[S.id] ? +S.id : null;   // the Nibble picked on the main screen plays the main person
+  VM.mine = mine;
   const ids = NIB_NAMES().map(x => x[0]).filter(id => id !== mine).sort(() => Math.random() - 0.5), P = VM.people;
-  P.forEach((p, i) => VM.cast[i] = mine != null && i === VM.main ? mine : ids[i % ids.length]); vmLink();
-  for (let k = 0; k < 6; k++) VM.cast[CROWD0 + k] = ids[(P.length + (k % 3)) % ids.length];
+  // the rest: look-alikes when they're ready, else built-in ones (the specials, dissections and robots, only now and then)
+  const plain = ids.filter(id => !/^(546|2775|3113|3159|3295|3543|5900|8482|794|1998|3538|5807|7192|7813|8617|8637)$/.test(String(id)) || Math.random() < 0.15);
+  P.forEach((p, i) => VM.cast[i] = mine != null && i === VM.main ? mine : (VM.like && VM.like[i]) || plain[i % plain.length]); vmLink();
+  for (let k = 0; k < 6; k++) VM.cast[CROWD0 + k] = plain[(P.length + (k % 3)) % plain.length];
   const bgs = bgList().filter(n => bgCat(n) !== 'user'); VM.bg = bgs[Math.floor(Math.random() * bgs.length)];
 }
 // Undo: every change first saves how things were. "Start over" goes back to the first choices.
@@ -3466,6 +3538,48 @@ function vmRemovePerson(i) {
   VM.main = main;
   (VM.lines || []).forEach(l => { const w = fix(l.who); l.who = w < 0 ? VM.main : w; });
   vmLinesToTimeline();
+}
+// someone on screen the video didn't give a Nibble of their own: a face it saw (picked from the faces it found), or
+// someone it missed altogether. A face it saw gets the parts where they're in the picture and the speaker isn't.
+function vmAddOnScreen(fi) {
+  const P = VM.people, F = fi != null && VM.found ? VM.found[fi] : null;
+  let person = { smp:[], thumb:null, t0:0, t1:VM.dur, n:0, noface:true, added:true };
+  if (F) {
+    const m = F.faces.map(f => f.mo).sort((a, b) => a - b), lo = m[Math.floor(m.length * 0.1)] || 0, hi = Math.max(lo + 0.02, m[Math.floor(m.length * 0.9)] || 0.05);
+    const smp = F.faces.map(f => ({ t:f.t, open:clamp((f.mo - lo) / (hi - lo), 0, 1), jaw:clamp((f.mo - lo) / (hi - lo), 0, 1), wide:0, round:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0, blink:0, bu:0, brow:0, browUp:0, eyeWide:0, roll:0, yaw:0, pitch:0, mo:f.mo, cx:f.cx, s:f.s, edge:false }));
+    // (seen only every few tenths of a second: each reading stands for the moment around it)
+    const step = VM.whoStep || 0.5, fill = []; for (const x of smp) for (let d = -step / 2; d < step / 2; d += 0.1) fill.push({ ...x, t:+(x.t + d).toFixed(2) });
+    person = { feat:F.feat, smp:fill.sort((a, b) => a.t - b.t), thumb:F.thumb, t0:F.t0, t1:F.t1, n:F.faces.length, lipOk:false, added:true };
+    F.used = true;
+  }
+  P.push(person); const i = P.length - 1;
+  const used = new Set(Object.values(VM.cast).map(Number)), free = NIB_NAMES().map(x => x[0]).filter(id => !used.has(id));
+  VM.cast[i] = free.length ? free[Math.floor(Math.random() * free.length)] : NIB_NAMES()[0][0]; ED.lane = i;
+  if (!F) return i;
+  // their parts: where they're in the picture (a run of looks) and whoever has the line isn't
+  const step = VM.whoStep || 0.5, runs = []; for (const f of F.faces) { const r = runs[runs.length - 1]; if (r && f.t - r[1] <= step * 1.6) r[1] = f.t; else runs.push([f.t, f.t]); }
+  for (const [a0, b0] of runs) { const a = Math.max(0, a0 - step / 2), b = Math.min(VM.dur, b0 + step / 2); if (b - a < 0.4) continue;
+    for (const l of VM.lines.slice()) { if (l.bk || l.t1 <= a || l.t0 >= b) continue;
+      let seen = 0, n = 0; for (let t = Math.max(a, l.t0); t < Math.min(b, l.t1); t += 0.1) { n++; if (vmSample(l.who, t)) seen++; }
+      if (seen > n * 0.3) continue;   // the speaker's own face is there: still theirs
+      const x0 = Math.max(a, l.t0), x1 = Math.min(b, l.t1), rest = { ...l };
+      if (x0 > l.t0 + 0.2) { l.t1 = x0; VM.lines.push({ ...rest, t0:x0, t1:x1, who:i }); } else { l.t0 = x0; l.t1 = x1; l.who = i; }
+      if (x1 < rest.t1 - 0.2) VM.lines.push({ ...rest, t0:x1, t1:rest.t1 });
+    } }
+  VM.lines.sort((x, y) => x.t0 - y.t0); vmShowDefaults();
+  return i;
+}
+// the choice: a face it found, someone it missed, or a voice off camera (People tab and Timing tab)
+function vmAddPicker(el, after) {
+  if (!el) return;
+  const F = (VM.found || []).map((f, i) => [f, i]).filter(([f]) => !f.used);
+  el.innerHTML = `<div class="vm-h">Add someone</div>` +
+    (F.length ? `<p class="note" style="margin:0 0 6px">Faces it saw. Tap one: they get their own Nibble and the parts where they're in the picture.</p><div class="vm-addf">${F.map(([f, i]) => `<button type="button" class="vm-addb" data-f="${i}" aria-label="Add this person"><canvas width="96" height="96"></canvas><span>${fmtT(f.t0)}</span></button>`).join('')}</div>` : '') +
+    `<div class="vm-row"><button type="button" class="chipb seg" data-f="new">🙂 Someone it missed (on screen)</button>${VM.people.some(p => p.off) ? '' : '<button type="button" class="chipb seg" data-f="voice">🎙️ A voice off camera</button>'}<button type="button" class="chipb seg" data-f="x">Cancel</button></div>`;
+  el.querySelectorAll('.vm-addb canvas').forEach((c, k) => { try { c.getContext('2d').drawImage(F[k][0].thumb, 0, 0, 96, 96); } catch (e) {} });
+  el.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { const k = b.dataset.f; if (k === 'x') { el.innerHTML = ''; return after && after(null); }
+    vmMark(); const i = k === 'voice' ? (vmAddVoice(), VM.people.length - 1) : vmAddOnScreen(k === 'new' ? null : +k);
+    el.innerHTML = ''; vmLinesToTimeline(); vmStudioSync(); after && after(i); });
 }
 function vmAddVoice() {
   const P = VM.people; P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 }); const i = P.length - 1;
@@ -3531,7 +3645,7 @@ function vmPeopleTab(el) {
   const P = VM.people, crowd = vmCrowdKeys(), nOn = P.filter(p => !p.off).length;
   const together = VM.group === 'all';
   el.innerHTML = `${nOn > 1 || crowd.length ? '<div class="vm-who" id="vmWho"></div>' : ''}<div class="vm-cast" id="vmCast"></div>
-    <div class="vm-row" style="margin-top:10px"><button class="chipb seg" id="vmRand" type="button">🎲 New Nibbles</button>${P.some(p => p.off) ? '' : '<button class="chipb seg" id="vmAddVoice" type="button">🎙️ Add a voice off camera</button>'}</div>`;
+    <div class="vm-row" style="margin-top:10px"><button class="chipb seg" id="vmRand" type="button">🎲 New Nibbles</button><button class="chipb seg" id="vmAddP" type="button">＋ Add someone</button></div><div class="vm-addbox" id="vmAddBox"></div>`;
   vmWhoPanel($('vmWho'));
   const box = $('vmCast');
   P.forEach((p, i) => {
@@ -3548,7 +3662,7 @@ function vmPeopleTab(el) {
     const lb = document.createElement('span'); lb.className = 'lbl'; lb.textContent = pLabel(i);
     const sub = document.createElement('span'); sub.className = 'sub';
     const talks = (VM.lines || []).filter(l => l.who === i).reduce((a, l) => a + l.t1 - l.t0, 0);
-    sub.textContent = p.off ? 'a voice you hear but don’t see' : p.noface ? 'no face found: moves with the sound' : i === VM.main ? (P.length > 1 ? 'on screen most' : 'the one the video’s about') : talks > 0.5 ? `talks ${Math.round(talks)}s` : 'on screen a lot';
+    sub.textContent = p.off ? 'a voice you hear but don’t see' : p.noface ? (p.added ? 'added: moves with the voice' : 'no face found: moves with the sound') : p.added ? 'added: on screen' : i === VM.main ? (P.length > 1 ? 'on screen most' : 'the one the video’s about') : talks > 0.5 ? `talks ${Math.round(talks)}s` : 'on screen a lot';
     const chg = document.createElement('button'); chg.type = 'button'; chg.className = 'chipb seg vm-chg'; chg.textContent = 'Change Nibble'; chg.onclick = () => nib.click();
     tag.append(lb, sub, chg);
     const others = P.map((q, j) => j).filter(j => j !== i && vmRoot(j) !== i && !P[j].off);
@@ -3599,8 +3713,10 @@ function vmPeopleTab(el) {
       lines:(VM.lines || []).map(l => [+l.t0.toFixed(1), +l.t1.toFixed(1), l.who]), err:VM.err || null, ua:navigator.userAgent.slice(0, 90) });
     el.appendChild(pre);
   }
-  $('vmRand').onclick = () => vmDo(() => { const bg = VM.bg; vmRandom(); VM.bg = bg; });
-  if ($('vmAddVoice')) $('vmAddVoice').onclick = () => vmDo(vmAddVoice);
+  $('vmRand').onclick = async () => { const b = $('vmRand'); if (b.disabled) return; b.disabled = true; b.textContent = '🎲 Picking…';
+    try { await Promise.race([vmLookalikes(true), new Promise(r => setTimeout(r, 25000))]); } catch (e) {}
+    vmDo(() => { const bg = VM.bg; vmRandom(true); VM.bg = bg; }); };
+  $('vmAddP').onclick = () => { vmAddPicker($('vmAddBox')); $('vmAddBox').scrollIntoView({ block:'nearest', behavior:'smooth' }); };
 }
 function vmLookTab(el) {
   const opt = (list, cur) => list.map(([v, t]) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${t}</option>`).join('');
@@ -3659,8 +3775,7 @@ function vmTimingTab(el) {
   $('edSplit').onclick = edSplit; $('edAdd').onclick = edAdd; $('edDel').onclick = edDel;
   // a new speaker row (someone the video missed, or a voice off camera: drag blocks into it, or ＋ Line); the highlighted
   // row's speaker taken out (their blocks go to the main person)
-  $('edAddP').onclick = () => { vmMark(); vmAddVoice(); ED.sel = null; vmLinesToTimeline(); edDraw();
-    edHint(`${pName(ED.lane)} added (a row of their own, highlighted). Drag a block into it, or put the red line where they talk and tap ＋ Line. Their Nibble is on the People tab.`, true); };
+  $('edAddP').onclick = () => edAddSpeaker();
   $('edRmP').onclick = () => { const i = ED.lane, P = VM.people;
     if (i < 0) return edHint('Tap a speaker’s row first (the Backing row stays: 🗑 takes out its parts).');
     if (P.length < 2 || !P[i]) return edHint('There has to be at least one speaker.');
@@ -3669,6 +3784,13 @@ function vmTimingTab(el) {
   $('edBg').onclick = () => { const l = ED.sel; if (!l || l.bk) return edHint(l ? 'Backgrounds go with a speaker’s part: tap a block in a speaker’s row, then 🖼.' : 'Tap a block first, then 🖼 sets the background for just that part.');
     pickBackground(l.bg || VM.bg, name => vmDo(() => { if (name === VM.bg) delete l.bg; else l.bg = name; vmLinesToTimeline(); })); };
   edDraw(); edHint();
+}
+// a new row: someone it saw, someone it missed, or a voice off camera (picked in the panel under the timeline)
+function edAddSpeaker() {
+  ED.sel = null; const el = $('edShow'); if (!el) return;
+  vmAddPicker(el, i => { if (i == null) { edShowPanel(); return; } ED.lane = i;
+    edHint(`${pName(i)} added (highlighted row).${VM.people[i].n ? ' They have the parts where they’re in the picture.' : ''} Drag a block into their row, or put the red line where they talk and tap ＋ Line. Their Nibble is on the People tab.`, true); });
+  el.scrollIntoView({ block:'nearest', behavior:'smooth' });
 }
 // the line under the tools: what the picked thing does, or why a tool did nothing
 function edHint(msg, ok) {
@@ -3801,6 +3923,8 @@ function edDraw() {
     lane.addEventListener('click', e => { if (e.target !== lane) return; ED.lane = i; ED.sel = null; seekAt(e); edDraw(); });   // a tap (a swipe scrolls)
     inner.appendChild(lane);
   });
+  { const add = document.createElement('button'); add.type = 'button'; add.className = 'ed-addh'; add.textContent = '＋'; add.setAttribute('aria-label', 'Add someone');
+    add.onclick = () => edAddSpeaker(); ED.addH = add; }
   // the backing vocals: a row of their own (when the video has a crowd that sings)
   if (VM.back) {
     const h = document.createElement('button'); h.type = 'button'; h.className = 'ed-head' + (ED.lane === -1 ? ' on' : ''); h.style.setProperty('--c', BACK_COL);
@@ -3832,6 +3956,7 @@ function edDraw() {
     lane.appendChild(b);
   });
   const ph = document.createElement('div'); ph.className = 'ed-ph'; ph.id = 'edPh'; inner.appendChild(ph);
+  if (ED.addH) { heads.appendChild(ED.addH); const pad = document.createElement('div'); pad.className = 'ed-addpad'; inner.appendChild(pad); }   // ＋ under the last row
   $('edDel').disabled = !ED.sel;
   { const r = $('edRmP'); if (r) { const ok = ED.lane >= 0 && VM.people[ED.lane]; r.disabled = VM.people.length < 2 || !ok; r.textContent = '👤✕ Remove' + (ok ? ' ' + pName(ED.lane) : ''); } }
   edTick(); edHint(); edShowPanel();
@@ -4145,7 +4270,9 @@ function vmFrame(now) {
   const k = Math.min(VM.timeline.length - 1, Math.floor(t / 0.05)), bgNow = (VM.tlBg && VM.tlBg[k]) || VM.bg;
   if (S.bg !== bgNow) S.bg = bgNow;   // every line can have its own background
   const x = vmSample(p, t + VM_LEAD), f = VM.ps[p].face; S.face = f; S.tracking = true;
-  if (x) { Object.assign(f, x); f.seen = true; if (x.bu > t * 1000) S.blinkUntil = now + (x.bu - t * 1000);
+  const shades = P[p].feat && P[p].feat.glass;   // (behind dark or mirrored glasses the eyes can't be read: they'd look shut)
+  if (x) { Object.assign(f, x); f.seen = true; if (shades) { f.blink = 0; f.brow = 0; f.browUp = 0; f.eyeWide = 0; if (now > (VM.nb || 0)) { S.blinkUntil = now + 170; VM.nb = now + 2800 + Math.random() * 2600; } }
+    else if (x.bu > t * 1000) S.blinkUntil = now + (x.bu - t * 1000);
     // a face running off the edge of the picture, or a small one far back (a choir), can't be read for its mouth's shape
     // (lips that look pressed on a blur would shut the mouth while they sing): the voice picks the shape
     const still = vmLipAct(p, t + VM_LEAD) < 0.12;
