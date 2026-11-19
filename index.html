@@ -206,7 +206,7 @@ header .credit b{font-weight:400}
 .vm-bar{height:16px;border:2.5px solid var(--ink);border-radius:999px;overflow:hidden;background:#f3eee4;margin:8px 0}
 .vm-bar i{display:block;height:100%;width:0;background:var(--gold);transition:width .2s}
 .vm-cast{display:grid;gap:14px;margin:4px 0 12px}
-.vm-person{display:grid;grid-template-columns:62px 18px 62px 1fr auto;align-items:center;gap:8px;font:400 18px/1 var(--display)}
+.vm-person{display:grid;grid-template-columns:62px 18px 62px 1fr;align-items:center;gap:8px;font:400 18px/1 var(--display)}
 .vm-cast .lbl{font:400 15px/1.1 var(--display);letter-spacing:.03em;text-transform:uppercase}
 .vm-face{width:62px;height:62px;border-radius:50%;border:2.5px solid var(--ink);background:#ddd;object-fit:cover}
 .vm-nib{position:relative;display:block;width:62px;height:62px}
@@ -239,7 +239,7 @@ header .credit b{font-weight:400}
 .ed-view.nib.wait .ed-load{display:flex}
 .vm-i{position:absolute;top:10px;right:52px;width:34px;height:34px;border:2.5px solid var(--ink);border-radius:50%;background:var(--paper);font:italic 700 17px/1 Georgia,serif;cursor:pointer;padding:0}
 .vm-i[hidden]{display:none}
-.vm-tip{position:absolute;top:50px;left:12px;right:12px;z-index:5;background:#fffbe9;border:2.5px solid var(--ink);border-radius:14px;box-shadow:3px 4px 0 var(--ink);padding:12px 40px 12px 14px;font:500 14px/1.4 var(--body)}
+.vm-tip{position:fixed;top:max(64px,calc(env(safe-area-inset-top) + 56px));left:50%;transform:translateX(-50%);width:min(400px,calc(100vw - 40px));max-height:70dvh;overflow:auto;z-index:40;background:#fffbe9;border:2.5px solid var(--ink);border-radius:14px;box-shadow:3px 4px 0 var(--ink);padding:12px 40px 12px 14px;font:500 14px/1.4 var(--body)}
 .vm-tip p{margin:0 0 8px}.vm-tip p:last-child{margin:0}
 .vm-tip .vm-x{top:8px;right:8px;width:28px;height:28px;font-size:13px}
 .ed-bar{display:flex;align-items:center;gap:8px;margin:8px 0 6px}
@@ -278,13 +278,18 @@ header .credit b{font-weight:400}
 .ed-tools{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}.ed-tools .chipb[disabled]{opacity:.4}
 .vm-out{display:block;width:100%;max-height:52dvh;border:2.5px solid var(--ink);border-radius:14px;background:#000;margin:4px 0 2px}
 #vmSaveNote .save{display:inline-block;background:var(--red);color:#fff;text-decoration:none;border:2.5px solid var(--ink);border-radius:999px;padding:6px 14px 4px;font:400 15px/1 var(--display)}
-.vm-opts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.vm-opts{display:grid;grid-template-columns:1.35fr 1.1fr .85fr;gap:8px}
 .vm-card.studio{height:calc(100dvh - 32px)}
+.vm-picks{display:grid;gap:6px}.vm-capr{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:0 0 6px}
+.vm-pickr{display:grid;grid-template-columns:84px 1fr;align-items:center;gap:8px;font:400 11px/1.1 var(--display);letter-spacing:.04em;text-transform:uppercase}
+.vm-pick{height:34px;width:100%;min-width:0;padding:0 26px 0 12px;border:2px solid var(--ink);border-radius:999px;background:var(--paper) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23161616' stroke-width='2' fill='none'/%3E%3C/svg%3E") no-repeat right 10px center;-webkit-appearance:none;appearance:none;font:600 16px/1 var(--body);color:var(--ink);text-overflow:ellipsis}
+.vm-acts{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.vm-more{width:52px;padding:0 0 0 14px;background-image:none;font:700 15px/1 var(--body);letter-spacing:.05em}.vm-more.on{width:auto;max-width:150px;padding:0 24px 0 10px;font:400 11px/1 var(--display)}
 .vm-who{margin:0 0 12px;padding:6px 10px 2px;border:2px solid rgba(22,22,22,.15);border-radius:12px;background:#fffdf5}
 .vm-who .vm-row,.ed-show .vm-row{gap:6px;margin:2px 0 6px}.vm-who .chipb.seg,.ed-show .chipb.seg{font-size:11px;padding:6px 8px 4px}
 .ed-show{margin:8px 0 0;padding:6px 10px 2px;border:2px solid rgba(22,22,22,.15);border-radius:12px;background:#fffdf5}
 .ed-mode{position:absolute;right:3px;top:2px;min-width:16px;height:16px;padding:0 3px;border-radius:8px;background:rgba(255,255,255,.85);border:1.5px solid var(--ink);font:400 10px/15px var(--display);font-style:normal;text-align:center;pointer-events:none}
 .ed-blk.sel .ed-mode{right:12px}
+.st-hist{flex-wrap:nowrap}.st-hist .chipb{font-size:11px;padding:7px 9px 5px;white-space:nowrap}
 .st-top{position:sticky;top:-14px;z-index:4;background:var(--paper);margin:0 -16px;padding:2px 16px 4px;border-bottom:2px solid rgba(22,22,22,.12)}
 .st-top .ed-prev{max-height:30dvh}.st-top .ed-vid{max-height:28dvh}
 .vm-card.timing .st-top .ed-prev{max-height:22dvh}.vm-card.timing .st-top .ed-vid{max-height:20dvh}
@@ -325,7 +330,7 @@ header .credit b{font-weight:400}
 .cap-list{display:grid;gap:6px;max-height:260px;overflow:auto;margin:6px 0}.cap-list label{display:grid;grid-template-columns:44px 1fr;gap:6px;align-items:center;font:700 11px/1 var(--body)}.cap-list input{font:600 14px/1.2 var(--body);padding:7px 9px;border:2px solid var(--ink);border-radius:10px;min-width:0}
 #vmCap .chipb.on{background:var(--gold);box-shadow:2px 2px 0 var(--ink)}.note.warn{color:#b3261e;font-weight:700}
 .ed-show .vm-row{margin:4px 0}.ed-show .chipb.on{background:var(--gold);box-shadow:2px 2px 0 var(--ink)}
-.ed-hint{margin:6px 2px 0;min-height:2.7em;font:500 12.5px/1.35 var(--body)}.ed-hint.warn{color:#b3261e;font-weight:700}
+.ed-hint:empty{display:none}.ed-hint{margin:6px 2px 0;font:500 12.5px/1.35 var(--body)}.ed-hint.warn{color:#b3261e;font-weight:700}
 .st-hist{margin:12px 0 0;align-items:center}.st-hist .chipb[disabled]{opacity:.4}
 .vm-opts label{display:grid;gap:4px;font:400 11px/1 var(--display);letter-spacing:.04em;text-transform:uppercase}
 .an-prev{display:flex;justify-content:center;margin:8px 0 0}.an-prev canvas{width:120px;height:120px;border:2.5px solid var(--ink);border-radius:16px}
@@ -2688,7 +2693,7 @@ const vmBody = () => $('vmBody');
 function vmShow(title, html, info) { vmQuiet(); $('vm').hidden = false; $('vmTitle').textContent = title; vmBody().innerHTML = html || ''; document.querySelector('.vm-card').classList.remove('timing', 'studio');
   // the how-to for this step lives behind the "i" button, not on the page
   const ib = $('vmInfo'); ib.hidden = !info; ib.onclick = () => { const old = $('vmTip'); if (old) { old.remove(); return; }
-    const t = document.createElement('div'); t.className = 'vm-tip'; t.id = 'vmTip'; t.innerHTML = info + '<button class="vm-x" type="button" aria-label="Close">✕</button>';
+    const t = document.createElement('div'); t.className = 'vm-tip'; t.id = 'vmTip'; t.innerHTML = (typeof info === 'function' ? info() : info) + '<button class="vm-x" type="button" aria-label="Close">✕</button>';
     t.querySelector('.vm-x').onclick = () => t.remove(); ib.after(t); }; const old = $('vmTip'); if (old) old.remove(); }
 // closing the window silences it: the finished video loops with its sound, and hidden it would go on playing
 function vmQuiet() { document.querySelectorAll('#vm video, #vm audio').forEach(m => { try { m.pause(); } catch (e) {} }); }
@@ -3573,8 +3578,8 @@ function vmAddOnScreen(fi) {
 function vmAddPicker(el, after) {
   if (!el) return;
   const F = (VM.found || []).map((f, i) => [f, i]).filter(([f]) => !f.used);
-  el.innerHTML = `<div class="vm-h">Add someone</div>` +
-    (F.length ? `<p class="note" style="margin:0 0 6px">Faces it saw. Tap one: they get their own Nibble and the parts where they're in the picture.</p><div class="vm-addf">${F.map(([f, i]) => `<button type="button" class="vm-addb" data-f="${i}" aria-label="Add this person"><canvas width="96" height="96"></canvas><span>${fmtT(f.t0)}</span></button>`).join('')}</div>` : '') +
+  el.innerHTML = `<div class="vm-h">Add someone <span>${F.length ? 'tap a face it found, or:' : ''}</span></div>` +
+    (F.length ? `<div class="vm-addf">${F.map(([f, i]) => `<button type="button" class="vm-addb" data-f="${i}" aria-label="Add this person"><canvas width="96" height="96"></canvas><span>${fmtT(f.t0)}</span></button>`).join('')}</div>` : '') +
     `<div class="vm-row"><button type="button" class="chipb seg" data-f="new">🙂 Someone it missed (on screen)</button>${VM.people.some(p => p.off) ? '' : '<button type="button" class="chipb seg" data-f="voice">🎙️ A voice off camera</button>'}<button type="button" class="chipb seg" data-f="x">Cancel</button></div>`;
   el.querySelectorAll('.vm-addb canvas').forEach((c, k) => { try { c.getContext('2d').drawImage(F[k][0].thumb, 0, 0, 96, 96); } catch (e) {} });
   el.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { const k = b.dataset.f; if (k === 'x') { el.innerHTML = ''; return after && after(null); }
@@ -3606,11 +3611,8 @@ function vmStudio() {
     <div id="vmTab"></div>
     <div class="vm-row st-hist"><button class="chipb seg" id="vmUndo" type="button">↶ Undo</button><button class="chipb seg" id="vmReset" type="button">Start over</button><span style="flex:1"></span><button class="chipb seg" id="vmNewVid" type="button">Another video</button></div>
     <button class="vm-go" id="edMake" type="button">Make my video</button>`,
-    `<p>The picture on top is your video as it'll come out. Press ▶ to watch it, slide the bar to move through it, or tap 🎞 to see the original.</p>
-    <p><b>People</b>: who plays whom. Tap a Nibble to change it, ⇆ turns it round. <b>Everyone else</b> is the crowd (a choir, a band): they stand in a row behind.</p>
-    <p><b>Look</b>: background, music, shape and words on the video.</p>
-    <p><b>Timing</b>: who talks when, if it got someone wrong.</p>
-    <p>Nothing is lost going between tabs. <b>Undo</b> takes back the last change, <b>Start over</b> goes back to how it was first found.</p>`);
+    vmHelp);
+
   document.querySelector('.vm-card').classList.add('studio');   // one steady height while editing (nothing jumps when a tab or panel changes size)
   const v = $('edVid'); v.src = VM.url; ED.v = v;
   $('edPP').onclick = () => { if (v.paused) { edAudio(); if (v.currentTime >= VM.dur - 0.05) v.currentTime = 0; v.play().catch(() => {}); } else v.pause(); };
@@ -3627,6 +3629,19 @@ function vmStudio() {
   if (!VM.tab || (VM.tab === 'timing' && !P.length)) VM.tab = 'people';
   vmTabShow(); vmUndoBtns();
   edPreviewOn();
+}
+// the how-to behind the "i" button: the picture on top, then the tab that's open
+function vmHelp() {
+  const top = `<p>The picture on top is your video as it'll come out: ▶ plays it, the bar moves through it, 🎞 shows the original. <b>Undo</b> takes back the last change, <b>Start over</b> goes back to how it was first found.</p>`;
+  if (VM.tab === 'look') return top + `<p><b>Background, music, shape</b> are for the whole video (one part can have its own background on the Timing tab, 🖼). Music plays quietly under the video's own sound.</p>
+    <p><b>Words</b> stay on screen the whole video, at the top or bottom.</p>
+    <p><b>Captions</b> write what people say as they say it. They're read on your device; the first time it downloads its word reader (about 40 MB). English only. Fix any word in the list.</p>`;
+  if (VM.tab === 'timing') return top + `<p>Each row is someone, each coloured block is when they talk. <b>Tap</b> a block to pick it, <b>drag</b> it to move it (up or down gives it to someone else), drag its <b>yellow ends</b> to trim it. Tap a row's Nibble to highlight the row; tap it again to change the Nibble.</p>
+    <p><b>✂︎ Split</b> cuts the picked block at the red line. <b>＋ Line</b> adds a block to the highlighted row at the red line. <b>🗑</b> deletes the picked block, <b>🖼</b> gives it its own background. <b>− +</b> zoom.</p>
+    <p>The badge on a block says who's on screen then: <b>1</b> just them, <b>2</b> two side by side, <b>👥</b> everyone. Pick a block to change it. ${VM.back ? 'The purple <b>Backing</b> row is when the row behind sings. ' : ''}<b>＋</b> under the rows adds someone.</p>`;
+  return top + `<p><b>Who's on screen</b> sets the whole video: one at a time, two side by side, or everyone (the row behind). To change one part, pick it on the Timing tab.</p>
+    <p>Each person found → their Nibble. Tap the Nibble or <b>Change Nibble</b> to pick another, <b>⇆</b> turns it round. <b>⋯</b>: the same person found twice, or take someone out.</p>
+    <p><b>🎲 New Nibbles</b> picks new ones that look a bit like the people (skin, glasses, hats). <b>＋ Add someone</b>: a face it found, someone it missed, or a voice off camera.</p>`;
 }
 // after a change (or an undo): the tab, the preview's shape and Nibbles, the timeline
 function vmStudioSync() {
@@ -3664,21 +3679,23 @@ function vmPeopleTab(el) {
     const talks = (VM.lines || []).filter(l => l.who === i).reduce((a, l) => a + l.t1 - l.t0, 0);
     sub.textContent = p.off ? 'a voice you hear but don’t see' : p.noface ? (p.added ? 'added: moves with the voice' : 'no face found: moves with the sound') : p.added ? 'added: on screen' : i === VM.main ? (P.length > 1 ? 'on screen most' : 'the one the video’s about') : talks > 0.5 ? `talks ${Math.round(talks)}s` : 'on screen a lot';
     const chg = document.createElement('button'); chg.type = 'button'; chg.className = 'chipb seg vm-chg'; chg.textContent = 'Change Nibble'; chg.onclick = () => nib.click();
-    tag.append(lb, sub, chg);
+    const acts = document.createElement('div'); acts.className = 'vm-acts'; acts.append(chg); tag.append(lb, sub, acts);
+    // the rarer things, in one small menu: the same person found twice (a hand over the face), or take them out
     const others = P.map((q, j) => j).filter(j => j !== i && vmRoot(j) !== i && !P[j].off);
-    if (others.length && !p.off) {   // one person found twice (a hand over the face): link them
-      const sel = document.createElement('select'); sel.className = 'vm-same' + (VM.same[i] != null ? ' on' : ''); sel.setAttribute('aria-label', 'Same person as');
-      sel.innerHTML = `<option value="">${VM.same[i] != null ? 'Own Nibble' : 'Same as…'}</option>` + others.map(j => `<option value="${j}"${VM.same[i] === j ? ' selected' : ''}>Same as ${pLabel(j)}</option>`).join('');
-      sel.onchange = () => vmDo(() => { if (sel.value === '') delete VM.same[i]; else { VM.same[i] = +sel.value; for (const k of Object.keys(VM.same)) if (VM.same[k] === i) VM.same[k] = +sel.value; } vmLink(); });
-      tag.appendChild(sel);
+    if ((others.length && !p.off) || P.length > 1) {
+      const sel = document.createElement('select'); sel.className = 'vm-same vm-more' + (VM.same[i] != null ? ' on' : ''); sel.setAttribute('aria-label', 'More for ' + pLabel(i));
+      sel.innerHTML = `<option value="">${VM.same[i] != null ? 'Same as ' + pLabel(VM.same[i]) : '⋯'}</option>` + (VM.same[i] != null ? '<option value="own">Own Nibble</option>' : '') +
+        (p.off ? '' : others.filter(j => VM.same[i] !== j).map(j => `<option value="${j}">Same person as ${pLabel(j)}</option>`).join('')) + (P.length > 1 ? `<option value="out">Take out ${pLabel(i)}</option>` : '');
+      sel.onchange = () => { const v = sel.value; if (!v) return; vmDo(() => {
+        if (v === 'out') vmRemovePerson(i); else if (v === 'own') { delete VM.same[i]; vmLink(); }
+        else { VM.same[i] = +v; for (const k of Object.keys(VM.same)) if (VM.same[k] === i) VM.same[k] = +v; vmLink(); } }); };
+      acts.appendChild(sel);
     }
     const fl = document.createElement('button'); fl.type = 'button'; fl.className = 'vm-flip' + (VM.flip[i] ? ' on' : ''); fl.textContent = '⇆'; fl.setAttribute('aria-label', 'Face the other way');
     fl.onclick = () => vmDo(() => { const r = vmRoot(i); VM.flip[r] = !VM.flip[r]; vmLink(); });
     const nw = document.createElement('span'); nw.className = 'vm-nibw'; nw.append(nib, fl);
     const arrow = document.createElement('span'); arrow.className = 'vm-arr'; arrow.textContent = '→';
-    if (P.length > 1) { const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'vm-rm'; rm.textContent = '✕'; rm.setAttribute('aria-label', 'Take out ' + pLabel(i));
-      rm.onclick = () => vmDo(() => vmRemovePerson(i)); d.append(face, arrow, nw, tag, rm); }
-    else d.append(face, arrow, nw, tag);
+    d.append(face, arrow, nw, tag);
     box.appendChild(d);
   });
   if (VM.crowd && VM.crowd.n) {   // everyone else: their faces, then the Nibbles in the row behind (each one can be changed)
@@ -3727,8 +3744,7 @@ function vmLookTab(el) {
       <label class="vm-txt">Words on the video<input id="vmText" type="text" maxlength="60" placeholder="e.g. Happy Birthday Mom!" value="${esc(VM.text || '')}"></label>
       <label>Where<select id="vmTextAt">${opt([['top', 'Top'], ['bottom', 'Bottom']], VM.textAt)}</select></label>
     </div>
-    <p class="note">Music plays quietly under the video's own sound. Each line can have its own background too (Timing tab).</p>
-    <div class="vm-h">Captions <span>the words people say, as they say them</span></div>
+    <div class="vm-h">Captions</div>
     <div id="vmCap"></div>`;
   vmCapPanel();
   $('vmBg').onchange = e => vmDo(() => { VM.bg = e.target.value; });
@@ -3742,15 +3758,16 @@ function vmCapPanel() {
   const el = $('vmCap'); if (!el) return; const C = VM.cap;
   const opt = (k, label, on) => `<button type="button" class="chipb seg${on ? ' on' : ''}" data-k="${k}">${label}</button>`;
   if (C.busy) { el.innerHTML = `<p class="note" id="vmCapMsg">${esc(C.msg || 'Starting…')}</p>`; return; }
-  if (!C.words) { el.innerHTML = `<div class="vm-row">${opt('make', '💬 Add captions', false)}</div>` + (C.err ? `<p class="note warn">That didn't work (${esc(C.err)}). Try again.</p>` : `<p class="note">Reads the words right here on your device. The first time it downloads its word reader (about 40 MB). English only for now.</p>`); }
+  if (!C.words) { el.innerHTML = `<div class="vm-row">${opt('make', '💬 Add captions', false)}</div>` + (C.err ? `<p class="note warn">That didn't work (${esc(C.err)}). Try again.</p>` : ''); }
   else {
     const L = capLines();
-    el.innerHTML = `<div class="vm-row">${opt('on', C.on ? '✓ Captions on' : 'Captions off', C.on)}${opt('style:pop', 'Pop words', C.style !== 'line')}${opt('style:line', 'Full lines', C.style === 'line')}${opt('make', '↻ Read again', false)}</div>` +
-      (L.length ? `<p class="note">Fix any word: edit a line, then tap away.</p><div class="cap-list">${L.map((l, i) => `<label><span>${fmtT(l.t0)}</span><input type="text" data-i="${i}" value="${esc(l.words.map(w => w.w).join(' '))}"></label>`).join('')}</div>` : '<p class="note">No words were heard in this video.</p>');
+    el.innerHTML = `<div class="vm-capr">${selRow('Show', 'cap', [['off', 'Off'], ['pop', 'Pop words'], ['line', 'Full lines']], !C.on ? 'off' : C.style === 'line' ? 'line' : 'pop')}${opt('make', '↻', false)}</div>` +
+      (L.length ? `<div class="cap-list">${L.map((l, i) => `<label><span>${fmtT(l.t0)}</span><input type="text" data-i="${i}" value="${esc(l.words.map(w => w.w).join(' '))}"></label>`).join('')}</div>` : '<p class="note">No words were heard in this video.</p>');
   }
   el.querySelectorAll('button').forEach(b => b.onclick = async () => { const k = b.dataset.k;
     if (k === 'make') { C.msg = 'Starting…'; vmCapPanel(); await vmTranscribe(m => { C.msg = m; const x = $('vmCapMsg'); if (x) x.textContent = m; }); vmFit(); vmCapPanel(); return; }
     vmDo(() => { if (k === 'on') C.on = !C.on; else if (k.startsWith('style:')) C.style = k.slice(6); }); vmFit(); vmCapPanel(); });
+  el.querySelectorAll('select[data-s="cap"]').forEach(sel => sel.onchange = () => { vmDo(() => { const v = sel.value; C.on = v !== 'off'; if (v !== 'off') C.style = v; }); vmFit(); vmCapPanel(); });
   // a corrected line: its new words share its time, in proportion to their length
   el.querySelectorAll('.cap-list input').forEach(inp => inp.onchange = () => vmDo(() => {
     const l = capLines()[+inp.dataset.i]; if (!l) return; const ws = inp.value.trim().split(/\s+/).filter(Boolean), i0 = C.words.indexOf(l.words[0]);
@@ -3758,36 +3775,22 @@ function vmCapPanel() {
     C.words.splice(i0, l.words.length, ...nw); }));
 }
 function vmTimingTab(el) {
-  el.innerHTML = `<p class="note" style="margin-top:2px">Each coloured block is when that Nibble talks. Tap a block to pick it, drag it to move it (up or down gives it to someone else), drag its yellow ends to trim it.</p>
-    <div class="ed-tl"><div class="ed-heads" id="edHeads"></div><div class="ed-scroll" id="edScroll"><div class="ed-inner" id="edInner"></div></div></div>
-    <div class="ed-show" id="edShow"></div>
-    <div class="ed-bar" style="margin-top:6px"><button class="chipb seg" id="edStart" type="button" aria-label="Go to the start">⏮</button><button class="chipb seg" id="edEnd" type="button" aria-label="Go to the end">⏭</button><span style="flex:1"></span><button class="chipb seg" id="edZo" type="button" aria-label="Zoom out">−</button><button class="chipb seg" id="edZi" type="button" aria-label="Zoom in">+</button></div>
-    <div class="ed-tools">
-      <button class="chipb seg" id="edSplit" type="button">✂︎ Split</button><button class="chipb seg" id="edAdd" type="button">＋ Line</button>
-      <button class="chipb seg" id="edDel" type="button">🗑 Delete</button><button class="chipb seg" id="edBg" type="button">🖼 Background</button></div>
-    <div class="ed-tools"><button class="chipb seg" id="edAddP" type="button">👤＋ Speaker</button><button class="chipb seg" id="edRmP" type="button">👤✕ Remove</button></div>
-    <p class="ed-hint" id="edHint"></p>`;
-  const v = ED.v;
-  const jump = t => { v.currentTime = t; const sc = $('edScroll'); sc.scrollTo({ left:t <= 0 ? 0 : sc.scrollWidth, behavior:'smooth' }); edTick(); };
-  $('edStart').onclick = () => jump(0); $('edEnd').onclick = () => jump(Math.max(0, VM.dur - 0.05));
+  el.innerHTML = `<div class="ed-tl"><div class="ed-heads" id="edHeads"></div><div class="ed-scroll" id="edScroll"><div class="ed-inner" id="edInner"></div></div></div>
+    <div class="ed-tools"><button class="chipb seg" id="edSplit" type="button" aria-label="Split the block at the red line">✂︎ Split</button><button class="chipb seg" id="edAdd" type="button" aria-label="Add a block at the red line">＋ Line</button>
+      <button class="chipb seg" id="edDel" type="button" aria-label="Delete the picked block">🗑</button><button class="chipb seg" id="edBg" type="button" aria-label="Background for the picked block">🖼</button>
+      <span style="flex:1"></span><button class="chipb seg" id="edZo" type="button" aria-label="Zoom out">−</button><button class="chipb seg" id="edZi" type="button" aria-label="Zoom in">+</button></div>
+    <p class="ed-hint" id="edHint"></p>
+    <div class="ed-show" id="edShow" hidden></div>`;
   $('edZi').onclick = () => { ED.pps = Math.min(160, ED.pps * 1.5); edDraw(); };
   $('edZo').onclick = () => { ED.pps = Math.max(8, ED.pps / 1.5); edDraw(); };
   $('edSplit').onclick = edSplit; $('edAdd').onclick = edAdd; $('edDel').onclick = edDel;
-  // a new speaker row (someone the video missed, or a voice off camera: drag blocks into it, or ＋ Line); the highlighted
-  // row's speaker taken out (their blocks go to the main person)
-  $('edAddP').onclick = () => edAddSpeaker();
-  $('edRmP').onclick = () => { const i = ED.lane, P = VM.people;
-    if (i < 0) return edHint('Tap a speaker’s row first (the Backing row stays: 🗑 takes out its parts).');
-    if (P.length < 2 || !P[i]) return edHint('There has to be at least one speaker.');
-    const nm = pName(i); vmMark(); vmRemovePerson(i); ED.lane = Math.min(VM.main, VM.people.length - 1); ED.sel = null; edDraw();
-    edHint(`${nm} taken out: their parts went to ${pName(VM.main)}. ↶ Undo brings them back.`, true); };
   $('edBg').onclick = () => { const l = ED.sel; if (!l || l.bk) return edHint(l ? 'Backgrounds go with a speaker’s part: tap a block in a speaker’s row, then 🖼.' : 'Tap a block first, then 🖼 sets the background for just that part.');
     pickBackground(l.bg || VM.bg, name => vmDo(() => { if (name === VM.bg) delete l.bg; else l.bg = name; vmLinesToTimeline(); })); };
   edDraw(); edHint();
 }
 // a new row: someone it saw, someone it missed, or a voice off camera (picked in the panel under the timeline)
 function edAddSpeaker() {
-  ED.sel = null; const el = $('edShow'); if (!el) return;
+  ED.sel = null; const el = $('edShow'); if (!el) return; el.hidden = false;
   vmAddPicker(el, i => { if (i == null) { edShowPanel(); return; } ED.lane = i;
     edHint(`${pName(i)} added (highlighted row).${VM.people[i].n ? ' They have the parts where they’re in the picture.' : ''} Drag a block into their row, or put the red line where they talk and tap ＋ Line. Their Nibble is on the People tab.`, true); });
   el.scrollIntoView({ block:'nearest', behavior:'smooth' });
@@ -3796,9 +3799,7 @@ function edAddSpeaker() {
 function edHint(msg, ok) {
   const h = $('edHint'); if (!h) return;
   h.classList.toggle('warn', !!msg && !ok);
-  h.textContent = msg || (ED.sel && ED.sel.bk ? `Picked: backing vocals, ${fmtT(ED.sel.t0)}–${fmtT(ED.sel.t1)}. ✂︎ Split cuts it at the red line; 🗑 takes out a part where the row behind doesn't sing.`
-    : ED.sel ? `Picked: ${pName(ED.sel.who)}, ${fmtT(ED.sel.t0)}–${fmtT(ED.sel.t1)}. ✂︎ Split cuts it in two at the red line, so part of it can go to someone else.`
-    : 'Tap a block to pick it. ✂︎ Split cuts a block in two at the red line. ＋ Line adds one for the highlighted Nibble where the red line is.');
+  h.textContent = msg || '';
 }
 // ---------------------------------------------------------------------------
 // The line editor: the clip on top, a filmstrip, and one row per speaker (their Nibble at the left). Each coloured
@@ -3958,9 +3959,12 @@ function edDraw() {
   const ph = document.createElement('div'); ph.className = 'ed-ph'; ph.id = 'edPh'; inner.appendChild(ph);
   if (ED.addH) { heads.appendChild(ED.addH); const pad = document.createElement('div'); pad.className = 'ed-addpad'; inner.appendChild(pad); }   // ＋ under the last row
   $('edDel').disabled = !ED.sel;
-  { const r = $('edRmP'); if (r) { const ok = ED.lane >= 0 && VM.people[ED.lane]; r.disabled = VM.people.length < 2 || !ok; r.textContent = '👤✕ Remove' + (ok ? ' ' + pName(ED.lane) : ''); } }
   edTick(); edHint(); edShowPanel();
 }
+// a choice as a dropdown: a short label and a pill-shaped menu (instead of rows of buttons that wrap on a phone)
+const selRow = (label, key, opts, cur) => `<label class="vm-pickr"><span>${label}</span><select class="vm-pick" data-s="${key}">${opts.map(([v, t, dis]) => `<option value="${v}"${v === cur ? ' selected' : ''}${dis ? ' disabled' : ''}>${t}</option>`).join('')}</select></label>`;
+const ROW_BEHIND = [['parts', 'Sings in the Backing parts'], ['always', 'Sings all the time'], ['never', 'Stays quiet']];
+const rowBehindNow = () => !VM.sing ? 'never' : VM.backAll ? 'always' : 'parts';
 // the whole video at once (People tab): one at a time, two side by side, or everyone. A part changed on its own on the
 // Timing tab makes it "mixed"; picking here again sets every part.
 function vmWhoPanel(el) {
@@ -3970,22 +3974,20 @@ function vmWhoPanel(el) {
   const a = vmRoot(VM.main), b = cast.filter(i => i !== a).sort((x, y) => talk(y) - talk(x))[0];
   const modes = new Set(L.map(l => l.show || 'solo')), cur = modes.size === 1 ? [...modes][0] : L.length ? 'mixed' : 'solo';
   const all = VM.crowd || cast.length > 2, duo = b != null, l0 = L.find(l => l.show === 'both');
-  const opt = (k, label, on) => `<button type="button" class="chipb seg vm-wb${on ? ' on' : ''}" data-k="${k}">${label}</button>`;
-  el.innerHTML = `<div class="vm-h">Who's on screen</div><div class="vm-row">` +
-    opt('solo', '🙂 One at a time', cur === 'solo') + (duo ? opt('both', '👯 Two side by side', cur === 'both') : '') + (all ? opt('all', '👥 Everyone', cur === 'all') : '') + `</div>` +
-    (cur === 'both' && l0 ? `<div class="vm-row">${opt('face:each', '↔ Facing each other', l0.face !== 'same')}${opt('face:same', '→ → Same way', l0.face === 'same')}</div>
-      <div class="vm-row">${opt('sing:one', 'Only the one talking moves', !l0.together)}${opt('sing:both', 'Both sing / talk at once', !!l0.together)}</div>` : '') +
-    (cur === 'all' && VM.back ? `<div class="vm-row">${['parts:🎶 Row behind sings in the Backing parts', 'always:Sings all the time', 'never:Never sings'].map(x => { const [k, lb] = x.split(':'), on = k === 'never' ? !VM.sing : VM.sing && (k === 'always') === !!VM.backAll; return opt('bs:' + k, lb, on); }).join('')}</div>` : '') +
-    `<p class="note">${cur === 'mixed' ? 'Mixed: some parts are set on their own. Pick one above to set every part, or ' : 'To change just one part, '}go to <b>Timing</b> and tap that part.</p>`;
-  el.querySelectorAll('button').forEach(btn => btn.onclick = () => vmDo(() => {
-    const k = btn.dataset.k;
+  el.innerHTML = `<div class="vm-picks">` +
+    selRow('On screen', 'show', [...(cur === 'mixed' ? [['mixed', 'Mixed (set per part)', true]] : []), ['solo', 'One at a time'], ...(duo ? [['both', 'Two side by side']] : []), ...(all ? [['all', 'Everyone']] : [])], cur) +
+    (cur === 'both' && l0 ? selRow('Facing', 'face', [['each', 'Each other'], ['same', 'The same way']], l0.face === 'same' ? 'same' : 'each') +
+      selRow('Mouths', 'sing', [['one', 'Only the one talking'], ['both', 'Both at once']], l0.together ? 'both' : 'one') : '') +
+    (cur === 'all' && VM.back ? selRow('Row behind', 'bs', ROW_BEHIND, rowBehindNow()) : cur === 'all' && VM.crowd ? selRow('Row behind', 'bs', [['always', 'Sings along'], ['never', 'Stays quiet']], VM.sing ? 'always' : 'never') : '') + `</div>`;
+  el.querySelectorAll('select').forEach(sel => sel.onchange = () => vmDo(() => {
+    const key = sel.dataset.s, v = sel.value, k = key === 'show' ? v : key === 'face' ? 'face:' + v : key === 'sing' ? 'sing:' + v : 'bs:' + v;
     for (const l of VM.lines || []) {
       if (k === 'solo' || k === 'all') { l.show = k; delete l.with; }
       else if (k === 'both') { l.show = 'both'; l.with = vmRoot(l.who) === a ? b : a; l.face = l.face || 'each'; if (l.together == null) l.together = (VM.env && VM.env.nov && VM.env.nov.music > 0.3) || false; }
       else if (k.startsWith('face:') && l.show === 'both') l.face = k.slice(5);
       else if (k.startsWith('sing:') && l.show === 'both') l.together = k === 'sing:both';
     }
-    if (k.startsWith('bs:')) { VM.sing = k !== 'bs:never'; VM.backAll = k === 'bs:always'; }
+    if (k.startsWith('bs:')) { VM.sing = k !== 'bs:never'; VM.backAll = k === 'bs:always' && !!VM.back; }
     vmLinesToTimeline();
   }));
 }
@@ -3993,32 +3995,19 @@ function vmWhoPanel(el) {
 // way), or everyone (the row behind singing along or not). "Every part" sets it for the whole video.
 function edShowPanel() {
   const el = $('edShow'); if (!el) return; const l = ED.sel;
-  const backRow = () => VM.back ? `<div class="vm-h">Row behind sings</div><div class="vm-row">${['parts:🎶 In the Backing parts', 'always:All the time', 'never:Never'].map(x => { const [k, lb] = x.split(':'), on = k === 'never' ? !VM.sing : VM.sing && (k === 'always') === !!VM.backAll; return `<button type="button" class="chipb seg${on ? ' on' : ''}" data-bs="${k}">${lb}</button>`; }).join('')}</div>` : '';
-  const wireBack = () => el.querySelectorAll('[data-bs]').forEach(b => b.onclick = () => vmDo(() => { const k = b.dataset.bs; VM.sing = k !== 'never'; VM.backAll = k === 'always'; }));
-  if (l && l.bk) { el.innerHTML = `<div class="vm-h">Backing vocals <span>(${fmtT(l.t0)}–${fmtT(l.t1)})</span></div><p class="note" style="margin:0 0 6px">The row behind sings in the purple parts, the lead in his own row. Drag the ends to fit, ✂︎ to cut, 🗑 where they don't sing, ＋ Line (Backing row highlighted) to add a part.</p>${backRow()}`; wireBack(); return; }
-  if (!l) { el.innerHTML = `<div class="vm-h">On screen in each part</div><p class="note" style="margin:0 0 4px">Tap a coloured block to choose who's on screen in it: just that one, two side by side, or everyone. The badge on each block shows it (1, 2, 👥).${VM.back ? ' The purple Backing row is when the row behind sings.' : ''}</p>${backRow()}`; wireBack(); return; }
+  el.hidden = !l;
+  if (!l) { el.innerHTML = ''; return; }
+  if (l.bk) { el.innerHTML = `<div class="vm-h">Backing part <span>${fmtT(l.t0)}–${fmtT(l.t1)}</span></div>`; return; }
   const P = VM.people, cast = P.map((q, i) => i).filter(i => !P[i].off && vmRoot(i) === i), others = cast.filter(i => i !== l.who);
-  const cur = l.show || 'solo', all = VM.crowd || cast.length > 2;
-  const opt = (key, label, on) => `<button type="button" class="chipb seg${on ? ' on' : ''}" data-k="${key}">${label}</button>`;
-  el.innerHTML = `<div class="vm-h">On screen in this part <span>(${fmtT(l.t0)}–${fmtT(l.t1)})</span></div><div class="vm-row">` +
-    opt('solo', 'Just ' + pName(l.who), cur === 'solo') +
-    others.map(j => opt('both:' + j, pName(l.who) + ' + ' + pName(j), cur === 'both' && l.with === j)).join('') +
-    (all ? opt('all', 'Everyone', cur === 'all') : '') + `</div>` +
-    (cur === 'both' ? `<div class="vm-row">${opt('sing:one', 'Only ' + pName(l.who) + ' sings / talks', !l.together)}${opt('sing:both', 'Both at once', !!l.together)}</div>
-      <div class="vm-row">${opt('face:each', '↔ Facing each other', l.face !== 'same')}${opt('face:same', '→ → Same way', l.face === 'same')}</div>
-      <p class="note" style="margin:2px 0 4px">Both stay on screen. To switch who's talking, split the part (✂︎) and drag one half to the other's row.</p>` : '') +
-    (cur === 'all' ? (VM.back ? backRow() : `<div class="vm-row">${opt('sing', VM.sing ? '✓ Row behind sings along' : 'Row behind sings along', VM.sing)}</div>`) : '') +
-    `<div class="vm-row"><button type="button" class="chipb seg" data-k="every">Use this for every part</button></div>`;
-  wireBack();
-  el.querySelectorAll('button[data-k]').forEach(b => b.onclick = () => vmDo(() => {
-    const k = b.dataset.k;
-    if (k === 'solo' || k === 'all') { l.show = k; delete l.with; }
-    else if (k.startsWith('both:')) { l.show = 'both'; l.with = +k.slice(5); l.face = l.face || 'each'; }
-    else if (k.startsWith('face:')) l.face = k.slice(5);
-    else if (k.startsWith('sing:')) l.together = k === 'sing:both';
-    else if (k === 'sing') VM.sing = !VM.sing;
-    else if (k === 'every') for (const o of VM.lines) { o.show = l.show; o.face = l.face; o.together = l.together;
-      if (l.show === 'both') { o.with = o.who === l.with ? l.who : l.with; if (o.with === o.who) o.show = 'solo'; } else delete o.with; }
+  const cur = l.show === 'both' ? 'both:' + l.with : l.show || 'solo', all = VM.crowd || cast.length > 2;
+  el.innerHTML = `<div class="vm-h">This part <span>${pName(l.who)} · ${fmtT(l.t0)}–${fmtT(l.t1)}</span></div><div class="vm-picks">` +
+    selRow('On screen', 'show', [['solo', 'Just ' + pName(l.who)], ...others.map(j => ['both:' + j, pName(l.who) + ' + ' + pName(j)]), ...(all ? [['all', 'Everyone']] : [])], cur) +
+    (l.show === 'both' ? selRow('Facing', 'face', [['each', 'Each other'], ['same', 'The same way']], l.face === 'same' ? 'same' : 'each') +
+      selRow('Mouths', 'sing', [['one', 'Only ' + pName(l.who)], ['both', 'Both at once']], l.together ? 'both' : 'one') : '') + `</div>`;
+  el.querySelectorAll('select').forEach(sel => sel.onchange = () => vmDo(() => {
+    const key = sel.dataset.s, v = sel.value;
+    if (key === 'show') { if (v.startsWith('both:')) { l.show = 'both'; l.with = +v.slice(5); l.face = l.face || 'each'; } else { l.show = v; delete l.with; } }
+    else if (key === 'face') l.face = v; else if (key === 'sing') l.together = v === 'both';
     vmLinesToTimeline();
   }));
 }
