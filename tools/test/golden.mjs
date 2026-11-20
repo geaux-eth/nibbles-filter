@@ -5,6 +5,9 @@
 // step gives up (the page then carries on without voices, as before). LOG=1 prints the page's messages; TMO=ms wait.
 // Mouth checks read the mouth track itself (window.__nf.voicedTrack, every moment counted as inside a line); MOUTHOFF=1
 // runs them without the laugh rule (they must fail then). SND=1 dumps the sound readings, PROG=1 prints the bar's steps.
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+import fs from 'fs';
+import { serve } from '../serve2.mjs';
 const S = '/tmp/claude-0/-home-claude/983647b0-485b-5cec-a0d0-3276a7c1b795/scratchpad', mp = S + '/mp', G = process.env.GDIR || S + '/golden';
 const PAGE = process.env.PAGE || 'beta/index.html', FRESH = !!process.env.FRESH;
 const ov = (l, a, b) => Math.min(l[1], b) - Math.max(l[0], a);
