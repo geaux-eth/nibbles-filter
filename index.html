@@ -3115,8 +3115,12 @@ async function vmAnalyse(file, grab, want) {
       if (VM.cancel) return;
     }
     // the voices (tests: read beforehand, or not at all)
-    if (!VM.voice && b && fa && !(T && T.noVoice)) { vmMsg('Listening to who’s talking…');
+    // (if the page died while listening last time (out of memory: the phone reloads it), this phone skips it for a week)
+    let died = 0; try { died = +localStorage.getItem('nfVoiceDied') || 0; } catch (e) {}
+    if (!VM.voice && b && fa && !(T && T.noVoice) && Date.now() - died > 7 * 864e5) { vmMsg('Listening to who’s talking…');
+      try { localStorage.setItem('nfVoiceDied', String(Date.now())); } catch (e) {}
       try { VM.voice = await vmVoicePrints(VM.trimmed ? vmSlice(b, part[0], part[1]) : b, fa.tf); } catch (e) { console.warn('voices', e); VM.voice = null; }
+      try { localStorage.removeItem('nfVoiceDied'); } catch (e) {}
       if (T && VM.voice) T.voiceOut = { win:VM.voice.win, hop:VM.voice.hop, t:VM.voice.t, rms:VM.voice.rms, e:VM.voice.e.map(a => Array.from(a, q => +q.toFixed(4))) }; }
     vmProg(100);
     VM.people = who.people.map(p => ({ feat:p.feat, smp:p.smp, thumb:p.thumb, t0:p.smp.length ? p.smp[0].t : p.t0, t1:p.smp.length ? p.smp[p.smp.length - 1].t : p.t1, n:p.smp.length, spans:p.spans, lipOk:p.lipOk }));
@@ -3494,24 +3498,27 @@ async function vmVoicePrints(b, tf) {
     for (let o = 0; o < c.o; o++) for (let z = 0; z < per; z++) f[o * per + z] = q[o * per + z] * sc[o];
     return { ...c, f:tf.tidy(() => tf.tensor4d(f, [c.o, c.i, c.k, c.k]).transpose([2, 3, 1, 0])), bias:tf.tensor1d(new Float32Array(bin, c.b, c.o)) }; });
   const conv = (x, c) => tf.conv2d(x, c.f, c.s, c.p).add(c.bias), relu = t => tf.relu(t);
-  const net34 = x => { x = relu(conv(x, W[0])); let i = 1;
+  // one block at a time, each block's leftovers freed before the next (all 34 layers' pictures kept at once came to
+  // ~700 MB of graphics memory for a 16 s piece: more than an iPhone gives a page, so Safari reloaded it)
+  let peak = 0; const step = (x, f) => { const y = tf.tidy(() => f(x)); x.dispose(); peak = Math.max(peak, tf.memory().numBytes); return y; };
+  const net34 = x => { x = step(x, x => relu(conv(x, W[0]))); let i = 1;
     for (const [nb, down] of [[3, false], [4, true], [6, true], [3, true]]) for (let k = 0; k < nb; k++) { const a = W[i++], bb = W[i++], sc = down && !k ? W[i++] : null;
-      x = relu(conv(relu(conv(x, a)), bb).add(sc ? conv(x, sc) : x)); }
+      x = step(x, x => relu(conv(relu(conv(x, a)), bb).add(sc ? conv(x, sc) : x))); }
     return x; };
-  // the whole sound in pieces of 16 s (with a second either side, so each piece's edges read as if it weren't cut)
+  // the whole sound in pieces of 8 s (with a second either side, so each piece's edges read as if it weren't cut)
   // if the phone's graphics chip stalls or is too slow, give up on voices and carry on without them (as before)
-  const Tm = Math.ceil(n / 8), M = new Float32Array(Tm * 2560), C = 1600, MG = 96, tEnd = performance.now() + (30 + 8 * b.duration) * 1000;
+  const Tm = Math.ceil(n / 8), M = new Float32Array(Tm * 2560), C = 800, MG = 96, tEnd = performance.now() + (30 + 8 * b.duration) * 1000;
   try {
     for (let s0 = 0; s0 < n; s0 += C) { if (VM.cancel) return null; vmMsg(`Listening to who’s talking… ${Math.round(100 * s0 / n)}%`);
       const a = Math.max(0, s0 - MG), z = Math.min(n, s0 + C + MG), L = z - a;
-      const y = tf.tidy(() => net34(tf.tensor4d(F.subarray(a * NB, z * NB), [L, NB, 1, 1]).transpose([3, 1, 0, 2])));   // (1, 80 bands, L frames, 1)
+      const y = net34(tf.tidy(() => tf.tensor4d(F.subarray(a * NB, z * NB), [L, NB, 1, 1]).transpose([3, 1, 0, 2])));   // (1, 80 bands, L frames, 1)
       let d; try { let to; d = await Promise.race([y.data(), new Promise((_, no) => { to = setTimeout(() => no(new Error('voices took too long')), Math.max(1000, tEnd - performance.now())); })]); clearTimeout(to); } finally { y.dispose(); }
       const H = y.shape[1], Wd = y.shape[2];
       const j0 = (s0 - a) >> 3, j1 = Math.min(Wd, j0 + Math.ceil((Math.min(n, s0 + C) - s0) / 8));
       for (let jj = j0; jj < j1; jj++) { const T = (s0 >> 3) + jj - j0; if (T >= Tm) break; for (let f = 0; f < H; f++) for (let c = 0; c < 256; c++) M[T * 2560 + c * 10 + f] = d[(f * Wd + jj) * 256 + c]; }
       await new Promise(r => setTimeout(r));
     }
-  } finally { for (const c of W) { c.f.dispose(); c.bias.dispose(); } }
+  } finally { for (const c of W) { c.f.dispose(); c.bias.dispose(); } VM.voiceMem = Math.round(peak / 1e6); }
   // each second: the average and spread of each of the 2560 over its frames -> 256 numbers
   const h = j.head, G = new Int8Array(bin, h.w, h.o * h.i), gs = new Float32Array(bin, h.sc, h.o), gb = new Float32Array(bin, h.b, h.o), mv = new Float32Array(bin, h.mv, h.o);
   const out = { win:1, hop:0.25, t:[], rms:[], e:[] }, v = new Float32Array(5120);
