@@ -3493,12 +3493,14 @@ async function vmVoicePrints(b, tf) {
       x = relu(conv(relu(conv(x, a)), bb).add(sc ? conv(x, sc) : x)); }
     return x; };
   // the whole sound in pieces of 16 s (with a second either side, so each piece's edges read as if it weren't cut)
-  const Tm = Math.ceil(n / 8), M = new Float32Array(Tm * 2560), C = 1600, MG = 96;
+  // if the phone's graphics chip stalls or is too slow, give up on voices and carry on without them (as before)
+  const Tm = Math.ceil(n / 8), M = new Float32Array(Tm * 2560), C = 1600, MG = 96, tEnd = performance.now() + (30 + 8 * b.duration) * 1000;
   try {
-    for (let s0 = 0; s0 < n; s0 += C) { if (VM.cancel) return null;
+    for (let s0 = 0; s0 < n; s0 += C) { if (VM.cancel) return null; vmMsg(`Listening to who’s talking… ${Math.round(100 * s0 / n)}%`);
       const a = Math.max(0, s0 - MG), z = Math.min(n, s0 + C + MG), L = z - a;
       const y = tf.tidy(() => net34(tf.tensor4d(F.subarray(a * NB, z * NB), [L, NB, 1, 1]).transpose([3, 1, 0, 2])));   // (1, 80 bands, L frames, 1)
-      const d = await y.data(), H = y.shape[1], Wd = y.shape[2]; y.dispose();
+      let d; try { let to; d = await Promise.race([y.data(), new Promise((_, no) => { to = setTimeout(() => no(new Error('voices took too long')), Math.max(1000, tEnd - performance.now())); })]); clearTimeout(to); } finally { y.dispose(); }
+      const H = y.shape[1], Wd = y.shape[2];
       const j0 = (s0 - a) >> 3, j1 = Math.min(Wd, j0 + Math.ceil((Math.min(n, s0 + C) - s0) / 8));
       for (let jj = j0; jj < j1; jj++) { const T = (s0 >> 3) + jj - j0; if (T >= Tm) break; for (let f = 0; f < H; f++) for (let c = 0; c < 256; c++) M[T * 2560 + c * 10 + f] = d[(f * Wd + jj) * 256 + c]; }
       await new Promise(r => setTimeout(r));
