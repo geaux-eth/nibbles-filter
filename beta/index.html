@@ -3276,7 +3276,11 @@ function vmWho(scan, music) {
   // a duo's second singer, an interviewer (a choir's singers don't: their shots are full of faces their size)
   const own = p => p.faces.filter(f => { const sm = samples.find(x => x.n === f.n); if (!sm || f.s < 0.15) return false;
     const o = sm.faces.filter(g => g !== f).reduce((m, g) => Math.max(m, g.s), 0); return f.s >= o * 1.6; }).length * step;
-  const featured = others.filter(p => p.faces.length >= 4 && (p.score >= main.score * (music > 0.3 ? 0.75 : 0.4) || own(p) >= 1.5)).slice(0, 3);
+  // ...or, when it's talking and not a song, who's on screen a good while (3 s or more) with lips moving a lot: someone
+  // in the conversation who's always in a two-shot (a sitcom's fourth friend), not someone just standing there
+  const lipsOf = p => { const m = p.faces.map(f => f.mo || 0).sort((a, b) => a - b); return m.length ? m[Math.floor(m.length * 0.9)] - m[Math.floor(m.length * 0.1)] : 0; };
+  const talker = p => music <= 0.3 && p.faces.length * step >= 3 && lipsOf(p) >= 0.08;
+  const featured = others.filter(p => p.faces.length >= 4 && (p.score >= main.score * (music > 0.3 ? 0.75 : 0.4) || own(p) >= 1.5 || talker(p))).slice(0, 4);
   // everyone else: real people seen a while (a second and a half or more); a hand, a face turned away for a moment, a
   // pattern that looked like a face for a picture or two isn't someone
   // ...and not the faces of a cutaway (people in the street, a clip shown in an interview): never in a picture with the
@@ -3295,7 +3299,7 @@ function vmWho(scan, music) {
     if (hi - lo < 0.012) continue; for (const f of p.faces) { const a = byN.get(f.n) || []; a.push(Math.max(0, Math.min(1, ((f.mo || 0) - lo) / (hi - lo)))); byN.set(f.n, a); } }
   for (const sm of samples) { const a = byN.get(sm.n); sing.push({ t:sm.t, v:a && a.length ? a.reduce((x, y) => x + y, 0) / a.length : null, k:a ? a.length : 0 }); }
   VM.crowdSing = sing;
-  VM.whoDbg = ids.map(p => ({ n:p.faces.length, score:+p.score.toFixed(2), t0:p.t0, t1:p.t1, role:p === main ? 'main' : featured.includes(p) ? 'featured' : crowd.includes(p) ? 'crowd' : 'left out' }));
+  VM.whoDbg = ids.map(p => ({ n:p.faces.length, score:+p.score.toFixed(2), t0:+p.t0.toFixed(1), t1:+p.t1.toFixed(1), own:+own(p).toFixed(2), lips:+lipsOf(p).toFixed(3), cx:+(p.faces.reduce((a, f) => a + f.cx, 0) / p.faces.length).toFixed(2), role:p === main ? 'main' : featured.includes(p) ? 'featured' : crowd.includes(p) ? 'crowd' : 'left out' }));
   return { people:[main, ...featured], crowd:{ n:crowd.length, thumbs:crowd.slice(0, 8).map(p => p.thumb).filter(Boolean) }, step, fw, fh };
 }
 // where a person's face is at time t, from the first look (inside one of their tracks, or just past either end of one)
@@ -3426,7 +3430,8 @@ function vmTimeline() {
   };
   // each face's own "talking" level: how much its lips move at its busiest (faces that never talk stay near 0)
   for (const p of P) { const v = []; for (let t = 0; t < VM.dur; t += 0.2) { const a = activity(p, t); if (a >= 0) v.push(a); } v.sort((x, y) => x - y); p.busy = Math.max(0.6, v[Math.floor(v.length * 0.9)] || 0); }
-  const raw = [];
+  const raw = [], pf = env && env.pitch;
+  const laughy = t => { if (!pf) return false; const c = Math.floor(t * 50); let v = 0, m = 0; for (let j = Math.max(0, c - 20); j <= Math.min(pf.length - 1, c + 20); j++) { m++; if (pf[j] > 0) v++; } return m > 10 && v / m < 0.05; };
   for (let k = 0; k < n; k++) {
     // talking or singing: when the sound classifier ran, its say (any real sound it calls a voice; a song never goes quiet,
     // so 'louder than the quiet parts' can't tell); without it, clearly louder than the quiet parts
@@ -3439,6 +3444,9 @@ function vmTimeline() {
     // shuts with the sound itself, so the one whose mouth follows the voice best takes it
     if (cand.length > 1) { let bs = -9, w = who; for (const [i, rel] of cand) { const c = vmAVsync(i, t), sc = rel * (1 + 1.5 * Math.max(0, c)) - (c < -0.2 ? 0.3 : 0); if (sc > bs) { bs = sc; w = i; } }
       VM.avDbg.multi++; if (w !== who) VM.avDbg.changed++; if (!VM.noAV) who = w; }
+    // a laugh track, an audience, applause: loud, but almost none of it has a voice's pitch (many people at once, or
+    // breath). With no mouth on screen moving, that's nobody's line (and no made-up voice off camera)
+    if (speech && who < 0 && laughy(t)) { raw.push({ speech:false, who:-1, still:false }); if (VM.dbgT) VM.dbgT.push([+t.toFixed(2), 0, [], 1]); continue; }
     // (the only face on screen while someone talks, its lips too small or hidden to read (a mic, a hand, glasses): theirs.
     // A podcast cuts to whoever's talking)
     if (speech && who < 0) { const on = P.map((p, i) => i).filter(i => activity(P[i], t) >= 0); if (on.length === 1 && P[on[0]].lipOk === false) who = on[0]; }
@@ -3459,7 +3467,9 @@ function vmTimeline() {
   if (song) raw.forEach((r, k) => { if (!r.speech || r.who >= 0) return; let best = -1, bs = 0;
     P.forEach((p, i) => { const x = vmSample(i, k * dt); if (x && x.s > bs) { bs = x.s; best = i; } }); if (best >= 0) { r.who = best; r.off = false; } });
   if (song) offN = raw.filter(r => r.off && r.who < 0).length;
-  const OFF = offN * dt >= 1.5 && !song ? P.length : -1;
+  // (three or more people found: it's a conversation among them (a sitcom, a panel). Talking with no mouth seen moving
+  // is one of them whose lips were turned away, not someone off camera: no voice is made up; '＋ Add someone' can add one)
+  const OFF = offN * dt >= 1.5 && !song && P.filter(q => !q.off).length < 3 ? P.length : -1;
   if (OFF >= 0) P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 });
   // fill: talking but no moving mouth seen -> the last speaker; silence longer than 1 s -> the main character
   raw.forEach(r => { if (r.off && OFF >= 0 && r.who < 0) r.who = OFF; });
@@ -3602,9 +3612,10 @@ function vmDefaults() {
   VM.shape = VM.shape || S.shape || 'Square';
   vmRandom(true);
   const music = (VM.env && VM.env.nov && VM.env.nov.music) || 0, others = VM.people.filter(q => !q.off).length - 1;
-  // everyone together only for a real group behind (a choir, a band: two or more in a song, three or more otherwise).
-  // One other face in a song is someone standing by, not a row behind: making it 'everyone' made the end of a solo a duo
-  VM.group = VM.crowd && VM.crowd.n >= (music > 0.3 ? 2 : 3) ? 'all' : 'one';
+  // everyone together only for a real group behind in a song (a choir, a band: two or more). One other face in a song
+  // is someone standing by, not a row behind (making it 'everyone' made the end of a solo a duo); and in talking (a
+  // sitcom, a panel show, a street interview) the others in the picture have no part: they're left out by default
+  VM.group = VM.crowd && music > 0.3 && VM.crowd.n >= 2 ? 'all' : 'one';   // (talking, not a song: everyone else is just there)
   VM.sing = music > 0.3;
   VM.flip = null; vmFacing();
   for (let k = 3; k < 6; k++) VM.flip[CROWD0 + k] = true;

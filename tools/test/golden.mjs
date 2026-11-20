@@ -36,7 +36,15 @@ const CLIPS = {
     ['1 person (the one with the mic), no made-up extras', real(r).length === 1 && !r.people.some(p => p.off)],
     ['talks right through (1–2 lines)', r.lines.length >= 1 && r.lines.length <= 2]] },
   podcast10mp4:{ file:'wk/r10.mp4', checks:r => [['host talks from ~4.2 s', r.lines.length >= 1 && Math.abs(r.lines[0][0] - 4.2) < 0.4 && r.lines[0][2] === 0]] },
-  sitcom:{ file:'n1/seinfeld.webm', checks:r => [['read', r.lines.length > 0]] },
+  sitcom:{ file:'n1/seinfeld.webm', checks:r => { const at = t => { const l = r.lines.find(l => l[0] <= t && t < l[1]); return l ? l[2] : -1; }, K = at(3.5), G = at(9.5);
+    return [
+    ['no made-up voice off camera (the laugh track isn\'t a person)', !r.people.some(p => p.off)],
+    ['not "everyone on screen" by default (no row behind in a sitcom)', r.group !== 'all'],
+    ['4 people: Kramer, George, Jerry and Elaine', real(r).length === 4],
+    ['Kramer\'s close-ups are his lines (2–5.8, 12–14, 24–27 s)', K >= 0 && at(13) === K && at(25) === K],
+    ['George\'s close-up is his (8–11.9 s)', G >= 0 && G !== K],
+    ['Jerry/Elaine two-shots go to Jerry or Elaine', [15, 19.5, 22].every(t => at(t) >= 0 && at(t) !== K && at(t) !== G)],
+    ['the laugh at 6.6–8.2 s is nobody\'s line', at(6.8) === -1 && at(7.6) === -1]]; } },
   panel90:{ file:'n1/panel90.webm', checks:r => [['read', r.lines.length > 0]] },
   robotsEnd:{ file:'duo/rob_end.webm', checks:r => [
     ['ending: only the main robot sings → just them on screen (not 2, not everyone)', r.lines.filter(l => l[0] >= 3).every(l => l[3] === 'solo')]] },
