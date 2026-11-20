@@ -2981,12 +2981,14 @@ async function vmSoundKinds(b) {
 //    to read their mouths, blinks and head turns for their Nibbles.
 // ---------------------------------------------------------------------------
 const FA_V = '1.7.15', FA_URL = `https://cdn.jsdelivr.net/npm/@vladmandic/face-api@${FA_V}`;
-let FACEID = null;
+let FACEID = null, FACERES = null;
 function faceIdNet() {
   if (!FACEID) FACEID = (async () => {
     const fa = await import(`${FA_URL}/dist/face-api.esm.js`);
     try { await fa.tf.setBackend('webgl'); } catch (e) {}
     await fa.tf.ready(); await fa.nets.faceRecognitionNet.loadFromUri(`${FA_URL}/model`);
+    // (lab) a second, stronger recognizer: Human's faceres (MIT), 1024 numbers per face, on the same tf
+    try { FACERES = await fa.tf.loadGraphModel(`https://cdn.jsdelivr.net/npm/@vladmandic/human-models@3.0.4/models/faceres.json`); } catch (e) { console.warn('faceres', e); }
     return fa;
   })().catch(e => { console.warn('face id', e); FACEID = null; return null; });
   return FACEID;
@@ -3103,7 +3105,7 @@ async function vmAnalyse(file, grab, want) {
     vmMsg('Working out who’s who…'); VM.env = await envP;
     const who = vmWho(scan, (VM.env && VM.env.nov && VM.env.nov.music) || 0);
     if (T) T.who = who;   // (tests: the faces behind each person)
-    if (fa) { try { fa.nets.faceRecognitionNet.dispose(); } catch (e) {} FACEID = null; }   // its memory back (phones need it for the Nibbles)
+    if (fa) { try { fa.nets.faceRecognitionNet.dispose(); } catch (e) {} try { FACERES && FACERES.dispose(); } catch (e) {} FACERES = null; FACEID = null; }   // its memory back (phones need it for the Nibbles)
     const sig = p => p.tracks.map(tr => tr.faces[0].n + ':' + Math.round(tr.faces[0].cx * 100)).sort().join(',');
     const saved = T && T.followIn && who.people.length && who.people.every(p => T.followIn[sig(p)]);
     if (saved) who.people.forEach(p => Object.assign(p, T.followIn[sig(p)]));
@@ -3136,7 +3138,7 @@ function vmScanSave(scan) {
     tracks:scan.tracks.map(tr => ({ faces:tr.faces.map(id), last:tr.last, best:tr.best })), faces };
 }
 function vmScanLoad(d) {
-  const faces = d.faces.map(o => ({ ...o, desc:o.desc ? new Float32Array(o.desc) : o.desc, look:o.look ? new Float32Array(o.look) : o.look }));
+  const faces = d.faces.map(o => ({ ...o, desc:o.desc ? new Float32Array(o.desc) : o.desc, desc2:o.desc2 ? new Float32Array(o.desc2) : o.desc2, look:o.look ? new Float32Array(o.look) : o.look }));
   VM.cutT = d.cutT || [];
   return { step:d.step, fw:d.fw, fh:d.fh, samples:d.samples.map(sm => ({ ...sm, faces:sm.faces.map(i => faces[i]) })), tracks:d.tracks.map(tr => ({ ...tr, faces:tr.faces.map(i => faces[i]), thumb:null })) };
 }
@@ -3147,6 +3149,7 @@ async function vmScan(v, fa, prog) {
   const k = Math.min(1, 1280 / Math.max(VM.vw, VM.vh)), fw = Math.round(VM.vw * k), fh = Math.round(VM.vh * k);
   const fc = document.createElement('canvas'); fc.width = fw; fc.height = fh; const fg = fc.getContext('2d');
   const tc = document.createElement('canvas'), tg = tc.getContext('2d'), dc = document.createElement('canvas'); dc.width = dc.height = 150; const dg = dc.getContext('2d');
+  const d2c = document.createElement('canvas'); d2c.width = d2c.height = 224; const d2g = d2c.getContext('2d');
   // the look around a face (hat, hair, glasses, skin, collar): a small colour picture, to tell two people apart when the
   // face numbers can't (both in sunglasses and caps)
   const hc = document.createElement('canvas'); hc.width = hc.height = 12; const hg = hc.getContext('2d', { willReadFrequently:true });
@@ -3205,6 +3208,13 @@ async function vmScan(v, fa, prog) {
         dg.setTransform(1, 0, 0, 1, 0, 0); dg.fillStyle = '#808080'; dg.fillRect(0, 0, 150, 150);
         dg.setTransform(1, 0, 0, 1, 75, 75); dg.scale(150 / s, 150 / s); dg.rotate(-ang); dg.translate(-cx, -cy); dg.drawImage(fc, 0, 0); dg.setTransform(1, 0, 0, 1, 0, 0);
         const d = await fa.nets.faceRecognitionNet.computeFaceDescriptor(dc); f.desc = d.length === 128 ? d : d[0];
+        if (FACERES) {   // (lab) the same eyes-level face, bigger, for faceres
+          d2g.setTransform(1, 0, 0, 1, 0, 0); d2g.fillStyle = '#808080'; d2g.fillRect(0, 0, 224, 224);
+          d2g.setTransform(1, 0, 0, 1, 112, 112); d2g.scale(224 / s, 224 / s); d2g.rotate(-ang); d2g.translate(-cx, -cy); d2g.drawImage(fc, 0, 0); d2g.setTransform(1, 0, 0, 1, 0, 0);
+          const x = fa.tf.tidy(() => fa.tf.browser.fromPixels(d2c).toFloat().expandDims(0)), out = FACERES.execute(x), arr = Array.isArray(out) ? out : [out];
+          const dt = arr.find(t => t.shape[1] === 1024); if (dt) { const v = await dt.data(); let nn = 0; for (const q of v) nn += q * q; nn = Math.sqrt(nn) || 1; f.desc2 = Float32Array.from(v, q => q / nn); }
+          fa.tf.dispose(arr); x.dispose();
+        }
       } catch (e) { VM.err = String(e); }
       f.score = f.s * (1 - Math.min(1, Math.abs(((L[1].x - L[234].x) / ((L[454].x - L[234].x) || 1e-6)) - 0.5) * 2));
       f.mo = dist(L[13], L[14]) / (dist(L[10], L[152]) || 1e-6);   // how far apart the lips are (still lips: someone not talking)
