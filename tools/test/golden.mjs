@@ -36,6 +36,8 @@ const CLIPS = {
     ['1 person (the one with the mic), no made-up extras', real(r).length === 1 && !r.people.some(p => p.off)],
     ['talks right through (1–2 lines)', r.lines.length >= 1 && r.lines.length <= 2]] },
   podcast10mp4:{ file:'wk/r10.mp4', checks:r => [['host talks from ~4.2 s', r.lines.length >= 1 && Math.abs(r.lines[0][0] - 4.2) < 0.4 && r.lines[0][2] === 0]] },
+  sitcom:{ file:'n1/seinfeld.webm', checks:r => [['read', r.lines.length > 0]] },
+  panel90:{ file:'n1/panel90.webm', checks:r => [['read', r.lines.length > 0]] },
   robotsEnd:{ file:'duo/rob_end.webm', checks:r => [
     ['ending: only the main robot sings → just them on screen (not 2, not everyone)', r.lines.filter(l => l[0] >= 3).every(l => l[3] === 'solo')]] },
 };
@@ -54,7 +56,7 @@ async function run(name) {
   const b = await chromium.launch({ args:['--autoplay-policy=no-user-gesture-required', '--js-flags=--max-old-space-size=4096'] }); const pg = await b.newPage({ viewport:{ width:390, height:844 } });
   const errs = []; pg.on('pageerror', e => errs.push(String(e).slice(0, 200)));
   await routes(pg); await pg.goto('http://127.0.0.1:8765/' + PAGE); await pg.waitForFunction(() => window.__nf);
-  const T = { noLike:true, noAV:!!process.env.NOAV }; if (!FRESH && fs.existsSync(sf)) T.scanIn = JSON.parse(fs.readFileSync(sf)); if (!FRESH && fs.existsSync(ff)) T.followIn = JSON.parse(fs.readFileSync(ff));
+  const T = { noLike:true, noAV:!!process.env.NOAV, part:'whole' }; if (!FRESH && fs.existsSync(sf)) T.scanIn = JSON.parse(fs.readFileSync(sf)); if (!FRESH && fs.existsSync(ff)) T.followIn = JSON.parse(fs.readFileSync(ff));
   await pg.evaluate(T => { window.__T = T; }, T);
   await pg.click('#vidBtn'); await pg.setInputFiles('#vmFile', `${S}/${c.file}`);
   await pg.waitForSelector('#edMake', { timeout:1800000 });

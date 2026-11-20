@@ -242,6 +242,10 @@ header .credit b{font-weight:400}
 .vm-i[hidden]{display:none}
 .vm-tip{position:fixed;top:max(64px,calc(env(safe-area-inset-top) + 56px));left:50%;transform:translateX(-50%);width:min(400px,calc(100vw - 40px));max-height:70dvh;overflow:auto;z-index:40;background:#fffbe9;border:2.5px solid var(--ink);border-radius:14px;box-shadow:3px 4px 0 var(--ink);padding:12px 40px 12px 14px;font:500 14px/1.4 var(--body)}
 .vm-tip p{margin:0 0 8px}.vm-tip p:last-child{margin:0}
+.pp-strip{position:relative;display:flex;height:72px;border:2.5px solid var(--ink);border-radius:10px;overflow:hidden;margin:8px 0 0;background:#222;touch-action:none}.pp-strip img,.pp-strip span{flex:1;min-width:0;height:100%;object-fit:cover}
+.pp-win{position:absolute;top:0;bottom:0;border:4px solid #ffd43b;border-radius:8px;box-shadow:0 0 0 999px rgba(0,0,0,.45);cursor:grab;touch-action:none}
+.pp-talk{position:relative;height:8px;margin:4px 0 10px;background:#eee8da;border-radius:4px;overflow:hidden}.pp-talk i{position:absolute;top:0;bottom:0;background:#4caf50}
+.ed-trim{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:#5c5547;margin:-2px 0 4px}
 .vm-rep{margin-top:10px;padding-top:10px;border-top:2px dashed #d8cdb4;font-size:13px}.vm-rep textarea{display:block;width:100%;box-sizing:border-box;margin:6px 0;border:2px solid var(--ink);border-radius:10px;padding:6px 8px;font:500 16px/1.3 var(--body);resize:vertical}#vmRepSaid{font-size:12px}
 .vm-tip .vm-x{top:8px;right:8px;width:28px;height:28px;font-size:13px}
 .ed-bar{display:flex;align-items:center;gap:8px;margin:8px 0 6px}
@@ -2860,7 +2864,9 @@ async function vmDemuxAudio(file, ac) {
   } catch (e) {}
   return null;
 }
-async function vmEnvelope(file, grab) {
+async function vmEnvelope(file, grab) { const b = await vmDecode(file, grab); return b ? vmSoundOf(b) : null; }
+// the clip's sound as one buffer (null if it can't be had)
+async function vmDecode(file, grab) {
   try {
     const ac = audioCtx(); let b = null;
     try { if (window.__noDecode) throw 'test'; const ab = await file.arrayBuffer(); b = await new Promise((res, rej) => ac.decodeAudioData(ab, res, rej)); VM.soundFrom = 'file'; if (grab) grab.stop(); VM.soundDecoded = true; }
@@ -2868,7 +2874,19 @@ async function vmEnvelope(file, grab) {
       try { b = await vmDemuxAudio(file, ac); } catch (e2) { VM.soundErr = String(e2).slice(0, 60); }
       if (b) { if (grab) grab.stop(); VM.soundDecoded = true; }
       else { VM.soundWait = true; b = grab ? await grab.p : null; VM.soundWait = false; VM.soundFrom = b ? 'played' : 'none'; } }
-    if (!b) return null;
+    return b;
+  } catch (e) { return null; }
+}
+// a stretch of a sound buffer, as a buffer of its own
+function vmSlice(b, t0, t1) {
+  const sr = b.sampleRate, i0 = Math.max(0, Math.floor(t0 * sr)), n = Math.max(1, Math.min(b.length, Math.floor(t1 * sr)) - i0);
+  const nb = new AudioBuffer({ length:n, numberOfChannels:b.numberOfChannels, sampleRate:sr });
+  for (let c = 0; c < b.numberOfChannels; c++) nb.copyToChannel(b.getChannelData(c).subarray(i0, i0 + n), c);
+  return nb;
+}
+// what the sound is doing, 50 (and 100) times a second: loudness, pitch, the voice track, voice or not
+async function vmSoundOf(b) {
+  try {
     const sr = b.sampleRate, hop = Math.round(sr / 50), n = Math.floor(b.length / hop), out = new Float32Array(n);
     const chs = Array.from({ length:b.numberOfChannels }, (_, i) => b.getChannelData(i));
     for (let k = 0; k < n; k++) { let e = 0; for (let i = k * hop; i < (k + 1) * hop; i++) { let x = 0; for (const c of chs) x += c[i]; x /= chs.length; e += x * x; } out[k] = Math.sqrt(e / hop); }
@@ -2978,9 +2996,78 @@ const vmSeek = (v, t) => new Promise(res => {
   v.onseeked = () => { if (v.requestVideoFrameCallback) { v.requestVideoFrameCallback(fin); setTimeout(fin, 250); } else requestAnimationFrame(fin); };
   setTimeout(fin, 1500); v.currentTime = t;
 });
+// The part of the clip in use: VM.off seconds in, VM.dur long (the quiet start and end trimmed off, or the 90 seconds
+// picked from a longer clip). Every video made from the clip gets a clock that starts at the part's start and stops at
+// its end, so the rest of the code works in the part's own time as if the clip were only that.
+const MT = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime'), VM_MAX = 90, VM_MAXFILE = 180;
+// where the sound is, 50 times a second: anything clearly louder than the quiet parts (talking, but music and noise
+// too: only real quiet counts as dead air, so a song or a street scene is never cut into). Blips under 0.4 s (a cough,
+// a click) don't count. 'runs' are the stretches with a voice in them (the green marks on Pick the part).
+function vmTalkSpan(b, nov) {
+  const sr = b.sampleRate, hop = Math.round(sr / 50), n = Math.floor(b.length / hop), e = new Float32Array(n), c0 = b.getChannelData(0), c1 = b.numberOfChannels > 1 ? b.getChannelData(1) : c0;
+  for (let k = 0; k < n; k++) { let s2 = 0, m = 0; for (let i = k * hop; i < (k + 1) * hop; i += 4) { const x = (c0[i] + c1[i]) / 2; s2 += x * x; m++; } e[k] = Math.sqrt(s2 / Math.max(1, m)); }
+  // quiet = well below the loud parts (about a twentieth of them, -26 dB) and below a near-silent floor's 2.5 times;
+  // a soft verse or a hush in a song stays well above that
+  const srt = Array.from(e).sort((x, y) => x - y), floor = srt[Math.floor(n * 0.15)] || 0, loud = srt[Math.floor(n * 0.9)] || 0, thr = Math.max(0.003, Math.min(floor * 2.5, loud * 0.05));
+  const stretches = on => { const rs = []; let k = 0;
+    while (k < n) { if (!on(k)) { k++; continue; } let z = k, gap = 0, c = 0; for (let j = k; j < n; j++) { if (on(j)) { z = j; gap = 0; c++; } else if (++gap > 10) break; } if (c >= 20) rs.push([k / 50, (z + 1) / 50]); k = z + 1; }
+    return rs; };
+  const sound = stretches(k => e[k] > thr), runs = stretches(k => e[k] > thr && !(nov && nov[k]));
+  return sound.length ? { a:sound[0][0], z:sound[sound.length - 1][1], runs } : null;
+}
+// the part of the clip to use. Quiet before the talking starts or after it ends (a second or more) is left out; over
+// 90 seconds, the person picks the 90 (placed on the talking to start with). Returns [start, end] in the clip's time.
+async function vmPickPart(v, b, want) {
+  const full = VM.full; let span = null;
+  let nov = null; if (b) { vmMsg('Listening for the talking…'); try { nov = await vmSoundKinds(b); span = vmTalkSpan(b, nov); } catch (e) {} }
+  let s0 = 0, e0 = full;
+  const song = nov && (nov.music || 0) > 0.3;   // (a song is never trimmed: its quiet intro and ending are part of it)
+  if (span && !want.whole && !song) { if (span.a >= 1) s0 = Math.max(0, span.a - 0.3); if (full - span.z >= 1) e0 = Math.min(full, span.z + 0.5); }
+  VM.talkRuns = span ? span.runs : [];
+  if (e0 - s0 <= VM_MAX && !want.pick) return [s0, e0];
+  return vmPartScreen(v, Math.min(s0, full - VM_MAX), Math.min(VM_MAX, full));
+}
+// "Pick the part": the clip as a strip of pictures, the talking marked under it, a 90-second window to slide along it
+async function vmPartScreen(v, s0, len) {
+  const full = VM.full, N = 8, thumbs = [], c = document.createElement('canvas'), h = 72, w = Math.round(h * (VM.vw || 16) / (VM.vh || 9)); c.width = w; c.height = h; const g = c.getContext('2d');
+  vmMsg('Getting the pictures ready…');
+  for (let i = 0; i < N; i++) { await vmSeek(v, (i + 0.5) * full / N); try { g.drawImage(v, 0, 0, w, h); thumbs.push(c.toDataURL('image/jpeg', 0.6)); } catch (e) { thumbs.push(''); } }
+  const talk = (VM.talkRuns || []).map(([a, z]) => `<i style="left:${(a / full * 100).toFixed(2)}%;width:${Math.max(0.4, (z - a) / full * 100).toFixed(2)}%"></i>`).join('');
+  vmShow('Pick the part', `<p class="note" style="margin-top:0">The video is ${fmtT(full)} long; up to ${VM_MAX} seconds can be Nibbled. Slide the yellow box to the part you want. <b>Green</b> = talking.</p>
+    <video class="vm-out" id="ppVid" playsinline muted preload="auto" src="${VM.url}" style="max-height:34dvh;object-fit:contain"></video>
+    <div class="pp-strip" id="ppStrip">${thumbs.map(u => u ? `<img src="${u}" alt="">` : '<span></span>').join('')}<div class="pp-win" id="ppWin"></div></div>
+    <div class="pp-talk">${talk}</div>
+    <div class="vm-row"><button class="chipb seg" id="ppPlay" type="button">▶ Play it</button><span id="ppTime" style="font:700 13px ui-monospace,monospace"></span></div>
+    <button class="vm-go" id="ppGo" type="button">Use this part</button>`);
+  const strip = $('ppStrip'), win = $('ppWin'), pv = $('ppVid'); let st = s0;
+  const show = () => { win.style.left = (st / full * 100) + '%'; win.style.width = (len / full * 100) + '%'; $('ppTime').textContent = `${fmtT(st)} – ${fmtT(st + len)}`;
+    const u = thumbs[Math.max(0, Math.min(N - 1, Math.floor(st / full * N)))]; if (u && pv.paused) pv.poster = u; };   // (phones show nothing until it plays: the nearest picture meanwhile)
+  pv.addEventListener('loadedmetadata', () => { pv.currentTime = st + 0.05; }, { once:true }); show();
+  let drag = null;
+  win.onpointerdown = e => { drag = { x:e.clientX, st }; win.setPointerCapture(e.pointerId); e.preventDefault(); };
+  win.onpointermove = e => { if (!drag) return; const r = strip.getBoundingClientRect(); st = Math.max(0, Math.min(full - len, drag.st + (e.clientX - drag.x) / r.width * full)); show(); pv.pause(); pv.currentTime = st + 0.05; };
+  win.onpointerup = win.onpointercancel = () => { drag = null; };
+  strip.onclick = e => { if (e.target === win) return; const r = strip.getBoundingClientRect(); st = Math.max(0, Math.min(full - len, (e.clientX - r.left) / r.width * full - len / 2)); show(); pv.pause(); pv.currentTime = st + 0.05; };
+  $('ppPlay').onclick = () => { if (!pv.paused) { pv.pause(); return; } pv.currentTime = st; pv.play().catch(() => {});
+    const stop = () => { if (pv.currentTime >= st + len) { pv.pause(); pv.removeEventListener('timeupdate', stop); } }; pv.addEventListener('timeupdate', stop); };
+  return new Promise(res => {
+    $('ppGo').onclick = () => { pv.pause(); vmShow('Watching your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`); res([st, st + len]); };
+    const iv = setInterval(() => { if (VM.cancel || !$('ppGo')) { clearInterval(iv); if (VM.cancel) res(null); } }, 300);
+  });
+}
+function vmPart(v) {
+  if (!v || v.__part) return v; v.__part = true;
+  const cut = () => (VM.off || 0) > 0.01 || (VM.full && VM.dur < VM.full - 0.05);
+  Object.defineProperty(v, 'currentTime', { configurable:true, get() { return Math.max(0, MT.get.call(this) - (VM.off || 0)); }, set(t) { MT.set.call(this, Math.max(0, Math.min(VM.dur, t)) + (VM.off || 0)); } });
+  Object.defineProperty(v, 'duration', { configurable:true, get() { return VM.dur; } });
+  let raf = 0; const watch = () => { raf = 0; if (v.paused || !cut()) return;
+    if (MT.get.call(v) >= (VM.off || 0) + VM.dur - 0.03) { v.pause(); v.dispatchEvent(new Event('ended')); return; } raf = requestAnimationFrame(watch); };
+  v.addEventListener('play', () => { if (cut() && !raf) raf = requestAnimationFrame(watch); });
+  return v;
+}
 const vmProg = p => { const e = $('vmProg'); if (e) e.style.width = Math.max(0, Math.min(100, p)).toFixed(1) + '%'; };
 const vmMsg = s => { const e = $('vmMsg'); if (e) e.textContent = s; };
-async function vmAnalyse(file, grab) {
+async function vmAnalyse(file, grab, want) {
   Object.assign(VM, { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, soundFrom:null, lmiRetried:false, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null, found:[], like:{} });
   vmShow('Watching your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`);
   let v = null;
@@ -2992,17 +3079,21 @@ async function vmAnalyse(file, grab) {
     v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none;z-index:-1';
     document.body.appendChild(v);
     await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej('load'); });
-    if (!isFinite(v.duration) || v.duration > 91) throw 'long';
-    VM.dur = v.duration; VM.vw = v.videoWidth; VM.vh = v.videoHeight;
-    const envP = vmEnvelope(file, grab); vmCut.prev = null; vmCut.hist = null; VM.cutT = []; VM.strip = [];
+    if (!isFinite(v.duration) || v.duration > VM_MAXFILE) throw 'long';
+    VM.file = file; VM.full = v.duration; VM.off = 0; VM.dur = v.duration; VM.vw = v.videoWidth; VM.vh = v.videoHeight;
+    // the sound first: where the talking starts and ends decides the part to use (the quiet start and end are left out;
+    // a clip over 90 seconds is cut to 90, placed on the talking, and can be moved before it's read)
+    vmMsg('Listening…');
+    const T0 = window.__T, gw = setInterval(() => { const g = VM.grabV; if (VM.soundWait) { vmMsg('Listening to the sound…'); vmProg(1 + (g && g.duration ? 12 * g.currentTime / g.duration : 0)); } }, 250);
+    const b = await vmDecode(file, grab); clearInterval(gw); if (VM.cancel) return;
+    const part = T0 && T0.part === 'whole' ? [0, VM.full] : (T0 && T0.part) || await vmPickPart(v, b, want || {}); if (VM.cancel || !part) return;
+    if (T0 && T0.partOnly) { T0.partOut = part; T0.talk = VM.talkRuns; return; }   // (tests: just the part it picks)
+    VM.off = part[0]; VM.dur = part[1] - part[0]; VM.trimmed = VM.off > 0.05 || VM.dur < VM.full - 0.05; vmPart(v);
+    const envP = b ? vmSoundOf(VM.trimmed ? vmSlice(b, part[0], part[1]) : b) : Promise.resolve(null); vmCut.prev = null; vmCut.hist = null; VM.cutT = []; VM.strip = [];
     const idP = faceIdNet();
     VM.lmi = VM.lmi || await makeLandmarker(6, 0.3, 'IMAGE');
     vmProg(3); const fa = await idP;
     try { await v.play(); } catch (e) {} v.pause();
-    VM.soundDecoded = false; VM.soundWait = false;
-    for (let i = 0; i < 40 && !VM.soundDecoded && !VM.soundWait; i++) await new Promise(r => setTimeout(r, 100));   // (did the file's sound open?)
-    if (VM.soundWait) { vmMsg('Listening to the sound…');
-      while (VM.soundWait && !VM.cancel) { const g = VM.grabV; vmProg(4 + (g && g.duration ? 12 * g.currentTime / g.duration : 0)); await new Promise(r => setTimeout(r, 200)); } }
     vmMsg('Seeing who’s in it…');
     // (tests: a saved first look and saved face readings stand in for reading the video again; see vmTestHooks)
     const T = window.__T, scan = T && T.scanIn ? vmScanLoad(T.scanIn) : await vmScan(v, fa, p => vmProg(4 + p * 56));
@@ -3033,7 +3124,7 @@ async function vmAnalyse(file, grab) {
     vmStudio();
   } catch (e) {
     console.warn('analyse', e);
-    vmShow('Nibble a Video', `<p>${e === 'long' ? 'That video is longer than 90 seconds. Trim it and try again.' : 'That video wouldn’t open here. Try another file (MP4 or MOV).'}</p>`);
+    vmShow('Nibble a Video', `<p>${e === 'long' ? 'That video is longer than 3 minutes. Trim it and try again.' : 'That video wouldn’t open here. Try another file (MP4 or MOV).'}</p>`);
   } finally { if (v) v.remove(); }
 }
 // (tests) the first look as plain data and back: faces once each (their numbers as plain lists), samples and tracks by id
@@ -3264,7 +3355,8 @@ async function vmFollow(v, who, prog) {
       v.onended = () => end(true);
       const onFrame = (_, meta) => {
         if (fin) return; if (VM.cancel) return end(true);
-        const t = meta && meta.mediaTime != null ? meta.mediaTime : v.currentTime;
+        const t = meta && meta.mediaTime != null ? meta.mediaTime - (VM.off || 0) : v.currentTime;
+        if (t >= VM.dur - 0.02) return end(true);
         if (t - last >= step * 0.95) {
           const t0 = performance.now(); look(t); last = t;
           const ms = performance.now() - t0, want = Math.max(0.1, Math.min(1, (step * 1000) / Math.max(1, ms * 1.25)));
@@ -3456,7 +3548,7 @@ function vmDone(blob, type, name) {
 }
 // hear one line of the clip (from its own sound), to tell who's saying it
 function vmHear(t0, t1, btn) {
-  const a = VM.pv || (VM.pv = Object.assign(document.createElement('video'), { playsInline:true, preload:'auto' }));
+  const a = VM.pv || (VM.pv = vmPart(Object.assign(document.createElement('video'), { playsInline:true, preload:'auto' })));
   if (a.src !== VM.url) a.src = VM.url;
   document.querySelectorAll('.vm-play.on').forEach(b => { b.classList.remove('on'); b.textContent = '▶'; });
   if (VM.hearing === btn) { a.pause(); VM.hearing = null; return; }
@@ -3679,6 +3771,7 @@ function vmStudio() {
       <div class="ed-view nib wait" id="edView"><video class="ed-vid" id="edVid" playsinline preload="auto"></video><canvas class="ed-prev" id="edPrev" width="2" height="2"></canvas><div class="ed-load" id="edLoad">Getting the Nibbles ready…</div></div>
       <div class="ed-bar"><button class="ed-pp" id="edPP" type="button" aria-label="Play">▶</button><input class="ed-scrub" id="edScrub" type="range" min="0" max="${VM.dur.toFixed(2)}" step="0.05" value="0" aria-label="Where in the video"><span class="ed-time" id="edTime">${fmtT(0)} / ${fmtT(VM.dur)}</span>
         <button class="chipb seg" id="edOrig" type="button" aria-label="Show the original video">🎞</button></div>
+      ${VM.trimmed ? `<div class="ed-trim">✂︎ Trimmed to ${fmtT(VM.off)}–${fmtT(VM.off + VM.dur)} of ${fmtT(VM.full)} <button class="chipb seg" id="edPart" type="button">${VM.full > VM_MAX ? 'Another part' : 'Whole clip'}</button></div>` : ''}
       <div class="vm-tabs" role="tablist"><button type="button" data-tab="people">People</button><button type="button" data-tab="look">Look</button><button type="button" data-tab="timing">Timing</button></div>
     </div>
     <div id="vmTab"></div>
@@ -3687,8 +3780,9 @@ function vmStudio() {
     () => vmHelp() + vmReportHtml());
 
   document.querySelector('.vm-card').classList.add('studio');   // one steady height while editing (nothing jumps when a tab or panel changes size)
-  const v = $('edVid'); v.src = VM.url; ED.v = v;
+  const v = vmPart($('edVid')); v.src = VM.url; ED.v = v; if (VM.off) v.addEventListener('loadedmetadata', () => { v.currentTime = 0; edTick(); }, { once:true });
   $('edPP').onclick = () => { if (v.paused) { edAudio(); if (v.currentTime >= VM.dur - 0.05) v.currentTime = 0; v.play().catch(() => {}); } else v.pause(); };
+  if ($('edPart')) $('edPart').onclick = () => { v.pause(); edPreviewOff(); vmAnalyse(VM.file, null, VM.full > VM_MAX ? { pick:true } : { whole:true }); };
   $('edOrig').onclick = () => { const on = $('edView').classList.toggle('nib'); $('edOrig').classList.toggle('on', !on); };
   $('edScrub').oninput = e => { v.currentTime = +e.target.value; edTick(); };
   v.onplay = () => { const b = $('edPP'); if (b) b.textContent = '❚❚'; ED.raf = requestAnimationFrame(edTick); };
@@ -4278,8 +4372,9 @@ async function vmRender() {
     await Promise.all(pics.filter(Boolean).map(i => i.complete && i.naturalWidth ? 0 : new Promise(r => { i.addEventListener('load', r, { once:true }); i.addEventListener('error', r, { once:true }); setTimeout(r, 5000); })));
     S.bg = VM.bg;
     VM.rendering = true; setShape(VM.shape); vmFit();
-    const v = document.createElement('video'); v.src = VM.url; v.playsInline = true; v.preload = 'auto'; VM.v = v;
+    const v = vmPart(document.createElement('video')); v.src = VM.url; v.playsInline = true; v.preload = 'auto'; VM.v = v;
     await new Promise((res, rej) => { v.oncanplay = res; v.onerror = rej; v.load(); });
+    if (VM.off) await vmSeek(v, 0);   // (the part's start)
     const ac = audioCtx(); mixBus();
     const src = ac.createMediaElementSource(v), an = ac.createAnalyser(); an.fftSize = 2048; an.smoothingTimeConstant = 0.3;
     const dest = ac.createMediaStreamDestination();
@@ -4308,8 +4403,12 @@ async function vmRender() {
     $('vmStop').onclick = () => vmStop(true);
     v.onended = () => vmStop(false);
     try { vmFrame(performance.now()); } catch (e) {}   // the first picture recorded is already the Nibble (not what the main screen showed)
+    // the recording starts once the clip is really playing (picking up from the middle of a clip, its first picture can
+    // take a moment: recorded, that's a frozen first second)
+    const playing = new Promise(r => { v.addEventListener('playing', r, { once:true }); setTimeout(r, 1500); });
+    const pp = v.play(); await playing;
     rec.start(1000); if (VM.mus) VM.mus.start();
-    await v.play();
+    await pp;
   } catch (e) { vmRestore(); vmShow('Nibble a Video', '<p>Something went wrong making the video. Try again.</p>'); }
 }
 function vmStop(cancel) {
