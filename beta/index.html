@@ -389,7 +389,7 @@ header .credit b{font-weight:400}
   </div>
 
   <div class="tools">
-    <button class="tool" id="musicBtn" type="button" aria-expanded="false">♪ Music</button>
+    <button class="tool" id="musicBtn" type="button" aria-expanded="false">Music</button>
     <button class="tool" id="sfxBtn" type="button" aria-expanded="false">Sound FX</button>
     <div class="pop" id="musicPop" hidden>
       <h4>Background music</h4><div class="prow" id="trkRow" style="display:grid;gap:6px"></div>
@@ -2685,7 +2685,7 @@ function drawTracks() {
     b.onclick = () => playMusic(id); row.appendChild(b);
   }
   $('musicBtn').classList.toggle('on', !!AU.trk);
-  $('musicBtn').textContent = '♪ Music';
+  $('musicBtn').textContent = 'Music';
 }
 $('musicVol').oninput = e => { if (AU.musicG) AU.musicG.gain.value = e.target.value / 100 * 0.6; };
 $('hpBtn').onclick = () => { AU.hp = !AU.hp; $('hpBtn').classList.toggle('on', AU.hp); musicRoute(); };
