@@ -3449,7 +3449,9 @@ function vmTimeline() {
     if (speech && who < 0 && laughy(t)) { raw.push({ speech:false, who:-1, still:false }); if (VM.dbgT) VM.dbgT.push([+t.toFixed(2), 0, [], 1]); continue; }
     // (the only face on screen while someone talks, its lips too small or hidden to read (a mic, a hand, glasses): theirs.
     // A podcast cuts to whoever's talking)
-    if (speech && who < 0) { const on = P.map((p, i) => i).filter(i => activity(P[i], t) >= 0); if (on.length === 1 && P[on[0]].lipOk === false) who = on[0]; }
+    // (and in a conversation among three or more (a sitcom), the one face in a close-up while someone talks: theirs, even
+    // with lips that barely seem to move (head down, a beard): the show cuts to whoever's talking)
+    if (speech && who < 0) { const on = P.map((p, i) => i).filter(i => activity(P[i], t) >= 0); if (on.length === 1 && (P[on[0]].lipOk === false || P.filter(q => !q.off).length >= 3)) who = on[0]; }
     raw.push({ speech, who, still:speech && who < 0 && seen && top < 0.3 });   // talking, a face is on screen, but its mouth is still
     if (VM.dbgT) VM.dbgT.push([+t.toFixed(2), speech ? 1 : 0, P.map(p => +(activity(p, t) / p.busy).toFixed(2)), 0]);
   }
