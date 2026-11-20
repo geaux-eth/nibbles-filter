@@ -3272,7 +3272,11 @@ function vmWho(scan, music) {
     const fs = p.faces.map(f => f.feat).filter(Boolean);
     p.feat = fs.length ? { skin:fs.reduce((a, x) => a + x.skin, 0) / fs.length, glass:fs.filter(x => x.glass).length > fs.length * 0.5, hat:fs.filter(x => x.hat).length > fs.length * 0.5 } : null;
   }
-  ids = ids.filter(p => p.faces.length >= 2).sort((a, b) => b.score - a.score);
+  // a picture of a face (a logo, a poster, a still on the screen): it never moves and its mouth never changes. Not someone
+  const still = p => { if (p.faces.length < 4) return false; const r = k => { const v = p.faces.map(f => f[k]); return Math.max(...v) - Math.min(...v); }, ss = p.faces.map(f => f.s);
+    return r('cx') < 0.01 && r('cy') < 0.01 && Math.max(...ss) < Math.min(...ss) * 1.08 && r('mo') < 0.01; };
+  VM.stillDbg = ids.filter(p => p.faces && still(p)).map(p => [p.t0, p.t1, p.faces.length]);
+  ids = ids.filter(p => p.faces.length >= 2 && !still(p)).sort((a, b) => b.score - a.score);
   const keepT = new Set(), done = () => { for (const tr of tracks) if (tr.thumb && !keepT.has(tr.thumb)) tr.thumb.width = tr.thumb.height = 0; };   // let go of the pictures not needed (phones have little room)
   if (!ids.length) { done(); return { people:[], crowd:{ n:0 }, step, fw, fh }; }
   const main = ids[0], others = ids.slice(1);
@@ -3288,7 +3292,10 @@ function vmWho(scan, music) {
   // in the conversation who's always in a two-shot (a sitcom's fourth friend), not someone just standing there
   const lipsOf = p => { const m = p.faces.map(f => f.mo || 0).sort((a, b) => a - b); return m.length ? m[Math.floor(m.length * 0.9)] - m[Math.floor(m.length * 0.1)] : 0; };
   const talker = p => music <= 0.3 && p.faces.length * step >= 3 && lipsOf(p) >= 0.08;
-  const featured = others.filter(p => p.faces.length >= 4 && (p.score >= main.score * (music > 0.3 ? 0.75 : 0.4) || own(p) >= 1.5 || talker(p))).slice(0, 4);
+  // ...or, talking and not a song, the only face in the picture (a medium shot: a host at a desk, small in a low-res
+  // screen recording) for 3 s or more, lips moving a little (a cutaway's bystander's lips don't)
+  const solo = p => music <= 0.3 && lipsOf(p) >= 0.02 && p.faces.filter(f => { const sm = samples.find(x => x.n === f.n); return sm && sm.faces.length === 1 && (f.sp || 0) >= 0.12 * Math.min(fw, fh); }).length * step >= 3;
+  const featured = others.filter(p => p.faces.length >= 4 && (p.score >= main.score * (music > 0.3 ? 0.75 : 0.4) || own(p) >= 1.5 || talker(p) || solo(p))).slice(0, 4);
   // everyone else: real people seen a while (a second and a half or more); a hand, a face turned away for a moment, a
   // pattern that looked like a face for a picture or two isn't someone
   // ...and not the faces of a cutaway (people in the street, a clip shown in an interview): never in a picture with the
@@ -3534,6 +3541,41 @@ const vmVoiceD = (a, b) => { let s = 0; for (let j = 0; j < a.length; j++) s += 
 function vmVoices(lines, raw, dt) {
   const V = VM.voice, P = VM.people, D = VM.voiceDbg = { split:[], evict:[] }; if (!V || !V.e || !V.e.length) return;
   if (V.gate == null) { const r = V.rms.slice().sort((a, b) => a - b); V.gate = Math.max(0.003, Math.min(r[Math.floor(r.length * 0.15)] * 2.5, r[Math.floor(r.length * 0.9)] * 0.05)); }
+  // 0. a voice over pictures with nobody in them (street shots, b-roll): the person in the video it sounds like (an
+  // interviewee carrying on over the pictures) or, sounding like none of them, a narrator: a voice off camera. Each
+  // person's own voice is taken from the seconds their lips are seen saying it. (Not in a song: a music video's singer
+  // sings over everything)
+  const song = ((VM.env && VM.env.nov && VM.env.nov.music) || 0) > 0.3;
+  const refs = P.map((p, i) => { if (p.off || song) return null; const m = new Float32Array(V.e[0].length); let c = 0;
+    for (let k = 0; k < V.t.length; k++) { const t = V.t[k]; if (V.rms[k] < V.gate || vmVoiced(t) < 0.4) continue; let n = 0, o = 0;
+      for (let j = Math.max(0, Math.round((t - 0.5) / dt)); j < Math.min(raw.length, Math.round((t + 0.5) / dt)); j++) if (raw[j].speech) { n++; if (raw[j].lip === i) o++; }
+      if (n >= 10 && o / n >= 0.6) { const e = V.e[k]; for (let q = 0; q < m.length; q++) m[q] += e[q]; c++; } }
+    if (c < 3) return null; let nn = 0; for (const q of m) nn += q * q; nn = Math.sqrt(nn) || 1; for (let q = 0; q < m.length; q++) m[q] /= nn; return m; });
+  D.nar = []; D.refs = refs.map(r => !!r);
+  // (only when every one of the cast with lines has a voice of their own to compare with)
+  if (!song && refs.some(Boolean) && P.every((p, i) => p.off || refs[i] || !lines.some(l => l.who === i))) {
+    const decide = (t0, t1) => { const v = vmVoiceOf(t0, t1); if (!v) return null; const ds = refs.map(r => r ? vmVoiceD(v, r) : 9), bi = ds.indexOf(Math.min(...ds));
+      const to = ds[bi] < 0.55 ? bi : ds[bi] >= 0.75 ? -1 : null; D.nar.push([+t0.toFixed(2), +t1.toFixed(2), ds.map(d => d > 8 ? null : +d.toFixed(2)), to]); return to; };
+    // the stretches with nobody in the picture: talking in them, silences of up to 1.5 s inside
+    const runs = []; let a = -1, z = -1;
+    for (let k = 0; k < raw.length; k++) { const r = raw[k]; if (!r.speech) { if (a >= 0 && (k - z) * dt > 1.5) { runs.push([a, z]); a = -1; } continue; }
+      if (!r.vis) { if (a < 0) a = k; z = k; } else if (a >= 0) { runs.push([a, z]); a = -1; } }
+    if (a >= 0) runs.push([a, z]);
+    let off = P.findIndex(q => q.off);
+    // (a stretch too short to judge (under 1.5 s of talking) goes as a judged one within 4 s of it went, when that was the narrator)
+    const RS = runs.map(([ra, rz]) => { let sp = 0; for (let k = ra; k <= rz; k++) if (raw[k].speech) sp++; return sp * dt >= 1.5 ? decide(ra * dt, (rz + 1) * dt) : undefined; });
+    const RJ = RS.slice(); RS.forEach((R, j) => { if (R !== undefined) return; let best = null, bd = 4; RJ.forEach((R2, j2) => { if (R2 === undefined || R2 === null) return; const g = j2 < j ? (runs[j][0] - runs[j2][1]) * dt : (runs[j2][0] - runs[j][1]) * dt; if (g < bd) { bd = g; best = R2; } }); RS[j] = best === -1 ? -1 : null; });
+    for (let j = 0; j < runs.length; j++) { const [ra, rz] = runs[j], r0 = ra * dt, r1 = (rz + 1) * dt, R = RS[j]; if (R == null) continue;
+      for (let i = 0; i < lines.length; i++) { const l = lines[i], c0 = Math.max(l.t0, r0), c1 = Math.min(l.t1, r1); if (c1 - c0 < 0.3) continue;
+        let to = c1 - c0 >= 1.5 ? decide(c0, c1) : null; if (to == null) to = R; if (to == null) continue;
+        if (to === -1) { if (off < 0) { P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 }); off = P.length - 1; } to = off; }
+        if (to === l.who) continue;
+        // that part of the line is theirs (the rest stays; slivers under 0.4 s go with it)
+        const s0 = c0 - l.t0 < 0.4 ? l.t0 : c0, s1 = l.t1 - c1 < 0.4 ? l.t1 : c1, parts = [];
+        if (s0 > l.t0) parts.push({ ...l, t1:s0 }); parts.push({ ...l, t0:s0, t1:s1, who:to }); if (s1 < l.t1) parts.push({ ...l, t0:s1 });
+        lines.splice(i, 1, ...parts); i += parts.length - 1; } }
+    for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 2.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
+  }
   const vote = (t0, t1, def) => { const c = new Map(); for (let k = Math.round(t0 / dt); k < Math.min(raw.length, Math.round(t1 / dt)); k++) { const w = raw[k].lip; if (w != null && w >= 0) c.set(w, (c.get(w) || 0) + 1); }
     let b = def, bn = 0; for (const [w, n] of c) if (n > bn) { bn = n; b = w; } return b; };
   // 1. a long line in two voices: split where the halves sound most unlike, when they're clearly two people
@@ -3595,7 +3637,7 @@ function vmTimeline() {
     // (and in a conversation among three or more (a sitcom), the one face in a close-up while someone talks: theirs, even
     // with lips that barely seem to move (head down, a beard): the show cuts to whoever's talking)
     if (speech && who < 0) { const on = P.map((p, i) => i).filter(i => activity(P[i], t) >= 0); if (on.length === 1 && (P[on[0]].lipOk === false || P.filter(q => !q.off).length >= 3)) who = on[0]; }
-    raw.push({ speech, who, lip:lipWho, still:speech && who < 0 && seen && top < 0.3 });   // talking, a face is on screen, but its mouth is still
+    raw.push({ speech, who, lip:lipWho, vis:seen, still:speech && who < 0 && seen && top < 0.3 });   // talking, a face is on screen, but its mouth is still
     if (VM.dbgT) VM.dbgT.push([+t.toFixed(2), speech ? 1 : 0, P.map(p => +(activity(p, t) / p.busy).toFixed(2)), 0]);
   }
   // a voice nobody on screen is speaking with (a reporter behind the camera, a narrator): while there's talking and the
