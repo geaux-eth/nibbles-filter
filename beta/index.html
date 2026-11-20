@@ -3246,20 +3246,27 @@ async function vmScan(v, fa, prog) {
 // Who's who: tracks whose faces are recognised as the same person are joined (never two seen in the same picture). Then the roles.
 function vmWho(scan, music) {
   const { samples, tracks, step, fw, fh } = scan;
-  const mean = fs => { const d = fs.filter(f => f.desc); if (!d.length) return null; const m = new Float32Array(128); for (const f of d) for (let i = 0; i < 128; i++) m[i] += f.desc[i] / d.length; return m; };
-  const ed = (a, b) => { let s = 0; for (let i = 0; i < 128; i++) s += (a[i] - b[i]) ** 2; return Math.sqrt(s); };
+  // the face numbers: the newer recogniser's (1024, scaled to length 1) when every face has them, else face-api's (128).
+  // Its distances run wider, so its join and doubt lines are set from the test clips: the same person 0.40 typical, two
+  // people 0.90 (face-api: 0.23 and 0.48)
+  const W0 = window.__T || {}, FR = !W0.noFR && tracks.every(tr => tr.faces.every(f => !f.desc || f.desc2)) && tracks.some(tr => tr.faces.some(f => f.desc2));
+  const K = FR ? 'desc2' : 'desc', DN = FR ? 1024 : 128, JOIN = FR ? (W0.frJoin || 0.95) : 0.5, DOUBT = FR ? (W0.frDoubt || 0.64) : 0.35;
+  const mean = fs => { const d = fs.filter(f => f[K]); if (!d.length) return null; const m = new Float32Array(DN); for (const f of d) for (let i = 0; i < DN; i++) m[i] += f[K][i] / d.length;
+    if (FR) { let nn = 0; for (const q of m) nn += q * q; nn = Math.sqrt(nn) || 1; for (let i = 0; i < DN; i++) m[i] /= nn; } return m; };
+  const ed = (a, b) => { let s = 0; for (let i = 0; i < DN; i++) s += (a[i] - b[i]) ** 2; return Math.sqrt(s); };
+  VM.frUsed = FR;
   VM.lookDbg = [];
   const meanLook = fs => { const d = fs.filter(f => f.look); if (!d.length) return null; const m = new Float32Array(64); for (const f of d) for (let i = 0; i < 64; i++) m[i] += f.look[i] / d.length; return m; };
   const lookD = (a, b) => { let s = 0; for (let i = 0; i < 64; i++) s += Math.abs(a[i] - b[i]); return s; };   // 0 alike .. 2 nothing in common
   let ids = tracks.map(tr => { const m = mean(tr.faces); return { tracks:[tr], ns:new Set(tr.faces.map(f => f.n)), descs:m ? [m] : [], look:meanLook(tr.faces) }; });
   // joining: the closest two people first (the average distance between their tracks' numbers), while it's under 0.5
   for (;;) {
-    let best = null, bd = 0.5;
+    let best = null, bd = JOIN;
     for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
       const a = ids[i], b = ids[j]; if (!a.descs.length || !b.descs.length) continue;
       let shared = false; for (const n of a.ns) if (b.ns.has(n)) { shared = true; break; } if (shared) continue;   // in one picture together: two people
       let s = 0; for (const x of a.descs) for (const y of b.descs) s += ed(x, y); s /= a.descs.length * b.descs.length;
-      if (s < bd && a.look && b.look && (lookD(a.look, b.look) > 0.75 || (lookD(a.look, b.look) > 0.5 && s > 0.35))) { (VM.lookDbg = VM.lookDbg || []).push(['no', +s.toFixed(2), +lookD(a.look, b.look).toFixed(2)]); continue; }   // (the face numbers say alike, the hat, hair and clothes say two people)
+      if (s < bd && a.look && b.look && (lookD(a.look, b.look) > 0.75 || (lookD(a.look, b.look) > 0.5 && s > DOUBT))) { (VM.lookDbg = VM.lookDbg || []).push(['no', +s.toFixed(2), +lookD(a.look, b.look).toFixed(2)]); continue; }   // (the face numbers say alike, the hat, hair and clothes say two people)
       if (s < bd) { bd = s; best = [i, j]; }
     }
     if (!best) break;
