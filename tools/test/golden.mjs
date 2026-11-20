@@ -3,7 +3,7 @@
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 import fs from 'fs';
 import { serve } from '../serve2.mjs';
-const S = '/tmp/claude-0/-home-claude/983647b0-485b-5cec-a0d0-3276a7c1b795/scratchpad', mp = S + '/mp', G = S + '/golden';
+const S = '/tmp/claude-0/-home-claude/983647b0-485b-5cec-a0d0-3276a7c1b795/scratchpad', mp = S + '/mp', G = process.env.GDIR || S + '/golden';
 const PAGE = process.env.PAGE || 'beta/index.html', FRESH = !!process.env.FRESH;
 const ov = (l, a, b) => Math.min(l[1], b) - Math.max(l[0], a);
 const real = r => r.people.filter(p => !p.off);
@@ -61,6 +61,7 @@ const routes = async pg => {
   await pg.route(/cdn\.jsdelivr\.net\/npm\/@mediapipe\/tasks-vision@[^/]+\/(.*)/, r => { const p = r.request().url().split(/tasks-vision@[^/]+\//)[1]; r.fulfill({ body:fs.readFileSync(`${mp}/package/${p}`), contentType:p.endsWith('.wasm') ? 'application/wasm' : 'text/javascript' }); });
   await pg.route(/cdn\.jsdelivr\.net\/npm\/@mediapipe\/tasks-audio@[^/]+\/(.*)/, r => { const p = r.request().url().split(/tasks-audio@[^/]+\//)[1]; r.fulfill({ body:fs.readFileSync(`${S}/mpa/package/${p}`), contentType:p.endsWith('.wasm') ? 'application/wasm' : 'text/javascript' }); });
   await pg.route(/cdn\.jsdelivr\.net\/npm\/@vladmandic\/face-api@[^/]+\/(.*)/, r => { const p = r.request().url().split(/face-api@[^/]+\//)[1]; r.fulfill({ body:fs.readFileSync(`${S}/fa/package/${p}`), contentType:p.endsWith('.js') ? 'text/javascript' : p.endsWith('.json') ? 'application/json' : 'application/octet-stream', headers:{ 'access-control-allow-origin':'*' } }); });
+  await pg.route(/cdn\.jsdelivr\.net\/npm\/@vladmandic\/human-models@[^/]+\/(.*)/, r => { const p = r.request().url().split(/human-models@[^/]+\//)[1]; r.fulfill({ body:fs.readFileSync(`${S}/hm/package/${p}`), contentType:p.endsWith('.json') ? 'application/json' : 'application/octet-stream', headers:{ 'access-control-allow-origin':'*' } }); });
   await pg.route(/storage\.googleapis\.com.*yamnet\.tflite/, r => r.fulfill({ body:fs.readFileSync('/tmp/yam/package/src/model/yamnet.tflite'), contentType:'application/octet-stream' }));
   await pg.route(/storage\.googleapis\.com.*face_landmarker\.task/, r => r.fulfill({ body:fs.readFileSync(`${mp}/pk/package/face_landmarker.task`), contentType:'application/octet-stream' }));
   await pg.route('https://d24r2edyfve7yo.cloudfront.net/**', r => r.abort());
@@ -69,14 +70,16 @@ const routes = async pg => {
 async function run(name) {
   const c = CLIPS[name], t0 = Date.now(), sf = `${G}/${name}.scan.json`, ff = `${G}/${name}.follow.json`;
   const b = await chromium.launch({ args:['--autoplay-policy=no-user-gesture-required', '--js-flags=--max-old-space-size=4096'] }); const pg = await b.newPage({ viewport:{ width:390, height:844 } });
-  const errs = []; pg.on('pageerror', e => errs.push(String(e).slice(0, 200)));
+  const errs = []; pg.on('pageerror', e => errs.push(String(e).slice(0, 200))); pg.on('console', m => { if (m.type() === 'warning' && /faceres/.test(m.text())) errs.push(m.text().slice(0, 300)); });
   await routes(pg); await pg.goto('http://127.0.0.1:8765/' + PAGE); await pg.waitForFunction(() => window.__nf);
-  const T = { noLike:true, noAV:!!process.env.NOAV, part:'whole' }; if (!FRESH && fs.existsSync(sf)) T.scanIn = JSON.parse(fs.readFileSync(sf)); if (!FRESH && fs.existsSync(ff)) T.followIn = JSON.parse(fs.readFileSync(ff));
+  const T = { noLike:true, noAV:!!process.env.NOAV, part:'whole', noFR:!!process.env.NOFR, frJoin:+process.env.FRJOIN || 0, frDoubt:+process.env.FRDOUBT || 0, seek:!!process.env.SEEK }; if (!FRESH && fs.existsSync(sf)) T.scanIn = JSON.parse(fs.readFileSync(sf)); if (!FRESH && fs.existsSync(ff)) T.followIn = JSON.parse(fs.readFileSync(ff));
   await pg.evaluate(T => { window.__T = T; }, T);
+  if (process.env.DBGT) await pg.evaluate(() => { window.__vm.dbgT = []; });
   await pg.click('#vidBtn'); await pg.setInputFiles('#vmFile', `${S}/${c.file}`);
   await pg.waitForSelector('#edMake', { timeout:1800000 });
   const r = await pg.evaluate(() => { const V = window.__vm; return { people:V.people.map(p => ({ t0:+p.t0.toFixed(1), t1:+p.t1.toFixed(1), n:p.n, lipOk:p.lipOk, off:!!p.off, pts:(p.smp || []).filter((x, i, a) => i % Math.max(1, Math.floor(a.length / 5)) === 0).slice(0, 6).map(x => [+x.t.toFixed(2), +x.cx.toFixed(2)]) })),
-    lines:V.lines.map(l => [+l.t0.toFixed(1), +l.t1.toFixed(1), l.who, l.show || 'solo']), back:(V.back || []).map(x => [x.t0, x.t1]), crowd:V.crowd && V.crowd.n, sing:V.sing, group:V.group, who:V.whoDbg, av:V.avDbg, found:(V.found || []).length }; });
+    lines:V.lines.map(l => [+l.t0.toFixed(1), +l.t1.toFixed(1), l.who, l.show || 'solo']), back:(V.back || []).map(x => [x.t0, x.t1]), crowd:V.crowd && V.crowd.n, sing:V.sing, group:V.group, who:V.whoDbg, av:V.avDbg, err:V.err || null, found:(V.found || []).length, fr:!!V.frUsed, diag:V.diag ? { looks:V.diag.looks, same:V.diag.same, miss:V.diag.miss, mode:V.diag.mode, fill:V.diag.fill, rates:V.diag.rates, p:V.diag.p } : null }; });
+  if (process.env.DBGT) { const [a, z] = process.env.DBGT.split(',').map(Number); r.dbgT = await pg.evaluate(([a, z]) => (window.__vm.dbgT || []).filter(x => x[0] >= a && x[0] <= z), [a, z]); }
   const saved = await pg.evaluate(() => ({ scan:window.__T.scan && !window.__T.scanIn ? JSON.stringify(window.__T.scan) : null, follow:window.__T.follow ? JSON.stringify(window.__T.follow) : null }));
   if (saved.scan) fs.writeFileSync(sf, saved.scan); if (saved.follow) fs.writeFileSync(ff, saved.follow);
   await b.close();

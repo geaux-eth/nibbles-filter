@@ -3324,9 +3324,10 @@ async function vmFollow(v, who, prog) {
   const cc = document.createElement('canvas'); cc.width = cc.height = 256; const cg = cc.getContext('2d');
   for (const p of P) { p.smp = []; p.raw = []; p.f = { roll:0, yaw:0, pitch:0, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 }; p.H = {}; p.spans = []; }
   vmCut.prev = null; vmCut.hist = null; const cuts = [];
-  const look = t => {
-    const cut = vmCut(v); if (cut) cuts.push(t);
-    let drawn = false;
+  const looked = [];
+  const look = (t, again) => {
+    if (!again) { const cut = vmCut(v); if (cut) cuts.push(t); }   // (going back for missed frames: no cut test, the picture before isn't the one before)
+    let drawn = false, read = 0; looked.push(t);
     for (const p of P) {
       const b = vmBoxAt(p, t, who.step); if (!b) continue;
       if (cuts.some(c => c > b.t1 && c <= t) || (t < b.t0 && VM.cutT.some(c => c > t && c <= b.t0 + 1e-6))) continue;   // outside their shot
@@ -3335,7 +3336,7 @@ async function vmFollow(v, who, prog) {
       cg.fillStyle = '#808080'; cg.fillRect(0, 0, 256, 256); cg.drawImage(fc, ox, oy, side, side, 0, 0, 256, 256);
       { const px = cg.getImageData(96, 96, 64, 64).data; let h = 0; for (let i = 0; i < px.length; i += 16) h = (h * 31 + px[i]) | 0;   // (diagnostics: the same picture again?)
         D.looks++; if (h === p.lastH) D.same++; p.lastH = h; }
-      let r; try { r = VM.lmi.detect(cc); } catch (e) { D.err = String(e).slice(0, 80); vmLmiAgain(e); continue; }   // (made again on the CPU for the pictures after this)
+      read++; let r; try { r = VM.lmi.detect(cc); } catch (e) { D.err = String(e).slice(0, 80); vmLmiAgain(e); continue; }   // (made again on the CPU for the pictures after this)
       if (!(r.faceLandmarks || []).length) D.miss++;
       let best = null, bd = 0.3;
       (r.faceLandmarks || []).forEach((L, i) => { const d = Math.hypot(L[1].x - 0.5, L[1].y - 0.5); if (d < bd) { bd = d; best = i; } });
@@ -3346,15 +3347,15 @@ async function vmFollow(v, who, prog) {
       // kept raw: read once the whole clip is seen (each face's resting look is learned from all of it, not from its first
       // moments, when it may well be talking)
       p.raw.push({ t, L, bs, cx:b.cx, s:+(y1 - y0).toFixed(3) });
-      const sp = p.spans[p.spans.length - 1]; if (sp && t - sp[1] < 0.4) sp[1] = t; else p.spans.push([t, t]);
     }
-    prog(t / VM.dur);
+    if (!again) prog(t / VM.dur);
+    return read;
   };
   // play the clip (no sound) and read a frame every step as it goes, slowing the playback down if this device reads
   // slower than that; if frames don't come (some phones), step through it by seeking instead
   const D = VM.diag = { looks:0, same:0, miss:0, mode:'', rates:[] };
   let played = false;
-  if (v.requestVideoFrameCallback) {
+  if (v.requestVideoFrameCallback && !(window.__T && window.__T.seek)) {
     played = await new Promise(async done => {
       await vmSeek(v, 0); look(0);
       let last = 0, rate = 0.5, fin = false; try { v.playbackRate = rate; } catch (e) {}
@@ -3365,9 +3366,12 @@ async function vmFollow(v, who, prog) {
         const t = meta && meta.mediaTime != null ? meta.mediaTime - (VM.off || 0) : v.currentTime;
         if (t >= VM.dur - 0.02) return end(true);
         if (t - last >= step * 0.95) {
-          const t0 = performance.now(); look(t); last = t;
-          const ms = performance.now() - t0, want = Math.max(0.1, Math.min(1, (step * 1000) / Math.max(1, ms * 1.25)));
-          if (Math.abs(want - rate) > 0.05) { rate = want; try { v.playbackRate = rate; } catch (e) {} D.rates.push(+rate.toFixed(2)); }
+          const t0 = performance.now(), n = look(t); last = t;
+          // the speed is set from frames where faces were read (a shot with no one in it reads in no time, and full speed
+          // there would rush past the next face before it slowed again), and only creeps back up
+          if (n) { const ms = performance.now() - t0, want = Math.max(0.1, Math.min(1, (step * 1000) / Math.max(1, ms * 1.25)));
+            const to = want < rate ? want : Math.min(want, rate * 1.15);
+            if (Math.abs(to - rate) > 0.03) { rate = to; try { v.playbackRate = rate; } catch (e) {} D.rates.push(+rate.toFixed(2)); } }
         }
         v.requestVideoFrameCallback(onFrame);
       };
@@ -3379,6 +3383,16 @@ async function vmFollow(v, who, prog) {
   }
   D.mode = played ? 'play' : 'seek';
   if (!played && !VM.cancel) for (let t = 0; t < VM.dur && !VM.cancel; t += step) { await vmSeek(v, Math.min(t, VM.dur - 0.01)); look(t); }
+  // frames that went by while it was busy, in someone's shot: go back for them (so every run reads the same frames)
+  if (played && !VM.cancel) {
+    looked.sort((a, b) => a - b); const near = t => { let lo = 0, hi = looked.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (looked[m] < t) lo = m + 1; else hi = m; }
+      return Math.min(Math.abs((looked[lo] ?? 1e9) - t), Math.abs((looked[lo - 1] ?? 1e9) - t)); };
+    const miss = []; for (let t = step; t < VM.dur - 0.02; t += step) if (near(t) > step * 0.6 && P.some(p => { const b = vmBoxAt(p, t, who.step); return b && !cuts.some(c => c > b.t1 && c <= t); })) miss.push(t);
+    D.fill = miss.length;
+    for (const t of miss.slice(0, 600)) { if (VM.cancel) break; await vmSeek(v, t); look(t, true); }
+    for (const p of P) p.raw.sort((a, b) => a.t - b.t);
+  }
+  for (const p of P) { p.spans = []; for (const r of p.raw) { const sp = p.spans[p.spans.length - 1]; if (sp && r.t - sp[1] < 0.4) sp[1] = r.t; else p.spans.push([r.t, r.t]); } }
   fc.width = fc.height = cc.width = cc.height = 0;
   for (const p of P) {
     // how far apart the lips go for this face, from shut (its lowest) to its widest talking (near the top): the Nibble's
@@ -3499,6 +3513,10 @@ function vmTimeline() {
     let e = k, gap = 0; for (let j = k; j < raw.length; j++) { if (talks(raw[j])) { e = j; gap = 0; } else if (++gap * dt > 0.3) break; }
     // inside the line: runs of one speaker, short runs folded into their neighbour
     const segs = []; for (let j = k; j <= e; j++) { const w = raw[j].who; if (segs.length && (segs[segs.length - 1].w === w || w < 0)) segs[segs.length - 1].e = j; else segs.push({ w, s:j, e:j }); }
+    // (a blip first, under 0.2 s (a frame where the face wasn't read): into the run before it, so one speaker's run
+    // either side of it is joined again and isn't cut short enough to be folded away itself)
+    for (let i = segs.length - 1; i > 0; i--) if ((segs[i].e - segs[i].s + 1) * dt < 0.2 || segs[i].w === segs[i - 1].w) { segs[i - 1].e = segs[i].e; segs.splice(i, 1); }
+    for (let i = segs.length - 1; i > 0; i--) if (segs[i].w === segs[i - 1].w) { segs[i - 1].e = segs[i].e; segs.splice(i, 1); }
     for (let i = segs.length - 1; i > 0; i--) if ((segs[i].e - segs[i].s + 1) * dt < 0.6 || segs[i].w === segs[i - 1].w) { segs[i - 1].e = segs[i].e; segs.splice(i, 1); }
     if (segs.length > 1 && (segs[0].e - segs[0].s + 1) * dt < 0.6) { segs[1].s = segs[0].s; segs.shift(); }
     for (const g of segs) lines.push({ t0:g.s * dt, t1:(g.e + 1) * dt, who:g.w });
@@ -3753,7 +3771,11 @@ function vmSeenParts(i, times, step) {
       if (x0 > l.t0 + 0.2) { l.t1 = x0; VM.lines.push({ ...rest, t0:x0, t1:x1, who:i }); } else { l.t0 = x0; l.t1 = x1; l.who = i; }
       if (x1 < rest.t1 - 0.2) VM.lines.push({ ...rest, t0:x1, t1:rest.t1 });
     } }
-  VM.lines.sort((x, y) => x.t0 - y.t0); vmShowDefaults();
+  VM.lines.sort((x, y) => x.t0 - y.t0);
+  // (two of their seen parts with a blink between (a frame where the face wasn't read): one line)
+  for (let k = VM.lines.length - 1; k > 0; k--) { const l = VM.lines[k], p = VM.lines[k - 1];
+    if (!l.bk && !p.bk && l.who === i && p.who === i && l.t0 - p.t1 < 0.3) { p.t1 = Math.max(p.t1, l.t1); VM.lines.splice(k, 1); } }
+  vmShowDefaults();
 }
 // the choice: a face it found, someone it missed, or a voice off camera (People tab and Timing tab)
 function vmAddPicker(el, after) {
