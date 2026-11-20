@@ -31,7 +31,10 @@ const CLIPS = {
     ['ending (after 21.6 s): just the one singing on screen (not 2, not everyone)', r.lines.filter(l => l[0] >= 21.5).every(l => l[3] === 'solo')]] },
   turtle:{ file:'tt/turtle.webm', checks:r => [
     ['the kid on screen + the reporter as a voice off camera', real(r).length === 1 && r.people.filter(p => p.off).length === 1],
-    ['they take turns (4+ changes of speaker)', r.lines.filter((l, i) => i && l[2] !== r.lines[i - 1][2]).length >= 4]] },
+    // (GEAUX, 20 Nov: the kid starts speaking just before 9 s; before that it's the reporter)
+    ...(() => { const at = t => { const l = r.lines.find(l => l[0] <= t && t < l[1]); return l ? l[2] : -1; }, kid = r.people.findIndex(p => !p.off), off = r.people.findIndex(p => p.off);
+      return [['the reporter asks first (2 s, 4 s, 6 s, 8 s are the voice off camera)', off >= 0 && [2, 4, 6, 8].every(t => at(t) === off)],
+        ['the kid answers just before 9 s ("I like turtles", 9.3 s)', kid >= 0 && at(9.3) === kid]]; })()] },
   macho:{ file:'rs/macho.webm', checks:r => [
     ['1 person (the one with the mic), no made-up extras', real(r).length === 1 && !r.people.some(p => p.off)],
     ['talks right through (1–2 lines)', r.lines.length >= 1 && r.lines.length <= 2]] },
