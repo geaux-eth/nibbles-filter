@@ -3090,7 +3090,7 @@ async function vmAnalyse(file, grab, want) {
     if (T0 && T0.partOnly) { T0.partOut = part; T0.talk = VM.talkRuns; return; }   // (tests: just the part it picks)
     VM.off = part[0]; VM.dur = part[1] - part[0]; VM.trimmed = VM.off > 0.05 || VM.dur < VM.full - 0.05; vmPart(v);
     const envP = b ? vmSoundOf(VM.trimmed ? vmSlice(b, part[0], part[1]) : b) : Promise.resolve(null); vmCut.prev = null; vmCut.hist = null; VM.cutT = []; VM.strip = [];
-    const idP = faceIdNet();
+    const idP = faceIdNet(); vmVoiceNetLoad();   // (the voice model comes down meanwhile)
     VM.lmi = VM.lmi || await makeLandmarker(6, 0.3, 'IMAGE');
     vmProg(3); const fa = await idP;
     try { await v.play(); } catch (e) {} v.pause();
@@ -3105,6 +3105,7 @@ async function vmAnalyse(file, grab, want) {
     if (T) T.who = who;   // (tests: the faces behind each person)
     if (fa) { try { fa.nets.faceRecognitionNet.dispose(); } catch (e) {} FACEID = null; }   // its memory back (phones need it for the Nibbles)
     const sig = p => p.tracks.map(tr => tr.faces[0].n + ':' + Math.round(tr.faces[0].cx * 100)).sort().join(',');
+    VM.voice = T && T.voiceIn ? { ...T.voiceIn, gate:null, e:T.voiceIn.e.map(v => { const a = Float32Array.from(v); let n = 0; for (const q of a) n += q * q; n = Math.sqrt(n) || 1; for (let j = 0; j < a.length; j++) a[j] /= n; return a; }) } : null;   // (test: voices read beforehand)
     const saved = T && T.followIn && who.people.length && who.people.every(p => T.followIn[sig(p)]);
     if (saved) who.people.forEach(p => Object.assign(p, T.followIn[sig(p)]));
     else if (who.people.length) {
@@ -3114,6 +3115,10 @@ async function vmAnalyse(file, grab, want) {
       try { VM.lmi && VM.lmi.close(); } catch (e) {} VM.lmi = null;   // (its memory back for the Nibbles: made again for the next video)
       if (VM.cancel) return;
     }
+    // the voices (tests: read beforehand, or not at all)
+    if (!VM.voice && b && fa && !(T && T.noVoice)) { vmMsg('Listening to who’s talking…');
+      try { VM.voice = await vmVoicePrints(VM.trimmed ? vmSlice(b, part[0], part[1]) : b, fa.tf); } catch (e) { console.warn('voices', e); VM.voice = null; }
+      if (T && VM.voice) T.voiceOut = { win:VM.voice.win, hop:VM.voice.hop, t:VM.voice.t, rms:VM.voice.rms, e:VM.voice.e.map(a => Array.from(a, q => +q.toFixed(4))) }; }
     vmProg(100);
     VM.people = who.people.map(p => ({ feat:p.feat, smp:p.smp, thumb:p.thumb, t0:p.smp.length ? p.smp[0].t : p.t0, t1:p.smp.length ? p.smp[p.smp.length - 1].t : p.t1, n:p.smp.length, spans:p.spans, lipOk:p.lipOk }));
     if (!VM.people.length) VM.people.push({ smp:[], thumb:null, t0:0, t1:VM.dur, n:0, noface:true });   // no face found: one Nibble, moving with the sound
@@ -3433,6 +3438,124 @@ function vmCut(v) {
   return diff > 28 && hd > 0.3;
 }
 // who is talking when: while there is sound, the visible person whose mouth is moving most; short blips are smoothed out
+// Voices: what each voice sounds like (a voice fingerprint every quarter second, over the second around it). Lips can
+// be fooled (face paint, a head turning to the mic, a beard); a voice can't pass for one that sounds nothing like it.
+// - a line that's two voices one after the other (a question, then the answer) is split where the voice changes
+// - two lines given to the same person but in voices nothing alike: the one their mouth goes with least isn't theirs
+//   (it goes to someone whose voice it is, or to a voice off camera)
+// The voice prints: the WeSpeaker ResNet34-LM model (trained on VoxCeleb; CC BY 4.0; see models/voice/README.md),
+// its weights in 8 bits (6.7 MB), run here with TensorFlow.js (already in the page for faces). The sound is read once,
+// whole, and each second (every quarter second) gets its own 256 numbers from it.
+const VOICE_URL = (location.pathname.includes('/beta/') ? '../' : '') + 'models/voice/';
+let VOICE_NET = null;
+function vmVoiceNetLoad() {
+  return VOICE_NET = VOICE_NET || Promise.all([fetch(VOICE_URL + 'voice.json').then(r => r.json()), fetch(VOICE_URL + 'voice.bin').then(r => r.arrayBuffer())])
+    .then(([j, bin]) => ({ j, bin })).catch(e => { VOICE_NET = null; console.warn('voice net', e); return null; });
+}
+// Kaldi's filter bank (as the model was trained on): 25 ms frames every 10 ms, 80 mel bands, log
+function vmFbank(x) {
+  const N = 400, S = 160, NF = 512, NB = 80, n = x.length < N ? 0 : 1 + Math.floor((x.length - N) / S);
+  if (!vmFbank.w) {
+    const w = new Float64Array(N); for (let i = 0; i < N; i++) w[i] = Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)), 0.85);
+    const mel = f => 1127 * Math.log(1 + f / 700), lo = mel(20), hi = mel(8000), d = (hi - lo) / (NB + 1), banks = [];
+    for (let m = 0; m < NB; m++) { const l = lo + m * d, c = l + d, r = c + d, ws = [];
+      for (let k = 0; k < NF / 2; k++) { const me = mel(k * 16000 / NF); if (me > l && me < r) ws.push(k, me <= c ? (me - l) / (c - l) : (r - me) / (r - c)); } banks.push(ws); }
+    const rev = new Uint16Array(NF); for (let i = 0, j = 0; i < NF; i++) { rev[i] = j; let bit = NF >> 1; while (j & bit) { j ^= bit; bit >>= 1; } j |= bit; }
+    vmFbank.w = w; vmFbank.banks = banks; vmFbank.rev = rev;
+  }
+  const { w, banks, rev } = vmFbank, out = new Float32Array(n * NB), re = new Float64Array(NF), im = new Float64Array(NF), fr = new Float64Array(N), pw = new Float64Array(NF / 2 + 1);
+  for (let t = 0; t < n; t++) {
+    let mean = 0; for (let i = 0; i < N; i++) { fr[i] = x[t * S + i] * 32768; mean += fr[i]; } mean /= N;
+    for (let i = 0; i < N; i++) fr[i] -= mean;
+    for (let i = N - 1; i > 0; i--) fr[i] -= 0.97 * fr[i - 1]; fr[0] -= 0.97 * fr[0];
+    re.fill(0); im.fill(0); for (let i = 0; i < N; i++) re[rev[i]] = fr[i] * w[i];
+    for (let size = 2; size <= NF; size <<= 1) { const h = size >> 1, a = -2 * Math.PI / size;
+      for (let i = 0; i < NF; i += size) for (let j = 0; j < h; j++) { const c = Math.cos(a * j), s = Math.sin(a * j), k = i + j + h, tr = re[k] * c - im[k] * s, ti = re[k] * s + im[k] * c;
+        re[k] = re[i + j] - tr; im[k] = im[i + j] - ti; re[i + j] += tr; im[i + j] += ti; } }
+    for (let k = 0; k <= NF / 2; k++) pw[k] = re[k] * re[k] + im[k] * im[k];
+    for (let m = 0; m < NB; m++) { const ws = banks[m]; let e = 0; for (let q = 0; q < ws.length; q += 2) e += pw[ws[q]] * ws[q + 1]; out[t * NB + m] = Math.log(Math.max(e, 1.1920929e-7)); }
+  }
+  return { F:out, n };
+}
+async function vmVoicePrints(b, tf) {
+  const net = await vmVoiceNetLoad(); if (!net || !tf) return null;
+  const oc = new OfflineAudioContext(1, Math.max(1, Math.ceil(b.duration * 16000)), 16000), src = oc.createBufferSource(); src.buffer = b; src.connect(oc.destination); src.start();
+  const x = (await oc.startRendering()).getChannelData(0), { F, n } = vmFbank(x); if (n < 98) return null;
+  const NB = 80, mu = new Float32Array(NB); for (let t = 0; t < n; t++) for (let m = 0; m < NB; m++) mu[m] += F[t * NB + m] / n;
+  for (let t = 0; t < n; t++) for (let m = 0; m < NB; m++) F[t * NB + m] -= mu[m];
+  const { j, bin } = net;
+  const W = j.convs.map(c => { const per = c.i * c.k * c.k, q = new Int8Array(bin, c.w, c.o * per), sc = new Float32Array(bin, c.sc, c.o), f = new Float32Array(q.length);
+    for (let o = 0; o < c.o; o++) for (let z = 0; z < per; z++) f[o * per + z] = q[o * per + z] * sc[o];
+    return { ...c, f:tf.tidy(() => tf.tensor4d(f, [c.o, c.i, c.k, c.k]).transpose([2, 3, 1, 0])), bias:tf.tensor1d(new Float32Array(bin, c.b, c.o)) }; });
+  const conv = (x, c) => tf.conv2d(x, c.f, c.s, c.p).add(c.bias), relu = t => tf.relu(t);
+  const net34 = x => { x = relu(conv(x, W[0])); let i = 1;
+    for (const [nb, down] of [[3, false], [4, true], [6, true], [3, true]]) for (let k = 0; k < nb; k++) { const a = W[i++], bb = W[i++], sc = down && !k ? W[i++] : null;
+      x = relu(conv(relu(conv(x, a)), bb).add(sc ? conv(x, sc) : x)); }
+    return x; };
+  // the whole sound in pieces of 16 s (with a second either side, so each piece's edges read as if it weren't cut)
+  const Tm = Math.ceil(n / 8), M = new Float32Array(Tm * 2560), C = 1600, MG = 96;
+  try {
+    for (let s0 = 0; s0 < n; s0 += C) { if (VM.cancel) return null;
+      const a = Math.max(0, s0 - MG), z = Math.min(n, s0 + C + MG), L = z - a;
+      const y = tf.tidy(() => net34(tf.tensor4d(F.subarray(a * NB, z * NB), [L, NB, 1, 1]).transpose([3, 1, 0, 2])));   // (1, 80 bands, L frames, 1)
+      const d = await y.data(), H = y.shape[1], Wd = y.shape[2]; y.dispose();
+      const j0 = (s0 - a) >> 3, j1 = Math.min(Wd, j0 + Math.ceil((Math.min(n, s0 + C) - s0) / 8));
+      for (let jj = j0; jj < j1; jj++) { const T = (s0 >> 3) + jj - j0; if (T >= Tm) break; for (let f = 0; f < H; f++) for (let c = 0; c < 256; c++) M[T * 2560 + c * 10 + f] = d[(f * Wd + jj) * 256 + c]; }
+      await new Promise(r => setTimeout(r));
+    }
+  } finally { for (const c of W) { c.f.dispose(); c.bias.dispose(); } }
+  // each second: the average and spread of each of the 2560 over its frames -> 256 numbers
+  const h = j.head, G = new Int8Array(bin, h.w, h.o * h.i), gs = new Float32Array(bin, h.sc, h.o), gb = new Float32Array(bin, h.b, h.o), mv = new Float32Array(bin, h.mv, h.o);
+  const out = { win:1, hop:0.25, t:[], rms:[], e:[] }, v = new Float32Array(5120);
+  for (let t0 = 0; t0 + 1 <= b.duration + 1e-6; t0 += 0.25) {
+    const f0 = Math.round(t0 * 100), A = f0 >> 3, Z = Math.min(Tm, Math.max(A + 2, (f0 + 98) >> 3)), k = Z - A; if (k < 2) break;
+    for (let q = 0; q < 2560; q++) { let s = 0, ss = 0; for (let T = A; T < Z; T++) { const val = M[T * 2560 + q]; s += val; ss += val * val; } const m = s / k; v[q] = m; v[2560 + q] = Math.sqrt(Math.max(0, (ss - k * m * m) / (k - 1)) + 1e-8); }
+    const e = new Float32Array(256); let nn = 0;
+    for (let o = 0; o < 256; o++) { let s = 0; const r = o * 5120; for (let q = 0; q < 5120; q++) s += G[r + q] * v[q]; e[o] = s * gs[o] + gb[o] - mv[o]; nn += e[o] * e[o]; }
+    nn = Math.sqrt(nn) || 1; for (let o = 0; o < 256; o++) e[o] /= nn;
+    let r2 = 0; const i0 = Math.round(t0 * 16000), i1 = Math.min(x.length, i0 + 16000); for (let i = i0; i < i1; i++) r2 += x[i] * x[i];
+    out.t.push(+(t0 + 0.5).toFixed(3)); out.rms.push(Math.sqrt(r2 / Math.max(1, i1 - i0))); out.e.push(e);
+  }
+  return out;
+}
+function vmVoiceOf(t0, t1) {
+  const V = VM.voice; if (!V) return null;
+  const m = new Float32Array(V.e[0].length); let n = 0;
+  for (let k = 0; k < V.t.length; k++) { const t = V.t[k]; if (t - V.win / 2 < t0 - 0.1 || t + V.win / 2 > t1 + 0.1 || V.rms[k] < V.gate || vmVoiced(t) < 0.4) continue; const e = V.e[k]; for (let j = 0; j < m.length; j++) m[j] += e[j]; n++; }
+  if (n < 2) return null; let nn = 0; for (const q of m) nn += q * q; nn = Math.sqrt(nn) || 1; for (let j = 0; j < m.length; j++) m[j] /= nn; return m;
+}
+// how much of the second around t has a voice's pitch (laughter, applause and music mostly don't: their windows would
+// make a voice sound like someone else)
+function vmVoiced(t) { const pf = VM.env && VM.env.pitch, nv = VM.env && VM.env.nov; if (!pf) return 1; let v = 0, m = 0;
+  for (let j = Math.max(0, Math.floor((t - 0.5) * 50)); j < Math.min(pf.length, Math.floor((t + 0.5) * 50)); j++) { m++; if (pf[j] > 0 && !(nv && nv[j])) v++; } return m ? v / m : 0; }
+const vmVoiceD = (a, b) => { let s = 0; for (let j = 0; j < a.length; j++) s += a[j] * b[j]; return 1 - s; };
+function vmVoices(lines, raw, dt) {
+  const V = VM.voice, P = VM.people, D = VM.voiceDbg = { split:[], evict:[] }; if (!V || !V.e || !V.e.length) return;
+  if (V.gate == null) { const r = V.rms.slice().sort((a, b) => a - b); V.gate = Math.max(0.003, Math.min(r[Math.floor(r.length * 0.15)] * 2.5, r[Math.floor(r.length * 0.9)] * 0.05)); }
+  const vote = (t0, t1, def) => { const c = new Map(); for (let k = Math.round(t0 / dt); k < Math.min(raw.length, Math.round(t1 / dt)); k++) { const w = raw[k].lip; if (w != null && w >= 0) c.set(w, (c.get(w) || 0) + 1); }
+    let b = def, bn = 0; for (const [w, n] of c) if (n > bn) { bn = n; b = w; } return b; };
+  // 1. a long line in two voices: split where the halves sound most unlike, when they're clearly two people
+  for (let i = 0; i < lines.length; i++) { const l = lines[i]; if (l.t1 - l.t0 < 2.5) continue;
+    let best = null, bd = 0.9; for (let s = l.t0 + 1; s <= l.t1 - 1; s += 0.25) { const a = vmVoiceOf(l.t0, s), b = vmVoiceOf(s, l.t1); if (!a || !b) continue; const d = vmVoiceD(a, b); if (d > bd) { bd = d; best = s; } }
+    if (best == null) continue; D.split.push([+l.t0.toFixed(2), +best.toFixed(2), +l.t1.toFixed(2), +bd.toFixed(2)]);
+    const r = { ...l, t0:best, who:vote(best, l.t1, l.who) }; l.t1 = best; l.who = vote(l.t0, best, l.who); lines.splice(i + 1, 0, r); i++; }
+  // 2. one person, two voices nothing alike: how well each line goes with their mouth decides which is theirs
+  const fit = (l, i) => { if (P[i].off) return 0; let n = 0, m = 0, c = 0, cn = 0;
+    for (let k = Math.round(l.t0 / dt); k < Math.min(raw.length, Math.round(l.t1 / dt)); k++) { if (!raw[k].speech) continue; n++; if (raw[k].lip === i) m++; }
+    for (let t = l.t0 + 0.2; t < l.t1 - 0.1; t += 0.2) { c += vmAVsync(i, t); cn++; } D.fit = D.fit || []; D.fit.push([+l.t0.toFixed(1), i, +(n ? m / n : 0).toFixed(2), +(cn ? c / cn : 0).toFixed(2)]); return 0.5 * (n ? m / n : 0) + 1.5 * (cn ? c / cn : 0); };   // (mostly: does the mouth open and shut with this voice)
+  const real = P.filter(q => !q.off).length;
+  for (let i = 0; i < P.length; i++) { if (P[i].off) continue;
+    const L = lines.filter(l => l.who === i && l.t1 - l.t0 >= 0.75).map(l => ({ l, v:vmVoiceOf(l.t0, l.t1) })).filter(x => x.v);
+    for (const a of L) for (const b of L) { if (a === b || a.l.who !== i || b.l.who !== i) continue; const d = vmVoiceD(a.v, b.v); if (a.l.t0 < b.l.t0) (D.pairs = D.pairs || []).push([+a.l.t0.toFixed(1), +b.l.t0.toFixed(1), i, +d.toFixed(2)]); if (d <= 0.85) continue;
+      const fa = fit(a.l, i), fb = fit(b.l, i), lose = fa < fb ? a : b; if (Math.abs(fa - fb) < 0.15) { (D.near = D.near || []).push([+a.l.t0.toFixed(1), +b.l.t0.toFixed(1), i, +d.toFixed(2), +fa.toFixed(2), +fb.toFixed(2)]); continue; }
+      // whose voice is it, then: someone else's lines that sound like it, else a voice off camera
+      let to = -1, td = 0.6; for (const x of lines) { if (x.who === i || x.who < 0 || x === lose.l) continue; const v = vmVoiceOf(x.t0, x.t1); if (!v) continue; const d2 = vmVoiceD(v, lose.v); if (d2 < td) { td = d2; to = x.who; } }
+      if (to < 0) { const o = P.findIndex(q => q.off); if (o >= 0) to = o; else if (real < 3) { P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 }); to = P.length - 1; } }
+      if (to < 0) continue;
+      D.evict.push([+lose.l.t0.toFixed(2), +lose.l.t1.toFixed(2), i, to, +d.toFixed(2), +fa.toFixed(2), +fb.toFixed(2)]); lose.l.who = to; }
+  }
+  for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 2.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
+}
 function vmTimeline() {
   const P = VM.people, dt = 0.05, n = Math.ceil(VM.dur / dt), env = VM.env;
   if (!P.length) { VM.timeline = []; return; }
@@ -3461,6 +3584,7 @@ function vmTimeline() {
     // shuts with the sound itself, so the one whose mouth follows the voice best takes it
     if (cand.length > 1) { let bs = -9, w = who; for (const [i, rel] of cand) { const c = vmAVsync(i, t), sc = rel * (1 + 1.5 * Math.max(0, c)) - (c < -0.2 ? 0.3 : 0); if (sc > bs) { bs = sc; w = i; } }
       VM.avDbg.multi++; if (w !== who) VM.avDbg.changed++; if (!VM.noAV) who = w; }
+    const lipWho = who;   // (who the lips alone say, for the voices below)
     // a laugh track, an audience, applause: loud, but almost none of it has a voice's pitch (many people at once, or
     // breath). With no mouth on screen moving, that's nobody's line (and no made-up voice off camera)
     if (speech && who < 0 && laughy(t)) { raw.push({ speech:false, who:-1, still:false }); if (VM.dbgT) VM.dbgT.push([+t.toFixed(2), 0, [], 1]); continue; }
@@ -3469,7 +3593,7 @@ function vmTimeline() {
     // (and in a conversation among three or more (a sitcom), the one face in a close-up while someone talks: theirs, even
     // with lips that barely seem to move (head down, a beard): the show cuts to whoever's talking)
     if (speech && who < 0) { const on = P.map((p, i) => i).filter(i => activity(P[i], t) >= 0); if (on.length === 1 && (P[on[0]].lipOk === false || P.filter(q => !q.off).length >= 3)) who = on[0]; }
-    raw.push({ speech, who, still:speech && who < 0 && seen && top < 0.3 });   // talking, a face is on screen, but its mouth is still
+    raw.push({ speech, who, lip:lipWho, still:speech && who < 0 && seen && top < 0.3 });   // talking, a face is on screen, but its mouth is still
     if (VM.dbgT) VM.dbgT.push([+t.toFixed(2), speech ? 1 : 0, P.map(p => +(activity(p, t) / p.busy).toFixed(2)), 0]);
   }
   // a voice nobody on screen is speaking with (a reporter behind the camera, a narrator): while there's talking and the
@@ -3529,6 +3653,7 @@ function vmTimeline() {
   // gaps where the mouth stayed shut and many small blocks to fix)
   for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 2.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
   for (let i = lines.length - 1; i >= 0; i--) if (lines[i].t1 - lines[i].t0 < 0.2) lines.splice(i, 1);
+  vmVoices(lines, raw, dt);
   VM.lines = lines;
   // someone it found, given no lines (their lips couldn't be read, the voice went to the speaker before): the parts where
   // they're on screen and the speaker isn't are theirs (a podcast cuts to whoever is talking)
