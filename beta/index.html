@@ -4165,10 +4165,12 @@ function vmPeopleTab(el) {
     vmDo(() => { const bg = VM.bg; vmRandom(true); VM.bg = bg; }); };
   $('vmAddP').onclick = () => { vmAddPicker($('vmAddBox')); $('vmAddBox').scrollIntoView({ block:'nearest', behavior:'smooth' }); };
 }
+// (the editor's background list ends with adding your own picture, as on the main screen)
+const BG_ADD_OPT = '<optgroup label="Your own"><option value="+add">＋ Add your own picture…</option></optgroup>';
 function vmLookTab(el) {
   const opt = (list, cur) => list.map(([v, t]) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${t}</option>`).join('');
   el.innerHTML = `<div class="vm-opts">
-      <label>Background<select id="vmBg">${bgOptions(VM.bg)}</select></label>
+      <label>Background<select id="vmBg">${bgOptions(VM.bg)}${BG_ADD_OPT}</select></label>
       <label>Music<select id="vmMusic">${opt([['', 'No music'], ...TRACKS.map(t => [t[0], t[1]])], VM.music)}</select></label>
       <label>Shape<select id="vmShape">${opt(Object.keys(ASPECTS).map(k => [k, VID_SHAPE_TXT[k]]), VM.shape)}</select></label>
       <label class="vm-txt">Words on the video<input id="vmText" type="text" maxlength="60" placeholder="e.g. Happy Birthday Mom!" value="${esc(VM.text || '')}"></label>
@@ -4177,7 +4179,9 @@ function vmLookTab(el) {
     <div class="vm-h">Captions</div>
     <div id="vmCap"></div>`;
   vmCapPanel();
-  $('vmBg').onchange = e => vmDo(() => { VM.bg = e.target.value; });
+  $('vmBg').onchange = e => { const v = e.target.value;
+    if (v === '+add') { e.target.value = VM.bg; addBackground(name => { vmDo(() => { VM.bg = name; }); const s = $('vmBg'); if (s) s.innerHTML = bgOptions(VM.bg) + BG_ADD_OPT; }); return; }
+    vmDo(() => { VM.bg = v; }); };
   $('vmMusic').onchange = e => vmDo(() => { VM.music = e.target.value; });
   $('vmShape').onchange = e => vmDo(() => { VM.shape = e.target.value; });
   let typing = null;
