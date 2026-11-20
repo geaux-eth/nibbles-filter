@@ -3662,12 +3662,15 @@ function vmTimeline() {
   raw.forEach(r => { if (r.off && OFF >= 0 && r.who < 0) r.who = OFF; });
   const pt = k => env && env.pitch ? env.pitch[Math.min(env.pitch.length - 1, Math.floor(k * dt * 50))] || 0 : 0;
   const voice = P.map((_, i) => { const v = raw.map((r, k) => r.who === i ? pt(k) : 0).filter(x => x > 0).sort((a, b) => a - b); return v.length >= 6 ? v[v.length >> 1] : 0; });
+  // (only someone seen within 15 s of it, or the voice off camera: a host seen once at the start isn't the one talking a
+  // minute later just because their voice is about as low)
+  const near = (i, t) => P[i].off || P[i].smp.some(x => Math.abs(x.t - t) < 15);
   if (voice.filter(Boolean).length >= 2) raw.forEach((r, k) => {
     if (!r.speech || r.who >= 0) return;
     // the median pitch of the moment around it, matched to the nearest known voice (if it's clearly closer to one)
     const v = []; for (let j = Math.max(0, k - 6); j < Math.min(raw.length, k + 7); j++) if (raw[j].speech && pt(j) > 0) v.push(pt(j));
     if (v.length < 4) return; v.sort((a, b) => a - b); const m = v[v.length >> 1];
-    const ds = voice.map(f => f ? Math.abs(Math.log(m / f)) : 9), best = ds.indexOf(Math.min(...ds)), second = Math.min(...ds.filter((_, i) => i !== best));
+    const ds = voice.map((f, i) => f && near(i, k * dt) ? Math.abs(Math.log(m / f)) : 9), best = ds.indexOf(Math.min(...ds)), second = Math.min(...ds.filter((_, i) => i !== best));
     if (ds[best] < 0.25 && second - ds[best] > 0.08) r.who = best;
   });
   VM.main = 0;   // the one the video's about (the first look put them first)

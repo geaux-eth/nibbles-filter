@@ -62,6 +62,19 @@ const CLIPS = {
   robotsEnd:{ file:'duo/rob_end.webm', checks:r => [
     ['ending: only the main robot sings → just them on screen (not 2, not everyone)', r.lines.filter(l => l[0] >= 3).every(l => l[3] === 'solo')]] },
 };
+CLIPS.panelB = { file:'n2/a.h264.mp4', checks:r => { const at = t => { const l = r.lines.find(l => l[0] <= t && t < l[1]); return l ? l[2] : -1; };
+    const H = at(8), W = at(15), D = at(21), G = at(26), S = at(33);
+    return [
+    ['5 people: the host and the 4 on the panel (the BBC logo isn\'t one)', real(r).length === 5 && !r.people.some(p => p.off)],
+    ['the host\'s intro is his (4–12 s)', H >= 0 && at(4.5) === H && at(12) === H],
+    ['each one\'s first line is theirs (woman 15 s, piano 21 s, glasses 26 s, white shirt 33 s)', new Set([H, W, D, G, S]).size === 5 && ![W, D, G, S].includes(-1)],
+    ['and later on too (piano 47, 63.5 s; glasses 52, 69, 70 s; white shirt 55 s; woman 60, 75 s)', at(47) === D && at(63.5) === D && at(52) === G && at(69) === G && at(70) === G && at(55) === S && at(60) === W && at(75) === W]]; } };
+CLIPS.latarian = { file:'n2/b.h264.mp4', checks:r => { const at = t => { const l = r.lines.find(l => l[0] <= t && t < l[1]); return l ? l[2] : -1; };
+    const off = r.people.findIndex(p => p.off), K = at(26), Gm = at(21), O = at(45);
+    return [
+    ['the narrator over shots with nobody in them is a voice off camera (10, 40, 50 s)', off >= 0 && at(10) === off && at(40) === off && at(50) === off],
+    ['grandma 21 s, the kid 26 s, the officer 45 s: three different people, none the narrator', new Set([K, Gm, O, off]).size === 4 && ![K, Gm, O].includes(-1)],
+    ['the kid\'s later lines are his (34, 58 s)', at(34) === K && at(58) === K]]; } };
 const routes = async pg => {
   await serve(pg);
   await pg.route(/cdn\.jsdelivr\.net\/npm\/@mediapipe\/tasks-vision@[^/]+\/(.*)/, r => { const p = r.request().url().split(/tasks-vision@[^/]+\//)[1]; r.fulfill({ body:fs.readFileSync(`${mp}/package/${p}`), contentType:p.endsWith('.wasm') ? 'application/wasm' : 'text/javascript' }); });
@@ -85,7 +98,7 @@ async function run(name) {
   await pg.click('#vidBtn'); await pg.setInputFiles('#vmFile', `${S}/${c.file}`);
   await pg.waitForSelector('#edMake', { timeout:+process.env.TMO || 1800000 }).finally(() => tick && clearInterval(tick));
   const r = await pg.evaluate(() => { const V = window.__vm; return { people:V.people.map(p => ({ t0:+p.t0.toFixed(1), t1:+p.t1.toFixed(1), n:p.n, lipOk:p.lipOk, off:!!p.off, pts:(p.smp || []).filter((x, i, a) => i % Math.max(1, Math.floor(a.length / 5)) === 0).slice(0, 6).map(x => [+x.t.toFixed(2), +x.cx.toFixed(2)]) })),
-    lines:V.lines.map(l => [+l.t0.toFixed(1), +l.t1.toFixed(1), l.who, l.show || 'solo']), back:(V.back || []).map(x => [x.t0, x.t1]), crowd:V.crowd && V.crowd.n, sing:V.sing, group:V.group, who:V.whoDbg, av:V.avDbg, err:V.err || null, found:(V.found || []).length, fr:!!V.frUsed, voice:V.voiceDbg || null, diag:V.diag ? { looks:V.diag.looks, same:V.diag.same, miss:V.diag.miss, mode:V.diag.mode, fill:V.diag.fill, rates:V.diag.rates, p:V.diag.p } : null }; });
+    lines:V.lines.map(l => [+l.t0.toFixed(1), +l.t1.toFixed(1), l.who, l.show || 'solo']), back:(V.back || []).map(x => [x.t0, x.t1]), crowd:V.crowd && V.crowd.n, sing:V.sing, group:V.group, who:V.whoDbg, av:V.avDbg, err:V.err || null, found:(V.found || []).length, fr:!!V.frUsed, voice:V.voiceDbg || null, still:V.stillDbg || null, diag:V.diag ? { looks:V.diag.looks, same:V.diag.same, miss:V.diag.miss, mode:V.diag.mode, fill:V.diag.fill, rates:V.diag.rates, p:V.diag.p } : null }; });
   if (process.env.DBGT) { const [a, z] = process.env.DBGT.split(',').map(Number); r.dbgT = await pg.evaluate(([a, z]) => (window.__vm.dbgT || []).filter(x => x[0] >= a && x[0] <= z), [a, z]); }
   { const vo = await pg.evaluate(() => window.__T.voiceOut ? JSON.stringify(window.__T.voiceOut) : null); if (vo) fs.writeFileSync(`${G}/${name}.voice.json`, vo); }
   const saved = await pg.evaluate(() => ({ scan:window.__T.scan && !window.__T.scanIn ? JSON.stringify(window.__T.scan) : null, follow:window.__T.follow ? JSON.stringify(window.__T.follow) : null }));
