@@ -45,7 +45,14 @@ const CLIPS = {
     ['George\'s close-ups are his (8–11.9, 28–30, 43–45 s)', G >= 0 && G !== K && at(29) === G && at(44) === G],
     ['Jerry/Elaine two-shots go to Jerry or Elaine', [15, 19.5, 22].every(t => at(t) >= 0 && at(t) !== K && at(t) !== G)],
     ['the laugh at 6.6–8.2 s is nobody\'s line', at(6.8) === -1 && at(7.6) === -1]]; } },
-  panel90:{ file:'n1/panel90.webm', checks:r => [['read', r.lines.length > 0]] },
+  panel90:{ file:'n1/panel90.webm', checks:r => { const at = t => { const l = r.lines.find(l => l[0] <= t && t < l[1]); return l ? l[2] : -1; };
+    const H = at(5), Ho = at(15), Gl = at(18.5), W = at(26), D = at(31);
+    return [
+    ['5 people: the host and the 4 on the panel', real(r).length === 5],
+    ['no made-up voice off camera (the audience isn\'t a person)', !r.people.some(p => p.off)],
+    ['not "everyone on screen" by default', r.group !== 'all'],
+    ['each close-up is that person\'s line (host 5 s, hoodie 15 s, glasses 18.5 s, woman 26 s, dark hair 31 s)', new Set([H, Ho, Gl, W, D]).size === 5 && ![H, Ho, Gl, W, D].includes(-1)],
+    ['and later on too (dark hair 58 s, hoodie 75 s, woman 50 s)', at(58) === D && at(75) === Ho && at(50) === W]]; } },
   robotsEnd:{ file:'duo/rob_end.webm', checks:r => [
     ['ending: only the main robot sings → just them on screen (not 2, not everyone)', r.lines.filter(l => l[0] >= 3).every(l => l[3] === 'solo')]] },
 };

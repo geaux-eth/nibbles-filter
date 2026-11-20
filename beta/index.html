@@ -3274,7 +3274,9 @@ function vmWho(scan, music) {
   // a choir's singers are on screen a lot too, but the lead is the song's own)
   // ...or who has shots of their own (the only face, or clearly the biggest, and close up) for a second and a half or more:
   // a duo's second singer, an interviewer (a choir's singers don't: their shots are full of faces their size)
-  const own = p => p.faces.filter(f => { const sm = samples.find(x => x.n === f.n); if (!sm || f.s < 0.15) return false;
+  // (close: the face at least 0.18 of the picture's short side. Measured on the short side, not the height: in a phone's
+  // screen recording the video is a band in the middle of a tall picture, and its close-ups are small for the height)
+  const own = p => p.faces.filter(f => { const sm = samples.find(x => x.n === f.n); if (!sm || (f.sp || 0) < 0.18 * Math.min(fw, fh)) return false;
     const o = sm.faces.filter(g => g !== f).reduce((m, g) => Math.max(m, g.s), 0); return f.s >= o * 1.6; }).length * step;
   // ...or, when it's talking and not a song, who's on screen a good while (3 s or more) with lips moving a lot: someone
   // in the conversation who's always in a two-shot (a sitcom's fourth friend), not someone just standing there
