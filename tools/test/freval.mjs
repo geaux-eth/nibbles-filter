@@ -4,7 +4,7 @@ import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 import fs from 'fs';
 import { serve } from '../serve2.mjs';
 const S = '/tmp/claude-0/-home-claude/983647b0-485b-5cec-a0d0-3276a7c1b795/scratchpad', mp = S + '/mp', G = S + '/golden';
-const CL = { podcast26:'u11/r.webm', podcast23:'u11/r23.webm', robots:'duo/robots.webm', choir22:'v4/choir_mid.webm' };
+const CL = { sitcom:'n1/seinfeld.webm', panel90:'n1/panel90.webm', podcast26:'u11/r.webm', robots:'duo/robots.webm' };
 async function run(name) {
   const b = await chromium.launch({ args:['--autoplay-policy=no-user-gesture-required', '--js-flags=--max-old-space-size=4096'] }); const pg = await b.newPage({ viewport:{ width:390, height:844 } });
   await serve(pg);
@@ -17,7 +17,7 @@ async function run(name) {
   await pg.route('https://d24r2edyfve7yo.cloudfront.net/**', r => r.abort());
   await pg.route('https://jmiesqhrpcmrthrquqpq.supabase.co/**', r => r.fulfill({ json:[] }));
   await pg.goto('http://127.0.0.1:8765/beta/index.html'); await pg.waitForFunction(() => window.__nf);
-  const T = { noLike:true, scanIn:JSON.parse(fs.readFileSync(`${G}/${name}.scan.json`)), followIn:JSON.parse(fs.readFileSync(`${G}/${name}.follow.json`)) };
+  const T = { noLike:true, part:'whole', scanIn:JSON.parse(fs.readFileSync(`${G}/${name}.scan.json`)), followIn:JSON.parse(fs.readFileSync(`${G}/${name}.follow.json`)) };
   await pg.evaluate(T => { window.__T = T; }, T);
   await pg.click('#vidBtn'); await pg.setInputFiles('#vmFile', `${S}/${CL[name]}`);
   await pg.waitForSelector('#edMake', { timeout:900000 });
@@ -31,7 +31,7 @@ async function run(name) {
     const c224 = document.createElement('canvas'); c224.width = c224.height = 224; const g224 = c224.getContext('2d');
     const seek = t => new Promise(r => { v.onseeked = r; v.currentTime = Math.min(t + 0.001, v.duration - 0.05); });
     const rows = [];
-    for (let i = 0; i < V.people.length; i++) { const p = V.people[i]; if (p.off || !p.tracks) continue;
+    const WP = window.__T.who.people; for (let i = 0; i < WP.length; i++) { const p = WP[i]; if (!p.tracks) continue;
       let fs_ = []; p.tracks.forEach((tr, k) => tr.faces.forEach(f => fs_.push({ f, tr:k + ':' + i })));
       if (fs_.length > 40) fs_ = fs_.filter((_, j) => j % Math.ceil(fs_.length / 40) === 0);
       for (const { f, tr } of fs_) {

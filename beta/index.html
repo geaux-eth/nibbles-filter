@@ -3102,6 +3102,7 @@ async function vmAnalyse(file, grab, want) {
   VM.noAV = !!(T && T.noAV);   // (tests: the old way, to compare)
     vmMsg('Working out who’s who…'); VM.env = await envP;
     const who = vmWho(scan, (VM.env && VM.env.nov && VM.env.nov.music) || 0);
+    if (T) T.who = who;   // (tests: the faces behind each person)
     if (fa) { try { fa.nets.faceRecognitionNet.dispose(); } catch (e) {} FACEID = null; }   // its memory back (phones need it for the Nibbles)
     const sig = p => p.tracks.map(tr => tr.faces[0].n + ':' + Math.round(tr.faces[0].cx * 100)).sort().join(',');
     const saved = T && T.followIn && who.people.length && who.people.every(p => T.followIn[sig(p)]);
