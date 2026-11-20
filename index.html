@@ -241,6 +241,11 @@ header .credit b{font-weight:400}
 .vm-i[hidden]{display:none}
 .vm-tip{position:fixed;top:max(64px,calc(env(safe-area-inset-top) + 56px));left:50%;transform:translateX(-50%);width:min(400px,calc(100vw - 40px));max-height:70dvh;overflow:auto;z-index:40;background:#fffbe9;border:2.5px solid var(--ink);border-radius:14px;box-shadow:3px 4px 0 var(--ink);padding:12px 40px 12px 14px;font:500 14px/1.4 var(--body)}
 .vm-tip p{margin:0 0 8px}.vm-tip p:last-child{margin:0}
+.pp-strip{position:relative;display:flex;height:72px;border:2.5px solid var(--ink);border-radius:10px;overflow:hidden;margin:8px 0 0;background:#222;touch-action:none}.pp-strip img,.pp-strip span{flex:1;min-width:0;height:100%;object-fit:cover}
+.pp-win{position:absolute;top:0;bottom:0;border:4px solid #ffd43b;border-radius:8px;box-shadow:0 0 0 999px rgba(0,0,0,.45);cursor:grab;touch-action:none}
+.pp-talk{position:relative;height:8px;margin:4px 0 10px;background:#eee8da;border-radius:4px;overflow:hidden}.pp-talk i{position:absolute;top:0;bottom:0;background:#4caf50}
+.ed-trim{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:#5c5547;margin:-2px 0 4px}
+.vm-rep{margin-top:10px;padding-top:10px;border-top:2px dashed #d8cdb4;font-size:13px}.vm-rep textarea{display:block;width:100%;box-sizing:border-box;margin:6px 0;border:2px solid var(--ink);border-radius:10px;padding:6px 8px;font:500 16px/1.3 var(--body);resize:vertical}#vmRepSaid{font-size:12px}
 .vm-tip .vm-x{top:8px;right:8px;width:28px;height:28px;font-size:13px}
 .ed-bar{display:flex;align-items:center;gap:8px;margin:8px 0 6px}
 .ed-pp{width:40px;height:40px;border:2.5px solid var(--ink);border-radius:50%;background:var(--gold);font:700 15px/1 var(--body);cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
@@ -1290,7 +1295,8 @@ loadNibble(4075); showNibbleThumb(4075);   // others load when picked (each Nibb
 // ---------------------------------------------------------------------------
 // MediaPipe's face tracker (loaded once); numFaces 1 for the camera, more for an uploaded video
 let VISION = null;
-async function makeLandmarker(numFaces, conf = 0.5, mode = 'VIDEO') {
+const OFF_GL2 = (() => { try { return typeof OffscreenCanvas !== 'undefined' && !!new OffscreenCanvas(1, 1).getContext('webgl2'); } catch (e) { return false; } })();
+async function makeLandmarker(numFaces, conf = 0.5, mode = 'VIDEO', cpu = false) {
   if (!VISION) VISION = (async () => {
     const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`);
     const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`);
@@ -1299,9 +1305,23 @@ async function makeLandmarker(numFaces, conf = 0.5, mode = 'VIDEO') {
   const { vision, files } = await VISION;
   const opts = { baseOptions:{ modelAssetPath:MP_MODEL, delegate: IN_WALLET ? 'CPU' : 'GPU' }, runningMode:mode, numFaces, outputFaceBlendshapes:true,
     minFaceDetectionConfidence:conf, minFacePresenceConfidence:conf, minTrackingConfidence:conf };
-  try { return await vision.FaceLandmarker.createFromOptions(files, opts); }
-  catch (e) { opts.baseOptions.delegate = 'CPU'; return await vision.FaceLandmarker.createFromOptions(files, opts); }
+  if (cpu) opts.baseOptions.delegate = 'CPU';
+  // MediaPipe draws each picture with WebGL on a hidden canvas of its own (an OffscreenCanvas). Where that kind of canvas
+  // can't do WebGL 2 (iPhones before iOS 17, some other browsers) it finds no faces at all, on the GPU or the CPU: give it
+  // an ordinary canvas instead
+  if (!OFF_GL2) opts.canvas = document.createElement('canvas');
+  let lm; try { lm = await vision.FaceLandmarker.createFromOptions(files, opts); }
+  catch (e) { opts.baseOptions.delegate = 'CPU'; opts.canvas = opts.canvas || document.createElement('canvas'); return await vision.FaceLandmarker.createFromOptions(files, opts); }
+  // the graphics chip can say yes and then fail on the first picture (no WebGL, or a phone that took it back): try one
+  // small picture now, and use the slower CPU way if it fails, rather than finding no faces at all
+  if (opts.baseOptions.delegate === 'GPU') try { const c = document.createElement('canvas'); c.width = c.height = 64; c.getContext('2d').fillRect(0, 0, 64, 64);
+    if (mode === 'VIDEO') lm.detectForVideo(c, performance.now()); else lm.detect(c); }
+  catch (e) { try { lm.close(); } catch (e2) {} opts.baseOptions.delegate = 'CPU'; opts.canvas = opts.canvas || document.createElement('canvas'); lm = await vision.FaceLandmarker.createFromOptions(files, opts); lm.cpu = true; }
+  return lm;
 }
+// the video's face reader failed part way (a phone can take the graphics chip back mid-video): once, made again on the CPU
+async function vmLmiAgain(e) { VM.err = String(e); if (VM.lmiRetried) return false; VM.lmiRetried = true;
+  try { VM.lmi && VM.lmi.close(); } catch (e2) {} VM.lmi = await makeLandmarker(6, 0.3, 'IMAGE', true); return true; }
 async function cameraOn() {
   $('camToggle').classList.add('busy');
   try {
@@ -2711,7 +2731,7 @@ function vmShow(title, html, info) { vmQuiet(); $('vm').hidden = false; $('vmTit
   // the how-to for this step lives behind the "i" button, not on the page
   const ib = $('vmInfo'); ib.hidden = !info; ib.onclick = () => { const old = $('vmTip'); if (old) { old.remove(); return; }
     const t = document.createElement('div'); t.className = 'vm-tip'; t.id = 'vmTip'; t.innerHTML = (typeof info === 'function' ? info() : info) + '<button class="vm-x" type="button" aria-label="Close">✕</button>';
-    t.querySelector('.vm-x').onclick = () => t.remove(); ib.after(t); }; const old = $('vmTip'); if (old) old.remove(); }
+    t.querySelector('.vm-x').onclick = () => t.remove(); ib.after(t); if ($('vmRepGo')) vmReportWire(); }; const old = $('vmTip'); if (old) old.remove(); }
 // closing the window silences it: the finished video loops with its sound, and hidden it would go on playing
 function vmQuiet() { document.querySelectorAll('#vm video, #vm audio').forEach(m => { try { m.pause(); } catch (e) {} }); }
 function vmHide() { vmQuiet(); $('vm').hidden = true; const cs = $('capSheet'); if (cs) cs.remove(); }
@@ -2843,7 +2863,9 @@ async function vmDemuxAudio(file, ac) {
   } catch (e) {}
   return null;
 }
-async function vmEnvelope(file, grab) {
+async function vmEnvelope(file, grab) { const b = await vmDecode(file, grab); return b ? vmSoundOf(b) : null; }
+// the clip's sound as one buffer (null if it can't be had)
+async function vmDecode(file, grab) {
   try {
     const ac = audioCtx(); let b = null;
     try { if (window.__noDecode) throw 'test'; const ab = await file.arrayBuffer(); b = await new Promise((res, rej) => ac.decodeAudioData(ab, res, rej)); VM.soundFrom = 'file'; if (grab) grab.stop(); VM.soundDecoded = true; }
@@ -2851,7 +2873,19 @@ async function vmEnvelope(file, grab) {
       try { b = await vmDemuxAudio(file, ac); } catch (e2) { VM.soundErr = String(e2).slice(0, 60); }
       if (b) { if (grab) grab.stop(); VM.soundDecoded = true; }
       else { VM.soundWait = true; b = grab ? await grab.p : null; VM.soundWait = false; VM.soundFrom = b ? 'played' : 'none'; } }
-    if (!b) return null;
+    return b;
+  } catch (e) { return null; }
+}
+// a stretch of a sound buffer, as a buffer of its own
+function vmSlice(b, t0, t1) {
+  const sr = b.sampleRate, i0 = Math.max(0, Math.floor(t0 * sr)), n = Math.max(1, Math.min(b.length, Math.floor(t1 * sr)) - i0);
+  const nb = new AudioBuffer({ length:n, numberOfChannels:b.numberOfChannels, sampleRate:sr });
+  for (let c = 0; c < b.numberOfChannels; c++) nb.copyToChannel(b.getChannelData(c).subarray(i0, i0 + n), c);
+  return nb;
+}
+// what the sound is doing, 50 (and 100) times a second: loudness, pitch, the voice track, voice or not
+async function vmSoundOf(b) {
+  try {
     const sr = b.sampleRate, hop = Math.round(sr / 50), n = Math.floor(b.length / hop), out = new Float32Array(n);
     const chs = Array.from({ length:b.numberOfChannels }, (_, i) => b.getChannelData(i));
     for (let k = 0; k < n; k++) { let e = 0; for (let i = k * hop; i < (k + 1) * hop; i++) { let x = 0; for (const c of chs) x += c[i]; x /= chs.length; e += x * x; } out[k] = Math.sqrt(e / hop); }
@@ -2961,10 +2995,79 @@ const vmSeek = (v, t) => new Promise(res => {
   v.onseeked = () => { if (v.requestVideoFrameCallback) { v.requestVideoFrameCallback(fin); setTimeout(fin, 250); } else requestAnimationFrame(fin); };
   setTimeout(fin, 1500); v.currentTime = t;
 });
+// The part of the clip in use: VM.off seconds in, VM.dur long (the quiet start and end trimmed off, or the 90 seconds
+// picked from a longer clip). Every video made from the clip gets a clock that starts at the part's start and stops at
+// its end, so the rest of the code works in the part's own time as if the clip were only that.
+const MT = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime'), VM_MAX = 90, VM_MAXFILE = 180;
+// where the sound is, 50 times a second: anything clearly louder than the quiet parts (talking, but music and noise
+// too: only real quiet counts as dead air, so a song or a street scene is never cut into). Blips under 0.4 s (a cough,
+// a click) don't count. 'runs' are the stretches with a voice in them (the green marks on Pick the part).
+function vmTalkSpan(b, nov) {
+  const sr = b.sampleRate, hop = Math.round(sr / 50), n = Math.floor(b.length / hop), e = new Float32Array(n), c0 = b.getChannelData(0), c1 = b.numberOfChannels > 1 ? b.getChannelData(1) : c0;
+  for (let k = 0; k < n; k++) { let s2 = 0, m = 0; for (let i = k * hop; i < (k + 1) * hop; i += 4) { const x = (c0[i] + c1[i]) / 2; s2 += x * x; m++; } e[k] = Math.sqrt(s2 / Math.max(1, m)); }
+  // quiet = well below the loud parts (about a twentieth of them, -26 dB) and below a near-silent floor's 2.5 times;
+  // a soft verse or a hush in a song stays well above that
+  const srt = Array.from(e).sort((x, y) => x - y), floor = srt[Math.floor(n * 0.15)] || 0, loud = srt[Math.floor(n * 0.9)] || 0, thr = Math.max(0.003, Math.min(floor * 2.5, loud * 0.05));
+  const stretches = on => { const rs = []; let k = 0;
+    while (k < n) { if (!on(k)) { k++; continue; } let z = k, gap = 0, c = 0; for (let j = k; j < n; j++) { if (on(j)) { z = j; gap = 0; c++; } else if (++gap > 10) break; } if (c >= 20) rs.push([k / 50, (z + 1) / 50]); k = z + 1; }
+    return rs; };
+  const sound = stretches(k => e[k] > thr), runs = stretches(k => e[k] > thr && !(nov && nov[k]));
+  return sound.length ? { a:sound[0][0], z:sound[sound.length - 1][1], runs } : null;
+}
+// the part of the clip to use. Quiet before the talking starts or after it ends (a second or more) is left out; over
+// 90 seconds, the person picks the 90 (placed on the talking to start with). Returns [start, end] in the clip's time.
+async function vmPickPart(v, b, want) {
+  const full = VM.full; let span = null;
+  let nov = null; if (b) { vmMsg('Listening for the talking…'); try { nov = await vmSoundKinds(b); span = vmTalkSpan(b, nov); } catch (e) {} }
+  let s0 = 0, e0 = full;
+  const song = nov && (nov.music || 0) > 0.3;   // (a song is never trimmed: its quiet intro and ending are part of it)
+  if (span && !want.whole && !song) { if (span.a >= 1) s0 = Math.max(0, span.a - 0.3); if (full - span.z >= 1) e0 = Math.min(full, span.z + 0.5); }
+  VM.talkRuns = span ? span.runs : [];
+  if (e0 - s0 <= VM_MAX && !want.pick) return [s0, e0];
+  return vmPartScreen(v, Math.min(s0, full - VM_MAX), Math.min(VM_MAX, full));
+}
+// "Pick the part": the clip as a strip of pictures, the talking marked under it, a 90-second window to slide along it
+async function vmPartScreen(v, s0, len) {
+  const full = VM.full, N = 8, thumbs = [], c = document.createElement('canvas'), h = 72, w = Math.round(h * (VM.vw || 16) / (VM.vh || 9)); c.width = w; c.height = h; const g = c.getContext('2d');
+  vmMsg('Getting the pictures ready…');
+  for (let i = 0; i < N; i++) { await vmSeek(v, (i + 0.5) * full / N); try { g.drawImage(v, 0, 0, w, h); thumbs.push(c.toDataURL('image/jpeg', 0.6)); } catch (e) { thumbs.push(''); } }
+  const talk = (VM.talkRuns || []).map(([a, z]) => `<i style="left:${(a / full * 100).toFixed(2)}%;width:${Math.max(0.4, (z - a) / full * 100).toFixed(2)}%"></i>`).join('');
+  vmShow('Pick the part', `<p class="note" style="margin-top:0">The video is ${fmtT(full)} long; up to ${VM_MAX} seconds can be Nibbled. Slide the yellow box to the part you want. <b>Green</b> = talking.</p>
+    <video class="vm-out" id="ppVid" playsinline muted preload="auto" src="${VM.url}" style="max-height:34dvh;object-fit:contain"></video>
+    <div class="pp-strip" id="ppStrip">${thumbs.map(u => u ? `<img src="${u}" alt="">` : '<span></span>').join('')}<div class="pp-win" id="ppWin"></div></div>
+    <div class="pp-talk">${talk}</div>
+    <div class="vm-row"><button class="chipb seg" id="ppPlay" type="button">▶ Play it</button><span id="ppTime" style="font:700 13px ui-monospace,monospace"></span></div>
+    <button class="vm-go" id="ppGo" type="button">Use this part</button>`);
+  const strip = $('ppStrip'), win = $('ppWin'), pv = $('ppVid'); let st = s0;
+  const show = () => { win.style.left = (st / full * 100) + '%'; win.style.width = (len / full * 100) + '%'; $('ppTime').textContent = `${fmtT(st)} – ${fmtT(st + len)}`;
+    const u = thumbs[Math.max(0, Math.min(N - 1, Math.floor(st / full * N)))]; if (u && pv.paused) pv.poster = u; };   // (phones show nothing until it plays: the nearest picture meanwhile)
+  pv.addEventListener('loadedmetadata', () => { pv.currentTime = st + 0.05; }, { once:true }); show();
+  let drag = null;
+  win.onpointerdown = e => { drag = { x:e.clientX, st }; win.setPointerCapture(e.pointerId); e.preventDefault(); };
+  win.onpointermove = e => { if (!drag) return; const r = strip.getBoundingClientRect(); st = Math.max(0, Math.min(full - len, drag.st + (e.clientX - drag.x) / r.width * full)); show(); pv.pause(); pv.currentTime = st + 0.05; };
+  win.onpointerup = win.onpointercancel = () => { drag = null; };
+  strip.onclick = e => { if (e.target === win) return; const r = strip.getBoundingClientRect(); st = Math.max(0, Math.min(full - len, (e.clientX - r.left) / r.width * full - len / 2)); show(); pv.pause(); pv.currentTime = st + 0.05; };
+  $('ppPlay').onclick = () => { if (!pv.paused) { pv.pause(); return; } pv.currentTime = st; pv.play().catch(() => {});
+    const stop = () => { if (pv.currentTime >= st + len) { pv.pause(); pv.removeEventListener('timeupdate', stop); } }; pv.addEventListener('timeupdate', stop); };
+  return new Promise(res => {
+    $('ppGo').onclick = () => { pv.pause(); vmShow('Watching your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`); res([st, st + len]); };
+    const iv = setInterval(() => { if (VM.cancel || !$('ppGo')) { clearInterval(iv); if (VM.cancel) res(null); } }, 300);
+  });
+}
+function vmPart(v) {
+  if (!v || v.__part) return v; v.__part = true;
+  const cut = () => (VM.off || 0) > 0.01 || (VM.full && VM.dur < VM.full - 0.05);
+  Object.defineProperty(v, 'currentTime', { configurable:true, get() { return Math.max(0, MT.get.call(this) - (VM.off || 0)); }, set(t) { MT.set.call(this, Math.max(0, Math.min(VM.dur, t)) + (VM.off || 0)); } });
+  Object.defineProperty(v, 'duration', { configurable:true, get() { return VM.dur; } });
+  let raf = 0; const watch = () => { raf = 0; if (v.paused || !cut()) return;
+    if (MT.get.call(v) >= (VM.off || 0) + VM.dur - 0.03) { v.pause(); v.dispatchEvent(new Event('ended')); return; } raf = requestAnimationFrame(watch); };
+  v.addEventListener('play', () => { if (cut() && !raf) raf = requestAnimationFrame(watch); });
+  return v;
+}
 const vmProg = p => { const e = $('vmProg'); if (e) e.style.width = Math.max(0, Math.min(100, p)).toFixed(1) + '%'; };
 const vmMsg = s => { const e = $('vmMsg'); if (e) e.textContent = s; };
-async function vmAnalyse(file, grab) {
-  Object.assign(VM, { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, soundFrom:null, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null, found:[], like:{} });
+async function vmAnalyse(file, grab, want) {
+  Object.assign(VM, { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, soundFrom:null, lmiRetried:false, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null, found:[], like:{} });
   vmShow('Watching your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`);
   let v = null;
   try {
@@ -2975,42 +3078,71 @@ async function vmAnalyse(file, grab) {
     v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none;z-index:-1';
     document.body.appendChild(v);
     await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej('load'); });
-    if (!isFinite(v.duration) || v.duration > 91) throw 'long';
-    VM.dur = v.duration; VM.vw = v.videoWidth; VM.vh = v.videoHeight;
-    const envP = vmEnvelope(file, grab); vmCut.prev = null; vmCut.hist = null; VM.cutT = []; VM.strip = [];
-    const idP = faceIdNet();
+    if (!isFinite(v.duration) || v.duration > VM_MAXFILE) throw 'long';
+    VM.file = file; VM.full = v.duration; VM.off = 0; VM.dur = v.duration; VM.vw = v.videoWidth; VM.vh = v.videoHeight;
+    // the sound first: where the talking starts and ends decides the part to use (the quiet start and end are left out;
+    // a clip over 90 seconds is cut to 90, placed on the talking, and can be moved before it's read)
+    vmMsg('Listening…');
+    const T0 = window.__T, gw = setInterval(() => { const g = VM.grabV; if (VM.soundWait) { vmMsg('Listening to the sound…'); vmProg(1 + (g && g.duration ? 12 * g.currentTime / g.duration : 0)); } }, 250);
+    const b = await vmDecode(file, grab); clearInterval(gw); if (VM.cancel) return;
+    const part = T0 && T0.part === 'whole' ? [0, VM.full] : (T0 && T0.part) || await vmPickPart(v, b, want || {}); if (VM.cancel || !part) return;
+    if (T0 && T0.partOnly) { T0.partOut = part; T0.talk = VM.talkRuns; return; }   // (tests: just the part it picks)
+    VM.off = part[0]; VM.dur = part[1] - part[0]; VM.trimmed = VM.off > 0.05 || VM.dur < VM.full - 0.05; vmPart(v);
+    const envP = b ? vmSoundOf(VM.trimmed ? vmSlice(b, part[0], part[1]) : b) : Promise.resolve(null); vmCut.prev = null; vmCut.hist = null; VM.cutT = []; VM.strip = [];
+    const idP = faceIdNet(); vmVoiceNetLoad();   // (the voice model comes down meanwhile)
     VM.lmi = VM.lmi || await makeLandmarker(6, 0.3, 'IMAGE');
     vmProg(3); const fa = await idP;
     try { await v.play(); } catch (e) {} v.pause();
-    VM.soundDecoded = false; VM.soundWait = false;
-    for (let i = 0; i < 40 && !VM.soundDecoded && !VM.soundWait; i++) await new Promise(r => setTimeout(r, 100));   // (did the file's sound open?)
-    if (VM.soundWait) { vmMsg('Listening to the sound…');
-      while (VM.soundWait && !VM.cancel) { const g = VM.grabV; vmProg(4 + (g && g.duration ? 12 * g.currentTime / g.duration : 0)); await new Promise(r => setTimeout(r, 200)); } }
     vmMsg('Seeing who’s in it…');
-    const scan = await vmScan(v, fa, p => vmProg(4 + p * 56));
+    // (tests: a saved first look and saved face readings stand in for reading the video again; see vmTestHooks)
+    const T = window.__T, scan = T && T.scanIn ? vmScanLoad(T.scanIn) : await vmScan(v, fa, p => vmProg(4 + p * 56));
     if (VM.cancel || !scan) return;
+    if (T) T.scan = vmScanSave(scan);
+  VM.noAV = !!(T && T.noAV);   // (tests: the old way, to compare)
     vmMsg('Working out who’s who…'); VM.env = await envP;
     const who = vmWho(scan, (VM.env && VM.env.nov && VM.env.nov.music) || 0);
+    if (T) T.who = who;   // (tests: the faces behind each person)
     if (fa) { try { fa.nets.faceRecognitionNet.dispose(); } catch (e) {} FACEID = null; }   // its memory back (phones need it for the Nibbles)
-    if (who.people.length) {
+    const sig = p => p.tracks.map(tr => tr.faces[0].n + ':' + Math.round(tr.faces[0].cx * 100)).sort().join(',');
+    VM.voice = T && T.voiceIn ? { ...T.voiceIn, gate:null, e:T.voiceIn.e.map(v => { const a = Float32Array.from(v); let n = 0; for (const q of a) n += q * q; n = Math.sqrt(n) || 1; for (let j = 0; j < a.length; j++) a[j] /= n; return a; }) } : null;   // (test: voices read beforehand)
+    const saved = T && T.followIn && who.people.length && who.people.every(p => T.followIn[sig(p)]);
+    if (saved) who.people.forEach(p => Object.assign(p, T.followIn[sig(p)]));
+    else if (who.people.length) {
       vmMsg(who.people.length > 1 ? 'Following everyone who talks…' : 'Following the main person…');
       await vmFollow(v, who, p => vmProg(60 + p * 38));
+      if (T) { T.follow = {}; for (const p of who.people) T.follow[sig(p)] = { smp:p.smp, lipOk:p.lipOk, spans:p.spans, moLo:p.moLo, moHi:p.moHi }; }
       try { VM.lmi && VM.lmi.close(); } catch (e) {} VM.lmi = null;   // (its memory back for the Nibbles: made again for the next video)
       if (VM.cancel) return;
     }
+    // the voices (tests: read beforehand, or not at all)
+    if (!VM.voice && b && fa && !(T && T.noVoice)) { vmMsg('Listening to who’s talking…');
+      try { VM.voice = await vmVoicePrints(VM.trimmed ? vmSlice(b, part[0], part[1]) : b, fa.tf); } catch (e) { console.warn('voices', e); VM.voice = null; }
+      if (T && VM.voice) T.voiceOut = { win:VM.voice.win, hop:VM.voice.hop, t:VM.voice.t, rms:VM.voice.rms, e:VM.voice.e.map(a => Array.from(a, q => +q.toFixed(4))) }; }
     vmProg(100);
     VM.people = who.people.map(p => ({ feat:p.feat, smp:p.smp, thumb:p.thumb, t0:p.smp.length ? p.smp[0].t : p.t0, t1:p.smp.length ? p.smp[p.smp.length - 1].t : p.t1, n:p.smp.length, spans:p.spans, lipOk:p.lipOk }));
     if (!VM.people.length) VM.people.push({ smp:[], thumb:null, t0:0, t1:VM.dur, n:0, noface:true });   // no face found: one Nibble, moving with the sound
     VM.crowd = who.crowd.n ? who.crowd : null; VM.whoStep = who.step;
     vmTimeline();
     VM.like = {}; VM.mine = S.chosen && NIBBLES[S.id] ? +S.id : null;
-    vmMsg('Picking Nibbles that look like them…'); try { await Promise.race([vmLookalikes(true), new Promise(r => setTimeout(r, 25000))]); } catch (e) {}
+    if (!(T && T.noLike)) { vmMsg('Picking Nibbles that look like them…'); try { await Promise.race([vmLookalikes(true), new Promise(r => setTimeout(r, 25000))]); } catch (e) {} }
     vmDefaults();
     vmStudio();
   } catch (e) {
     console.warn('analyse', e);
-    vmShow('Nibble a Video', `<p>${e === 'long' ? 'That video is longer than 90 seconds. Trim it and try again.' : 'That video wouldn’t open here. Try another file (MP4 or MOV).'}</p>`);
+    vmShow('Nibble a Video', `<p>${e === 'long' ? 'That video is longer than 3 minutes. Trim it and try again.' : 'That video wouldn’t open here. Try another file (MP4 or MOV).'}</p>`);
   } finally { if (v) v.remove(); }
+}
+// (tests) the first look as plain data and back: faces once each (their numbers as plain lists), samples and tracks by id
+function vmScanSave(scan) {
+  const ids = new Map(), faces = [];
+  const id = f => { if (!ids.has(f)) { ids.set(f, faces.length); const o = {}; for (const k in f) { const x = f[k]; if (k === 'L') continue; o[k] = x && x.length && typeof x !== 'string' ? Array.from(x) : x; } faces.push(o); } return ids.get(f); };
+  return { step:scan.step, fw:scan.fw, fh:scan.fh, cutT:VM.cutT.slice(), samples:scan.samples.map(sm => ({ t:sm.t, n:sm.n, cut:sm.cut, faces:sm.faces.map(id) })),
+    tracks:scan.tracks.map(tr => ({ faces:tr.faces.map(id), last:tr.last, best:tr.best })), faces };
+}
+function vmScanLoad(d) {
+  const faces = d.faces.map(o => ({ ...o, desc:o.desc ? new Float32Array(o.desc) : o.desc, look:o.look ? new Float32Array(o.look) : o.look }));
+  VM.cutT = d.cutT || [];
+  return { step:d.step, fw:d.fw, fh:d.fh, samples:d.samples.map(sm => ({ ...sm, faces:sm.faces.map(i => faces[i]) })), tracks:d.tracks.map(tr => ({ ...tr, faces:tr.faces.map(i => faces[i]), thumb:null })) };
 }
 // The first look: faces every half second, in the whole picture and in pieces of it, each with its recognition numbers.
 // Faces in one shot that follow on from each other are one person already (a track).
@@ -3058,14 +3190,15 @@ async function vmScan(v, fa, prog) {
       if (found.some(g => Math.hypot((g.cx - f.cx) * fw, (g.cy - f.cy) * fh) < 0.45 * Math.max(g.sp, f.sp))) return;   // seen in another piece already
       found.push(f);
     });
-    try {
+    const pics = () => {
       for (const [x, y, w, h] of tiles) {
         const sx = x * fw, sy = y * fh, sw = w * fw, sh = h * fh, up = Math.max(1, 320 / Math.min(sw, sh));
         tc.width = Math.round(sw * up); tc.height = Math.round(sh * up); tg.drawImage(fc, sx, sy, sw, sh, 0, 0, tc.width, tc.height);
         take({ res:VM.lmi.detect(tc), ox:sx, oy:sy, sw, sh });
       }
       take({ res:VM.lmi.detect(fc), ox:0, oy:0, sw:fw, sh:fh });   // and the whole picture, for a face too big for any piece
-    } catch (e) { VM.err = String(e); }
+    };
+    try { pics(); } catch (e) { if (await vmLmiAgain(e)) { found.length = 0; try { pics(); } catch (e2) { VM.err = String(e2); } } }
     // which track each face carries on (the one it's nearest, in this shot, a picture or two ago)
     const open = cut ? [] : tracks.filter(tr => n - tr.last <= 2), used = new Set();
     for (const f of found.sort((a, b) => b.s - a.s)) {
@@ -3138,7 +3271,11 @@ function vmWho(scan, music) {
     const fs = p.faces.map(f => f.feat).filter(Boolean);
     p.feat = fs.length ? { skin:fs.reduce((a, x) => a + x.skin, 0) / fs.length, glass:fs.filter(x => x.glass).length > fs.length * 0.5, hat:fs.filter(x => x.hat).length > fs.length * 0.5 } : null;
   }
-  ids = ids.filter(p => p.faces.length >= 2).sort((a, b) => b.score - a.score);
+  // a picture of a face (a logo, a poster, a still on the screen): it never moves and its mouth never changes. Not someone
+  const still = p => { if (p.faces.length < 4) return false; const r = k => { const v = p.faces.map(f => f[k]); return Math.max(...v) - Math.min(...v); }, ss = p.faces.map(f => f.s);
+    return r('cx') < 0.01 && r('cy') < 0.01 && Math.max(...ss) < Math.min(...ss) * 1.08 && r('mo') < 0.01; };
+  VM.stillDbg = ids.filter(p => p.faces && still(p)).map(p => [p.t0, p.t1, p.faces.length]);
+  ids = ids.filter(p => p.faces.length >= 2 && !still(p)).sort((a, b) => b.score - a.score);
   const keepT = new Set(), done = () => { for (const tr of tracks) if (tr.thumb && !keepT.has(tr.thumb)) tr.thumb.width = tr.thumb.height = 0; };   // let go of the pictures not needed (phones have little room)
   if (!ids.length) { done(); return { people:[], crowd:{ n:0 }, step, fw, fh }; }
   const main = ids[0], others = ids.slice(1);
@@ -3146,9 +3283,18 @@ function vmWho(scan, music) {
   // a choir's singers are on screen a lot too, but the lead is the song's own)
   // ...or who has shots of their own (the only face, or clearly the biggest, and close up) for a second and a half or more:
   // a duo's second singer, an interviewer (a choir's singers don't: their shots are full of faces their size)
-  const own = p => p.faces.filter(f => { const sm = samples.find(x => x.n === f.n); if (!sm || f.s < 0.15) return false;
+  // (close: the face at least 0.18 of the picture's short side. Measured on the short side, not the height: in a phone's
+  // screen recording the video is a band in the middle of a tall picture, and its close-ups are small for the height)
+  const own = p => p.faces.filter(f => { const sm = samples.find(x => x.n === f.n); if (!sm || (f.sp || 0) < 0.18 * Math.min(fw, fh)) return false;
     const o = sm.faces.filter(g => g !== f).reduce((m, g) => Math.max(m, g.s), 0); return f.s >= o * 1.6; }).length * step;
-  const featured = others.filter(p => p.faces.length >= 4 && (p.score >= main.score * (music > 0.3 ? 0.75 : 0.4) || own(p) >= 1.5)).slice(0, 3);
+  // ...or, when it's talking and not a song, who's on screen a good while (3 s or more) with lips moving a lot: someone
+  // in the conversation who's always in a two-shot (a sitcom's fourth friend), not someone just standing there
+  const lipsOf = p => { const m = p.faces.map(f => f.mo || 0).sort((a, b) => a - b); return m.length ? m[Math.floor(m.length * 0.9)] - m[Math.floor(m.length * 0.1)] : 0; };
+  const talker = p => music <= 0.3 && p.faces.length * step >= 3 && lipsOf(p) >= 0.08;
+  // ...or, talking and not a song, the only face in the picture (a medium shot: a host at a desk, small in a low-res
+  // screen recording) for 3 s or more, lips moving a little (a cutaway's bystander's lips don't)
+  const solo = p => music <= 0.3 && lipsOf(p) >= 0.02 && p.faces.filter(f => { const sm = samples.find(x => x.n === f.n); return sm && sm.faces.length === 1 && (f.sp || 0) >= 0.12 * Math.min(fw, fh); }).length * step >= 3;
+  const featured = others.filter(p => p.faces.length >= 4 && (p.score >= main.score * (music > 0.3 ? 0.75 : 0.4) || own(p) >= 1.5 || talker(p) || solo(p))).slice(0, 4);
   // everyone else: real people seen a while (a second and a half or more); a hand, a face turned away for a moment, a
   // pattern that looked like a face for a picture or two isn't someone
   // ...and not the faces of a cutaway (people in the street, a clip shown in an interview): never in a picture with the
@@ -3167,7 +3313,7 @@ function vmWho(scan, music) {
     if (hi - lo < 0.012) continue; for (const f of p.faces) { const a = byN.get(f.n) || []; a.push(Math.max(0, Math.min(1, ((f.mo || 0) - lo) / (hi - lo)))); byN.set(f.n, a); } }
   for (const sm of samples) { const a = byN.get(sm.n); sing.push({ t:sm.t, v:a && a.length ? a.reduce((x, y) => x + y, 0) / a.length : null, k:a ? a.length : 0 }); }
   VM.crowdSing = sing;
-  VM.whoDbg = ids.map(p => ({ n:p.faces.length, score:+p.score.toFixed(2), t0:p.t0, t1:p.t1, role:p === main ? 'main' : featured.includes(p) ? 'featured' : crowd.includes(p) ? 'crowd' : 'left out' }));
+  VM.whoDbg = ids.map(p => ({ n:p.faces.length, score:+p.score.toFixed(2), t0:+p.t0.toFixed(1), t1:+p.t1.toFixed(1), own:+own(p).toFixed(2), lips:+lipsOf(p).toFixed(3), cx:+(p.faces.reduce((a, f) => a + f.cx, 0) / p.faces.length).toFixed(2), role:p === main ? 'main' : featured.includes(p) ? 'featured' : crowd.includes(p) ? 'crowd' : 'left out' }));
   return { people:[main, ...featured], crowd:{ n:crowd.length, thumbs:crowd.slice(0, 8).map(p => p.thumb).filter(Boolean) }, step, fw, fh };
 }
 // where a person's face is at time t, from the first look (inside one of their tracks, or just past either end of one)
@@ -3189,9 +3335,10 @@ async function vmFollow(v, who, prog) {
   const cc = document.createElement('canvas'); cc.width = cc.height = 256; const cg = cc.getContext('2d');
   for (const p of P) { p.smp = []; p.raw = []; p.f = { roll:0, yaw:0, pitch:0, open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, blink:0, brow:0, browUp:0 }; p.H = {}; p.spans = []; }
   vmCut.prev = null; vmCut.hist = null; const cuts = [];
-  const look = t => {
-    const cut = vmCut(v); if (cut) cuts.push(t);
-    let drawn = false;
+  const looked = [];
+  const look = (t, again) => {
+    if (!again) { const cut = vmCut(v); if (cut) cuts.push(t); }   // (going back for missed frames: no cut test, the picture before isn't the one before)
+    let drawn = false, read = 0; looked.push(t);
     for (const p of P) {
       const b = vmBoxAt(p, t, who.step); if (!b) continue;
       if (cuts.some(c => c > b.t1 && c <= t) || (t < b.t0 && VM.cutT.some(c => c > t && c <= b.t0 + 1e-6))) continue;   // outside their shot
@@ -3200,7 +3347,7 @@ async function vmFollow(v, who, prog) {
       cg.fillStyle = '#808080'; cg.fillRect(0, 0, 256, 256); cg.drawImage(fc, ox, oy, side, side, 0, 0, 256, 256);
       { const px = cg.getImageData(96, 96, 64, 64).data; let h = 0; for (let i = 0; i < px.length; i += 16) h = (h * 31 + px[i]) | 0;   // (diagnostics: the same picture again?)
         D.looks++; if (h === p.lastH) D.same++; p.lastH = h; }
-      let r; try { r = VM.lmi.detect(cc); } catch (e) { VM.err = String(e); D.err = String(e).slice(0, 80); continue; }
+      read++; let r; try { r = VM.lmi.detect(cc); } catch (e) { D.err = String(e).slice(0, 80); vmLmiAgain(e); continue; }   // (made again on the CPU for the pictures after this)
       if (!(r.faceLandmarks || []).length) D.miss++;
       let best = null, bd = 0.3;
       (r.faceLandmarks || []).forEach((L, i) => { const d = Math.hypot(L[1].x - 0.5, L[1].y - 0.5); if (d < bd) { bd = d; best = i; } });
@@ -3211,15 +3358,15 @@ async function vmFollow(v, who, prog) {
       // kept raw: read once the whole clip is seen (each face's resting look is learned from all of it, not from its first
       // moments, when it may well be talking)
       p.raw.push({ t, L, bs, cx:b.cx, s:+(y1 - y0).toFixed(3) });
-      const sp = p.spans[p.spans.length - 1]; if (sp && t - sp[1] < 0.4) sp[1] = t; else p.spans.push([t, t]);
     }
-    prog(t / VM.dur);
+    if (!again) prog(t / VM.dur);
+    return read;
   };
   // play the clip (no sound) and read a frame every step as it goes, slowing the playback down if this device reads
   // slower than that; if frames don't come (some phones), step through it by seeking instead
   const D = VM.diag = { looks:0, same:0, miss:0, mode:'', rates:[] };
   let played = false;
-  if (v.requestVideoFrameCallback) {
+  if (v.requestVideoFrameCallback && !(window.__T && window.__T.seek)) {
     played = await new Promise(async done => {
       await vmSeek(v, 0); look(0);
       let last = 0, rate = 0.5, fin = false; try { v.playbackRate = rate; } catch (e) {}
@@ -3227,11 +3374,15 @@ async function vmFollow(v, who, prog) {
       v.onended = () => end(true);
       const onFrame = (_, meta) => {
         if (fin) return; if (VM.cancel) return end(true);
-        const t = meta && meta.mediaTime != null ? meta.mediaTime : v.currentTime;
+        const t = meta && meta.mediaTime != null ? meta.mediaTime - (VM.off || 0) : v.currentTime;
+        if (t >= VM.dur - 0.02) return end(true);
         if (t - last >= step * 0.95) {
-          const t0 = performance.now(); look(t); last = t;
-          const ms = performance.now() - t0, want = Math.max(0.1, Math.min(1, (step * 1000) / Math.max(1, ms * 1.25)));
-          if (Math.abs(want - rate) > 0.05) { rate = want; try { v.playbackRate = rate; } catch (e) {} D.rates.push(+rate.toFixed(2)); }
+          const t0 = performance.now(), n = look(t); last = t;
+          // the speed is set from frames where faces were read (a shot with no one in it reads in no time, and full speed
+          // there would rush past the next face before it slowed again), and only creeps back up
+          if (n) { const ms = performance.now() - t0, want = Math.max(0.1, Math.min(1, (step * 1000) / Math.max(1, ms * 1.25)));
+            const to = want < rate ? want : Math.min(want, rate * 1.15);
+            if (Math.abs(to - rate) > 0.03) { rate = to; try { v.playbackRate = rate; } catch (e) {} D.rates.push(+rate.toFixed(2)); } }
         }
         v.requestVideoFrameCallback(onFrame);
       };
@@ -3243,6 +3394,16 @@ async function vmFollow(v, who, prog) {
   }
   D.mode = played ? 'play' : 'seek';
   if (!played && !VM.cancel) for (let t = 0; t < VM.dur && !VM.cancel; t += step) { await vmSeek(v, Math.min(t, VM.dur - 0.01)); look(t); }
+  // frames that went by while it was busy, in someone's shot: go back for them (so every run reads the same frames)
+  if (played && !VM.cancel) {
+    looked.sort((a, b) => a - b); const near = t => { let lo = 0, hi = looked.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (looked[m] < t) lo = m + 1; else hi = m; }
+      return Math.min(Math.abs((looked[lo] ?? 1e9) - t), Math.abs((looked[lo - 1] ?? 1e9) - t)); };
+    const miss = []; for (let t = step; t < VM.dur - 0.02; t += step) if (near(t) > step * 0.6 && P.some(p => { const b = vmBoxAt(p, t, who.step); return b && !cuts.some(c => c > b.t1 && c <= t); })) miss.push(t);
+    D.fill = miss.length;
+    for (const t of miss.slice(0, 600)) { if (VM.cancel) break; await vmSeek(v, t); look(t, true); }
+    for (const p of P) p.raw.sort((a, b) => a.t - b.t);
+  }
+  for (const p of P) { p.spans = []; for (const r of p.raw) { const sp = p.spans[p.spans.length - 1]; if (sp && r.t - sp[1] < 0.4) sp[1] = r.t; else p.spans.push([r.t, r.t]); } }
   fc.width = fc.height = cc.width = cc.height = 0;
   for (const p of P) {
     // how far apart the lips go for this face, from shut (its lowest) to its widest talking (near the top): the Nibble's
@@ -3283,9 +3444,165 @@ function vmCut(v) {
   return diff > 28 && hd > 0.3;
 }
 // who is talking when: while there is sound, the visible person whose mouth is moving most; short blips are smoothed out
+// Voices: what each voice sounds like (a voice fingerprint every quarter second, over the second around it). Lips can
+// be fooled (face paint, a head turning to the mic, a beard); a voice can't pass for one that sounds nothing like it.
+// - a line that's two voices one after the other (a question, then the answer) is split where the voice changes
+// - two lines given to the same person but in voices nothing alike: the one their mouth goes with least isn't theirs
+//   (it goes to someone whose voice it is, or to a voice off camera)
+// The voice prints: the WeSpeaker ResNet34-LM model (trained on VoxCeleb; CC BY 4.0; see models/voice/README.md),
+// its weights in 8 bits (6.7 MB), run here with TensorFlow.js (already in the page for faces). The sound is read once,
+// whole, and each second (every quarter second) gets its own 256 numbers from it.
+const VOICE_URL = (location.pathname.includes('/beta/') ? '../' : '') + 'models/voice/';
+let VOICE_NET = null;
+function vmVoiceNetLoad() {
+  return VOICE_NET = VOICE_NET || Promise.all([fetch(VOICE_URL + 'voice.json').then(r => r.json()), fetch(VOICE_URL + 'voice.bin').then(r => r.arrayBuffer())])
+    .then(([j, bin]) => ({ j, bin })).catch(e => { VOICE_NET = null; console.warn('voice net', e); return null; });
+}
+// Kaldi's filter bank (as the model was trained on): 25 ms frames every 10 ms, 80 mel bands, log
+function vmFbank(x) {
+  const N = 400, S = 160, NF = 512, NB = 80, n = x.length < N ? 0 : 1 + Math.floor((x.length - N) / S);
+  if (!vmFbank.w) {
+    const w = new Float64Array(N); for (let i = 0; i < N; i++) w[i] = Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)), 0.85);
+    const mel = f => 1127 * Math.log(1 + f / 700), lo = mel(20), hi = mel(8000), d = (hi - lo) / (NB + 1), banks = [];
+    for (let m = 0; m < NB; m++) { const l = lo + m * d, c = l + d, r = c + d, ws = [];
+      for (let k = 0; k < NF / 2; k++) { const me = mel(k * 16000 / NF); if (me > l && me < r) ws.push(k, me <= c ? (me - l) / (c - l) : (r - me) / (r - c)); } banks.push(ws); }
+    const rev = new Uint16Array(NF); for (let i = 0, j = 0; i < NF; i++) { rev[i] = j; let bit = NF >> 1; while (j & bit) { j ^= bit; bit >>= 1; } j |= bit; }
+    vmFbank.w = w; vmFbank.banks = banks; vmFbank.rev = rev;
+  }
+  const { w, banks, rev } = vmFbank, out = new Float32Array(n * NB), re = new Float64Array(NF), im = new Float64Array(NF), fr = new Float64Array(N), pw = new Float64Array(NF / 2 + 1);
+  for (let t = 0; t < n; t++) {
+    let mean = 0; for (let i = 0; i < N; i++) { fr[i] = x[t * S + i] * 32768; mean += fr[i]; } mean /= N;
+    for (let i = 0; i < N; i++) fr[i] -= mean;
+    for (let i = N - 1; i > 0; i--) fr[i] -= 0.97 * fr[i - 1]; fr[0] -= 0.97 * fr[0];
+    re.fill(0); im.fill(0); for (let i = 0; i < N; i++) re[rev[i]] = fr[i] * w[i];
+    for (let size = 2; size <= NF; size <<= 1) { const h = size >> 1, a = -2 * Math.PI / size;
+      for (let i = 0; i < NF; i += size) for (let j = 0; j < h; j++) { const c = Math.cos(a * j), s = Math.sin(a * j), k = i + j + h, tr = re[k] * c - im[k] * s, ti = re[k] * s + im[k] * c;
+        re[k] = re[i + j] - tr; im[k] = im[i + j] - ti; re[i + j] += tr; im[i + j] += ti; } }
+    for (let k = 0; k <= NF / 2; k++) pw[k] = re[k] * re[k] + im[k] * im[k];
+    for (let m = 0; m < NB; m++) { const ws = banks[m]; let e = 0; for (let q = 0; q < ws.length; q += 2) e += pw[ws[q]] * ws[q + 1]; out[t * NB + m] = Math.log(Math.max(e, 1.1920929e-7)); }
+  }
+  return { F:out, n };
+}
+async function vmVoicePrints(b, tf) {
+  const net = await vmVoiceNetLoad(); if (!net || !tf) return null;
+  const oc = new OfflineAudioContext(1, Math.max(1, Math.ceil(b.duration * 16000)), 16000), src = oc.createBufferSource(); src.buffer = b; src.connect(oc.destination); src.start();
+  const x = (await oc.startRendering()).getChannelData(0), { F, n } = vmFbank(x); if (n < 98) return null;
+  const NB = 80, mu = new Float32Array(NB); for (let t = 0; t < n; t++) for (let m = 0; m < NB; m++) mu[m] += F[t * NB + m] / n;
+  for (let t = 0; t < n; t++) for (let m = 0; m < NB; m++) F[t * NB + m] -= mu[m];
+  const { j, bin } = net;
+  const W = j.convs.map(c => { const per = c.i * c.k * c.k, q = new Int8Array(bin, c.w, c.o * per), sc = new Float32Array(bin, c.sc, c.o), f = new Float32Array(q.length);
+    for (let o = 0; o < c.o; o++) for (let z = 0; z < per; z++) f[o * per + z] = q[o * per + z] * sc[o];
+    return { ...c, f:tf.tidy(() => tf.tensor4d(f, [c.o, c.i, c.k, c.k]).transpose([2, 3, 1, 0])), bias:tf.tensor1d(new Float32Array(bin, c.b, c.o)) }; });
+  const conv = (x, c) => tf.conv2d(x, c.f, c.s, c.p).add(c.bias), relu = t => tf.relu(t);
+  const net34 = x => { x = relu(conv(x, W[0])); let i = 1;
+    for (const [nb, down] of [[3, false], [4, true], [6, true], [3, true]]) for (let k = 0; k < nb; k++) { const a = W[i++], bb = W[i++], sc = down && !k ? W[i++] : null;
+      x = relu(conv(relu(conv(x, a)), bb).add(sc ? conv(x, sc) : x)); }
+    return x; };
+  // the whole sound in pieces of 16 s (with a second either side, so each piece's edges read as if it weren't cut)
+  // if the phone's graphics chip stalls or is too slow, give up on voices and carry on without them (as before)
+  const Tm = Math.ceil(n / 8), M = new Float32Array(Tm * 2560), C = 1600, MG = 96, tEnd = performance.now() + (30 + 8 * b.duration) * 1000;
+  try {
+    for (let s0 = 0; s0 < n; s0 += C) { if (VM.cancel) return null; vmMsg(`Listening to who’s talking… ${Math.round(100 * s0 / n)}%`);
+      const a = Math.max(0, s0 - MG), z = Math.min(n, s0 + C + MG), L = z - a;
+      const y = tf.tidy(() => net34(tf.tensor4d(F.subarray(a * NB, z * NB), [L, NB, 1, 1]).transpose([3, 1, 0, 2])));   // (1, 80 bands, L frames, 1)
+      let d; try { let to; d = await Promise.race([y.data(), new Promise((_, no) => { to = setTimeout(() => no(new Error('voices took too long')), Math.max(1000, tEnd - performance.now())); })]); clearTimeout(to); } finally { y.dispose(); }
+      const H = y.shape[1], Wd = y.shape[2];
+      const j0 = (s0 - a) >> 3, j1 = Math.min(Wd, j0 + Math.ceil((Math.min(n, s0 + C) - s0) / 8));
+      for (let jj = j0; jj < j1; jj++) { const T = (s0 >> 3) + jj - j0; if (T >= Tm) break; for (let f = 0; f < H; f++) for (let c = 0; c < 256; c++) M[T * 2560 + c * 10 + f] = d[(f * Wd + jj) * 256 + c]; }
+      await new Promise(r => setTimeout(r));
+    }
+  } finally { for (const c of W) { c.f.dispose(); c.bias.dispose(); } }
+  // each second: the average and spread of each of the 2560 over its frames -> 256 numbers
+  const h = j.head, G = new Int8Array(bin, h.w, h.o * h.i), gs = new Float32Array(bin, h.sc, h.o), gb = new Float32Array(bin, h.b, h.o), mv = new Float32Array(bin, h.mv, h.o);
+  const out = { win:1, hop:0.25, t:[], rms:[], e:[] }, v = new Float32Array(5120);
+  for (let t0 = 0; t0 + 1 <= b.duration + 1e-6; t0 += 0.25) {
+    const f0 = Math.round(t0 * 100), A = f0 >> 3, Z = Math.min(Tm, Math.max(A + 2, (f0 + 98) >> 3)), k = Z - A; if (k < 2) break;
+    for (let q = 0; q < 2560; q++) { let s = 0, ss = 0; for (let T = A; T < Z; T++) { const val = M[T * 2560 + q]; s += val; ss += val * val; } const m = s / k; v[q] = m; v[2560 + q] = Math.sqrt(Math.max(0, (ss - k * m * m) / (k - 1)) + 1e-8); }
+    const e = new Float32Array(256); let nn = 0;
+    for (let o = 0; o < 256; o++) { let s = 0; const r = o * 5120; for (let q = 0; q < 5120; q++) s += G[r + q] * v[q]; e[o] = s * gs[o] + gb[o] - mv[o]; nn += e[o] * e[o]; }
+    nn = Math.sqrt(nn) || 1; for (let o = 0; o < 256; o++) e[o] /= nn;
+    let r2 = 0; const i0 = Math.round(t0 * 16000), i1 = Math.min(x.length, i0 + 16000); for (let i = i0; i < i1; i++) r2 += x[i] * x[i];
+    out.t.push(+(t0 + 0.5).toFixed(3)); out.rms.push(Math.sqrt(r2 / Math.max(1, i1 - i0))); out.e.push(e);
+  }
+  return out;
+}
+function vmVoiceOf(t0, t1) {
+  const V = VM.voice; if (!V) return null;
+  const m = new Float32Array(V.e[0].length); let n = 0;
+  for (let k = 0; k < V.t.length; k++) { const t = V.t[k]; if (t - V.win / 2 < t0 - 0.1 || t + V.win / 2 > t1 + 0.1 || V.rms[k] < V.gate || vmVoiced(t) < 0.4) continue; const e = V.e[k]; for (let j = 0; j < m.length; j++) m[j] += e[j]; n++; }
+  if (n < 2) return null; let nn = 0; for (const q of m) nn += q * q; nn = Math.sqrt(nn) || 1; for (let j = 0; j < m.length; j++) m[j] /= nn; return m;
+}
+// how much of the second around t has a voice's pitch (laughter, applause and music mostly don't: their windows would
+// make a voice sound like someone else)
+function vmVoiced(t) { const pf = VM.env && VM.env.pitch, nv = VM.env && VM.env.nov; if (!pf) return 1; let v = 0, m = 0;
+  for (let j = Math.max(0, Math.floor((t - 0.5) * 50)); j < Math.min(pf.length, Math.floor((t + 0.5) * 50)); j++) { m++; if (pf[j] > 0 && !(nv && nv[j])) v++; } return m ? v / m : 0; }
+const vmVoiceD = (a, b) => { let s = 0; for (let j = 0; j < a.length; j++) s += a[j] * b[j]; return 1 - s; };
+function vmVoices(lines, raw, dt) {
+  const V = VM.voice, P = VM.people, D = VM.voiceDbg = { split:[], evict:[] }; if (!V || !V.e || !V.e.length) return;
+  if (V.gate == null) { const r = V.rms.slice().sort((a, b) => a - b); V.gate = Math.max(0.003, Math.min(r[Math.floor(r.length * 0.15)] * 2.5, r[Math.floor(r.length * 0.9)] * 0.05)); }
+  // 0. a voice over pictures with nobody in them (street shots, b-roll): the person in the video it sounds like (an
+  // interviewee carrying on over the pictures) or, sounding like none of them, a narrator: a voice off camera. Each
+  // person's own voice is taken from the seconds their lips are seen saying it. (Not in a song: a music video's singer
+  // sings over everything)
+  const song = ((VM.env && VM.env.nov && VM.env.nov.music) || 0) > 0.3;
+  const refs = P.map((p, i) => { if (p.off || song) return null; const m = new Float32Array(V.e[0].length); let c = 0;
+    for (let k = 0; k < V.t.length; k++) { const t = V.t[k]; if (V.rms[k] < V.gate || vmVoiced(t) < 0.4) continue; let n = 0, o = 0;
+      for (let j = Math.max(0, Math.round((t - 0.5) / dt)); j < Math.min(raw.length, Math.round((t + 0.5) / dt)); j++) if (raw[j].speech) { n++; if (raw[j].lip === i) o++; }
+      if (n >= 10 && o / n >= 0.6) { const e = V.e[k]; for (let q = 0; q < m.length; q++) m[q] += e[q]; c++; } }
+    if (c < 3) return null; let nn = 0; for (const q of m) nn += q * q; nn = Math.sqrt(nn) || 1; for (let q = 0; q < m.length; q++) m[q] /= nn; return m; });
+  D.nar = []; D.refs = refs.map(r => !!r);
+  // (only when every one of the cast with lines has a voice of their own to compare with)
+  if (!song && refs.some(Boolean) && P.every((p, i) => p.off || refs[i] || !lines.some(l => l.who === i))) {
+    const decide = (t0, t1) => { const v = vmVoiceOf(t0, t1); if (!v) return null; const ds = refs.map(r => r ? vmVoiceD(v, r) : 9), bi = ds.indexOf(Math.min(...ds));
+      const to = ds[bi] < 0.55 ? bi : ds[bi] >= 0.75 ? -1 : null; D.nar.push([+t0.toFixed(2), +t1.toFixed(2), ds.map(d => d > 8 ? null : +d.toFixed(2)), to]); return to; };
+    // the stretches with nobody in the picture: talking in them, silences of up to 1.5 s inside
+    const runs = []; let a = -1, z = -1;
+    for (let k = 0; k < raw.length; k++) { const r = raw[k]; if (!r.speech) { if (a >= 0 && (k - z) * dt > 1.5) { runs.push([a, z]); a = -1; } continue; }
+      if (!r.vis) { if (a < 0) a = k; z = k; } else if (a >= 0) { runs.push([a, z]); a = -1; } }
+    if (a >= 0) runs.push([a, z]);
+    let off = P.findIndex(q => q.off);
+    // (a stretch too short to judge (under 1.5 s of talking) goes as a judged one within 4 s of it went, when that was the narrator)
+    const RS = runs.map(([ra, rz]) => { let sp = 0; for (let k = ra; k <= rz; k++) if (raw[k].speech) sp++; return sp * dt >= 1.5 ? decide(ra * dt, (rz + 1) * dt) : undefined; });
+    const RJ = RS.slice(); RS.forEach((R, j) => { if (R !== undefined) return; let best = null, bd = 4; RJ.forEach((R2, j2) => { if (R2 === undefined || R2 === null) return; const g = j2 < j ? (runs[j][0] - runs[j2][1]) * dt : (runs[j2][0] - runs[j][1]) * dt; if (g < bd) { bd = g; best = R2; } }); RS[j] = best === -1 ? -1 : null; });
+    for (let j = 0; j < runs.length; j++) { const [ra, rz] = runs[j], r0 = ra * dt, r1 = (rz + 1) * dt, R = RS[j]; if (R == null) continue;
+      for (let i = 0; i < lines.length; i++) { const l = lines[i], c0 = Math.max(l.t0, r0), c1 = Math.min(l.t1, r1); if (c1 - c0 < 0.3) continue;
+        let to = c1 - c0 >= 1.5 ? decide(c0, c1) : null; if (to == null) to = R; if (to == null) continue;
+        if (to === -1) { if (off < 0) { P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 }); off = P.length - 1; } to = off; }
+        if (to === l.who) continue;
+        // that part of the line is theirs (the rest stays; slivers under 0.4 s go with it)
+        const s0 = c0 - l.t0 < 0.4 ? l.t0 : c0, s1 = l.t1 - c1 < 0.4 ? l.t1 : c1, parts = [];
+        if (s0 > l.t0) parts.push({ ...l, t1:s0 }); parts.push({ ...l, t0:s0, t1:s1, who:to }); if (s1 < l.t1) parts.push({ ...l, t0:s1 });
+        lines.splice(i, 1, ...parts); i += parts.length - 1; } }
+    for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 2.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
+  }
+  const vote = (t0, t1, def) => { const c = new Map(); for (let k = Math.round(t0 / dt); k < Math.min(raw.length, Math.round(t1 / dt)); k++) { const w = raw[k].lip; if (w != null && w >= 0) c.set(w, (c.get(w) || 0) + 1); }
+    let b = def, bn = 0; for (const [w, n] of c) if (n > bn) { bn = n; b = w; } return b; };
+  // 1. a long line in two voices: split where the halves sound most unlike, when they're clearly two people
+  for (let i = 0; i < lines.length; i++) { const l = lines[i]; if (l.t1 - l.t0 < 2.5) continue;
+    let best = null, bd = 0.9; for (let s = l.t0 + 1; s <= l.t1 - 1; s += 0.25) { const a = vmVoiceOf(l.t0, s), b = vmVoiceOf(s, l.t1); if (!a || !b) continue; const d = vmVoiceD(a, b); if (d > bd) { bd = d; best = s; } }
+    if (best == null) continue; D.split.push([+l.t0.toFixed(2), +best.toFixed(2), +l.t1.toFixed(2), +bd.toFixed(2)]);
+    const r = { ...l, t0:best, who:vote(best, l.t1, l.who) }; l.t1 = best; l.who = vote(l.t0, best, l.who); lines.splice(i + 1, 0, r); i++; }
+  // 2. one person, two voices nothing alike: how well each line goes with their mouth decides which is theirs
+  const fit = (l, i) => { if (P[i].off) return 0; let n = 0, m = 0, c = 0, cn = 0;
+    for (let k = Math.round(l.t0 / dt); k < Math.min(raw.length, Math.round(l.t1 / dt)); k++) { if (!raw[k].speech) continue; n++; if (raw[k].lip === i) m++; }
+    for (let t = l.t0 + 0.2; t < l.t1 - 0.1; t += 0.2) { c += vmAVsync(i, t); cn++; } D.fit = D.fit || []; D.fit.push([+l.t0.toFixed(1), i, +(n ? m / n : 0).toFixed(2), +(cn ? c / cn : 0).toFixed(2)]); return 0.5 * (n ? m / n : 0) + 1.5 * (cn ? c / cn : 0); };   // (mostly: does the mouth open and shut with this voice)
+  const real = P.filter(q => !q.off).length;
+  for (let i = 0; i < P.length; i++) { if (P[i].off) continue;
+    const L = lines.filter(l => l.who === i && l.t1 - l.t0 >= 0.75).map(l => ({ l, v:vmVoiceOf(l.t0, l.t1) })).filter(x => x.v);
+    for (const a of L) for (const b of L) { if (a === b || a.l.who !== i || b.l.who !== i) continue; const d = vmVoiceD(a.v, b.v); if (a.l.t0 < b.l.t0) (D.pairs = D.pairs || []).push([+a.l.t0.toFixed(1), +b.l.t0.toFixed(1), i, +d.toFixed(2)]); if (d <= 0.85) continue;
+      const fa = fit(a.l, i), fb = fit(b.l, i), lose = fa < fb ? a : b; if (Math.abs(fa - fb) < 0.15) { (D.near = D.near || []).push([+a.l.t0.toFixed(1), +b.l.t0.toFixed(1), i, +d.toFixed(2), +fa.toFixed(2), +fb.toFixed(2)]); continue; }
+      // whose voice is it, then: someone else's lines that sound like it, else a voice off camera
+      let to = -1, td = 0.6; for (const x of lines) { if (x.who === i || x.who < 0 || x === lose.l) continue; const v = vmVoiceOf(x.t0, x.t1); if (!v) continue; const d2 = vmVoiceD(v, lose.v); if (d2 < td) { td = d2; to = x.who; } }
+      if (to < 0) { const o = P.findIndex(q => q.off); if (o >= 0) to = o; else if (real < 3) { P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 }); to = P.length - 1; } }
+      if (to < 0) continue;
+      D.evict.push([+lose.l.t0.toFixed(2), +lose.l.t1.toFixed(2), i, to, +d.toFixed(2), +fa.toFixed(2), +fb.toFixed(2)]); lose.l.who = to; }
+  }
+  for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 2.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
+}
 function vmTimeline() {
   const P = VM.people, dt = 0.05, n = Math.ceil(VM.dur / dt), env = VM.env;
   if (!P.length) { VM.timeline = []; return; }
+  for (const p of P) delete p.avC; VM.avDbg = { multi:0, changed:0 };
   const loud = t => env ? env[Math.min(env.length - 1, Math.floor(t * 50))] || 0 : 1;
   let floor = 0.002; if (env) { const s = Array.from(env).sort((a, b) => a - b); floor = Math.max(0.002, s[Math.floor(s.length * 0.15)] || 0); }
   for (const p of P) { const m = p.smp.map(x => x.mo).sort((a, b) => a - b); p.moScale = Math.max(0.01, m[Math.floor(m.length * 0.9)] || 0.01); }
@@ -3296,18 +3613,30 @@ function vmTimeline() {
   };
   // each face's own "talking" level: how much its lips move at its busiest (faces that never talk stay near 0)
   for (const p of P) { const v = []; for (let t = 0; t < VM.dur; t += 0.2) { const a = activity(p, t); if (a >= 0) v.push(a); } v.sort((x, y) => x - y); p.busy = Math.max(0.6, v[Math.floor(v.length * 0.9)] || 0); }
-  const raw = [];
+  const raw = [], pf = env && env.pitch;
+  const laughy = t => { if (!pf) return false; const c = Math.floor(t * 50); let v = 0, m = 0; for (let j = Math.max(0, c - 20); j <= Math.min(pf.length - 1, c + 20); j++) { m++; if (pf[j] > 0) v++; } return m > 10 && v / m < 0.05; };
   for (let k = 0; k < n; k++) {
     // talking or singing: when the sound classifier ran, its say (any real sound it calls a voice; a song never goes quiet,
     // so 'louder than the quiet parts' can't tell); without it, clearly louder than the quiet parts
     const t = k * dt, speech = !env || (env.nov ? loud(t) > Math.max(0.004, floor * 0.6) && !env.nov[Math.floor(t * 50)] : loud(t) > floor * 2.5);
     let who = -1, ba = 0.45, seen = false, top = 0;
     // talking = lips moving at least about half as much as that face does when it talks
-    if (speech) P.forEach((p, i) => { const a = activity(p, t); if (a < 0) return; seen = true; const rel = a / p.busy; top = Math.max(top, rel); if (rel > ba && a > 0.15) { ba = rel; who = i; } });
+    const cand = [];
+    if (speech) P.forEach((p, i) => { const a = activity(p, t); if (a < 0) return; seen = true; const rel = a / p.busy; top = Math.max(top, rel); if (rel > 0.45 && a > 0.15) cand.push([i, rel]); if (rel > ba && a > 0.15) { ba = rel; who = i; } });
+    // two or more mouths moving while someone talks (a listener nodding, laughing, chewing): the talker's mouth opens and
+    // shuts with the sound itself, so the one whose mouth follows the voice best takes it
+    if (cand.length > 1) { let bs = -9, w = who; for (const [i, rel] of cand) { const c = vmAVsync(i, t), sc = rel * (1 + 1.5 * Math.max(0, c)) - (c < -0.2 ? 0.3 : 0); if (sc > bs) { bs = sc; w = i; } }
+      VM.avDbg.multi++; if (w !== who) VM.avDbg.changed++; if (!VM.noAV) who = w; }
+    const lipWho = who;   // (who the lips alone say, for the voices below)
+    // a laugh track, an audience, applause: loud, but almost none of it has a voice's pitch (many people at once, or
+    // breath). With no mouth on screen moving, that's nobody's line (and no made-up voice off camera)
+    if (speech && who < 0 && laughy(t)) { raw.push({ speech:false, who:-1, still:false }); if (VM.dbgT) VM.dbgT.push([+t.toFixed(2), 0, [], 1]); continue; }
     // (the only face on screen while someone talks, its lips too small or hidden to read (a mic, a hand, glasses): theirs.
     // A podcast cuts to whoever's talking)
-    if (speech && who < 0) { const on = P.map((p, i) => i).filter(i => activity(P[i], t) >= 0); if (on.length === 1 && P[on[0]].lipOk === false) who = on[0]; }
-    raw.push({ speech, who, still:speech && who < 0 && seen && top < 0.3 });   // talking, a face is on screen, but its mouth is still
+    // (and in a conversation among three or more (a sitcom), the one face in a close-up while someone talks: theirs, even
+    // with lips that barely seem to move (head down, a beard): the show cuts to whoever's talking)
+    if (speech && who < 0) { const on = P.map((p, i) => i).filter(i => activity(P[i], t) >= 0); if (on.length === 1 && (P[on[0]].lipOk === false || P.filter(q => !q.off).length >= 3)) who = on[0]; }
+    raw.push({ speech, who, lip:lipWho, vis:seen, still:speech && who < 0 && seen && top < 0.3 });   // talking, a face is on screen, but its mouth is still
     if (VM.dbgT) VM.dbgT.push([+t.toFixed(2), speech ? 1 : 0, P.map(p => +(activity(p, t) / p.busy).toFixed(2)), 0]);
   }
   // a voice nobody on screen is speaking with (a reporter behind the camera, a narrator): while there's talking and the
@@ -3324,18 +3653,23 @@ function vmTimeline() {
   if (song) raw.forEach((r, k) => { if (!r.speech || r.who >= 0) return; let best = -1, bs = 0;
     P.forEach((p, i) => { const x = vmSample(i, k * dt); if (x && x.s > bs) { bs = x.s; best = i; } }); if (best >= 0) { r.who = best; r.off = false; } });
   if (song) offN = raw.filter(r => r.off && r.who < 0).length;
-  const OFF = offN * dt >= 1.5 && !song ? P.length : -1;
+  // (three or more people found: it's a conversation among them (a sitcom, a panel). Talking with no mouth seen moving
+  // is one of them whose lips were turned away, not someone off camera: no voice is made up; '＋ Add someone' can add one)
+  const OFF = offN * dt >= 1.5 && !song && P.filter(q => !q.off).length < 3 ? P.length : -1;
   if (OFF >= 0) P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 });
   // fill: talking but no moving mouth seen -> the last speaker; silence longer than 1 s -> the main character
   raw.forEach(r => { if (r.off && OFF >= 0 && r.who < 0) r.who = OFF; });
   const pt = k => env && env.pitch ? env.pitch[Math.min(env.pitch.length - 1, Math.floor(k * dt * 50))] || 0 : 0;
   const voice = P.map((_, i) => { const v = raw.map((r, k) => r.who === i ? pt(k) : 0).filter(x => x > 0).sort((a, b) => a - b); return v.length >= 6 ? v[v.length >> 1] : 0; });
+  // (only someone seen within 15 s of it, or the voice off camera: a host seen once at the start isn't the one talking a
+  // minute later just because their voice is about as low)
+  const near = (i, t) => P[i].off || P[i].smp.some(x => Math.abs(x.t - t) < 15);
   if (voice.filter(Boolean).length >= 2) raw.forEach((r, k) => {
     if (!r.speech || r.who >= 0) return;
     // the median pitch of the moment around it, matched to the nearest known voice (if it's clearly closer to one)
     const v = []; for (let j = Math.max(0, k - 6); j < Math.min(raw.length, k + 7); j++) if (raw[j].speech && pt(j) > 0) v.push(pt(j));
     if (v.length < 4) return; v.sort((a, b) => a - b); const m = v[v.length >> 1];
-    const ds = voice.map(f => f ? Math.abs(Math.log(m / f)) : 9), best = ds.indexOf(Math.min(...ds)), second = Math.min(...ds.filter((_, i) => i !== best));
+    const ds = voice.map((f, i) => f && near(i, k * dt) ? Math.abs(Math.log(m / f)) : 9), best = ds.indexOf(Math.min(...ds)), second = Math.min(...ds.filter((_, i) => i !== best));
     if (ds[best] < 0.25 && second - ds[best] > 0.08) r.who = best;
   });
   VM.main = 0;   // the one the video's about (the first look put them first)
@@ -3349,6 +3683,10 @@ function vmTimeline() {
     let e = k, gap = 0; for (let j = k; j < raw.length; j++) { if (talks(raw[j])) { e = j; gap = 0; } else if (++gap * dt > 0.3) break; }
     // inside the line: runs of one speaker, short runs folded into their neighbour
     const segs = []; for (let j = k; j <= e; j++) { const w = raw[j].who; if (segs.length && (segs[segs.length - 1].w === w || w < 0)) segs[segs.length - 1].e = j; else segs.push({ w, s:j, e:j }); }
+    // (a blip first, under 0.2 s (a frame where the face wasn't read): into the run before it, so one speaker's run
+    // either side of it is joined again and isn't cut short enough to be folded away itself)
+    for (let i = segs.length - 1; i > 0; i--) if ((segs[i].e - segs[i].s + 1) * dt < 0.2 || segs[i].w === segs[i - 1].w) { segs[i - 1].e = segs[i].e; segs.splice(i, 1); }
+    for (let i = segs.length - 1; i > 0; i--) if (segs[i].w === segs[i - 1].w) { segs[i - 1].e = segs[i].e; segs.splice(i, 1); }
     for (let i = segs.length - 1; i > 0; i--) if ((segs[i].e - segs[i].s + 1) * dt < 0.6 || segs[i].w === segs[i - 1].w) { segs[i - 1].e = segs[i].e; segs.splice(i, 1); }
     if (segs.length > 1 && (segs[0].e - segs[0].s + 1) * dt < 0.6) { segs[1].s = segs[0].s; segs.shift(); }
     for (const g of segs) lines.push({ t0:g.s * dt, t1:(g.e + 1) * dt, who:g.w });
@@ -3361,6 +3699,7 @@ function vmTimeline() {
   // gaps where the mouth stayed shut and many small blocks to fix)
   for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 2.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
   for (let i = lines.length - 1; i >= 0; i--) if (lines[i].t1 - lines[i].t0 < 0.2) lines.splice(i, 1);
+  vmVoices(lines, raw, dt);
   VM.lines = lines;
   // someone it found, given no lines (their lips couldn't be read, the voice went to the speaker before): the parts where
   // they're on screen and the speaker isn't are theirs (a podcast cuts to whoever is talking)
@@ -3413,7 +3752,7 @@ function vmDone(blob, type, name) {
 }
 // hear one line of the clip (from its own sound), to tell who's saying it
 function vmHear(t0, t1, btn) {
-  const a = VM.pv || (VM.pv = Object.assign(document.createElement('video'), { playsInline:true, preload:'auto' }));
+  const a = VM.pv || (VM.pv = vmPart(Object.assign(document.createElement('video'), { playsInline:true, preload:'auto' })));
   if (a.src !== VM.url) a.src = VM.url;
   document.querySelectorAll('.vm-play.on').forEach(b => { b.classList.remove('on'); b.textContent = '▶'; });
   if (VM.hearing === btn) { a.pause(); VM.hearing = null; return; }
@@ -3467,12 +3806,15 @@ function vmDefaults() {
   VM.shape = VM.shape || S.shape || 'Square';
   vmRandom(true);
   const music = (VM.env && VM.env.nov && VM.env.nov.music) || 0, others = VM.people.filter(q => !q.off).length - 1;
-  VM.group = VM.crowd && (music > 0.3 || VM.crowd.n >= 3) ? 'all' : 'one';
+  // everyone together only for a real group behind in a song (a choir, a band: two or more). One other face in a song
+  // is someone standing by, not a row behind (making it 'everyone' made the end of a solo a duo); and in talking (a
+  // sitcom, a panel show, a street interview) the others in the picture have no part: they're left out by default
+  VM.group = VM.crowd && music > 0.3 && VM.crowd.n >= 2 ? 'all' : 'one';   // (talking, not a song: everyone else is just there)
   VM.sing = music > 0.3;
   VM.flip = null; vmFacing();
   for (let k = 3; k < 6; k++) VM.flip[CROWD0 + k] = true;
   (VM.lines || []).forEach(l => { delete l.show; }); vmShowDefaults();
-  VM.back = VM.crowd && music > 0.3 ? vmBackDefaults() : null; VM.backAll = false;
+  VM.back = VM.group === 'all' && music > 0.3 ? vmBackDefaults() : null; VM.backAll = false;
   vmLinesToTimeline();
   VM.hist = []; VM.start = vmSnap();
 }
@@ -3600,7 +3942,11 @@ function vmSeenParts(i, times, step) {
       if (x0 > l.t0 + 0.2) { l.t1 = x0; VM.lines.push({ ...rest, t0:x0, t1:x1, who:i }); } else { l.t0 = x0; l.t1 = x1; l.who = i; }
       if (x1 < rest.t1 - 0.2) VM.lines.push({ ...rest, t0:x1, t1:rest.t1 });
     } }
-  VM.lines.sort((x, y) => x.t0 - y.t0); vmShowDefaults();
+  VM.lines.sort((x, y) => x.t0 - y.t0);
+  // (two of their seen parts with a blink between (a frame where the face wasn't read): one line)
+  for (let k = VM.lines.length - 1; k > 0; k--) { const l = VM.lines[k], p = VM.lines[k - 1];
+    if (!l.bk && !p.bk && l.who === i && p.who === i && l.t0 - p.t1 < 0.3) { p.t1 = Math.max(p.t1, l.t1); VM.lines.splice(k, 1); } }
+  vmShowDefaults();
 }
 // the choice: a face it found, someone it missed, or a voice off camera (People tab and Timing tab)
 function vmAddPicker(el, after) {
@@ -3634,16 +3980,18 @@ function vmStudio() {
       <div class="ed-view nib wait" id="edView"><video class="ed-vid" id="edVid" playsinline preload="auto"></video><canvas class="ed-prev" id="edPrev" width="2" height="2"></canvas><div class="ed-load" id="edLoad">Getting the Nibbles ready…</div></div>
       <div class="ed-bar"><button class="ed-pp" id="edPP" type="button" aria-label="Play">▶</button><input class="ed-scrub" id="edScrub" type="range" min="0" max="${VM.dur.toFixed(2)}" step="0.05" value="0" aria-label="Where in the video"><span class="ed-time" id="edTime">${fmtT(0)} / ${fmtT(VM.dur)}</span>
         <button class="chipb seg" id="edOrig" type="button" aria-label="Show the original video">🎞</button></div>
+      ${VM.trimmed ? `<div class="ed-trim">✂︎ Trimmed to ${fmtT(VM.off)}–${fmtT(VM.off + VM.dur)} of ${fmtT(VM.full)} <button class="chipb seg" id="edPart" type="button">${VM.full > VM_MAX ? 'Another part' : 'Whole clip'}</button></div>` : ''}
       <div class="vm-tabs" role="tablist"><button type="button" data-tab="people">People</button><button type="button" data-tab="look">Look</button><button type="button" data-tab="timing">Timing</button></div>
     </div>
     <div id="vmTab"></div>
     <div class="vm-row st-hist"><button class="chipb seg" id="vmUndo" type="button">↶ Undo</button><button class="chipb seg" id="vmReset" type="button">Start over</button><span style="flex:1"></span><button class="chipb seg" id="vmNewVid" type="button">Another video</button></div>
     <button class="vm-go" id="edMake" type="button">Make my video</button>`,
-    vmHelp);
+    () => vmHelp() + vmReportHtml());
 
   document.querySelector('.vm-card').classList.add('studio');   // one steady height while editing (nothing jumps when a tab or panel changes size)
-  const v = $('edVid'); v.src = VM.url; ED.v = v;
+  const v = vmPart($('edVid')); v.src = VM.url; ED.v = v; if (VM.off) v.addEventListener('loadedmetadata', () => { v.currentTime = 0; edTick(); }, { once:true });
   $('edPP').onclick = () => { if (v.paused) { edAudio(); if (v.currentTime >= VM.dur - 0.05) v.currentTime = 0; v.play().catch(() => {}); } else v.pause(); };
+  if ($('edPart')) $('edPart').onclick = () => { v.pause(); edPreviewOff(); vmAnalyse(VM.file, null, VM.full > VM_MAX ? { pick:true } : { whole:true }); };
   $('edOrig').onclick = () => { const on = $('edView').classList.toggle('nib'); $('edOrig').classList.toggle('on', !on); };
   $('edScrub').oninput = e => { v.currentTime = +e.target.value; edTick(); };
   v.onplay = () => { const b = $('edPP'); if (b) b.textContent = '❚❚'; ED.raf = requestAnimationFrame(edTick); };
@@ -3670,6 +4018,35 @@ function vmHelp() {
   return top + `<p><b>Who's on screen</b> sets the whole video: one at a time, two side by side, or everyone (the row behind). To change one part, pick it on the Timing tab.</p>
     <p>Each person found → their Nibble. Tap the Nibble or <b>Change Nibble</b> to pick another, <b>⇆</b> turns it round. <b>⋯</b>: the same person found twice, or take someone out.</p>
     <p><b>🎲 New Nibbles</b> picks new ones that look a bit like the people (skin, glasses, hats). <b>＋ Add someone</b>: a face it found, someone it missed, or a voice off camera.</p>`;
+}
+// "Something off? Send a report": what the reading found and what was changed since, as text (no video, no pictures,
+// no faces, no caption words), so a bad reading can be looked at without anyone sending the clip
+const vmReportHtml = () => `<div class="vm-rep"><b>Something off?</b> Send us what it found (just the numbers: never your video).
+  <textarea id="vmRepNote" maxlength="1000" rows="2" placeholder="What's wrong? (optional) e.g. the man on the left never talks"></textarea>
+  <button class="chipb seg" id="vmRepGo" type="button">Send a report</button> <span id="vmRepSaid"></span></div>`;
+function vmReportData() {
+  const r1 = x => Math.round(x * 10) / 10, P = VM.people || [];
+  let first = null; try { first = JSON.parse(VM.start.j).lines.map(l => [r1(l.t0), r1(l.t1), l.who, l.show || 'solo']); } catch (e) {}
+  const nv = VM.env && VM.env.nov; let quiet = 0; if (nv) for (const x of nv) quiet += x;
+  return { dur:r1(VM.dur || 0), shape:VM.shape, screen:[innerWidth, innerHeight, devicePixelRatio], ua:navigator.userAgent.slice(0, 160),
+    people:P.map((p, i) => ({ nib:VM.cast[i], t0:r1(p.t0 || 0), t1:r1(p.t1 || 0), faces:p.n || 0, lipOk:p.lipOk, off:!!p.off, same:VM.same[i] })),
+    linesFirst:first, linesNow:(VM.lines || []).map(l => [r1(l.t0), r1(l.t1), l.who, l.show || 'solo']),
+    back:(VM.back || []).map(b => [r1(b.t0), r1(b.t1)]), crowd:VM.crowd ? VM.crowd.n : 0, group:VM.group, sing:VM.sing, found:(VM.found || []).length,
+    who:VM.whoDbg || null, follow:VM.diag || null, cuts:(VM.cutT || []).length,
+    sound:{ from:VM.soundFrom, err:VM.soundErr || null, grab:VM.grabInfo || null, classifier:nv ? 'ok' : 'none', noVoice:nv ? r1(quiet / 50) : null, music:nv ? +(nv.music || 0).toFixed(2) : null },
+    captions:VM.cap ? { on:!!VM.cap.on, words:(VM.cap.words || []).length } : null, err:VM.err ? String(VM.err).slice(0, 300) : null, edits:(VM.hist || []).length };
+}
+function vmReportWire() {
+  const go = $('vmRepGo'), said = $('vmRepSaid');
+  go.onclick = async () => {
+    go.disabled = true; said.textContent = 'Sending…';
+    try {
+      const body = { page:CODE ? 'beta' : 'live', version:ART_V, note:($('vmRepNote').value || '').trim().slice(0, 1000) || null, data:vmReportData() };
+      const r = await sbFetch('/rest/v1/nf_reports', { method:'POST', headers:{ 'Content-Type':'application/json', Prefer:'return=minimal' }, body:JSON.stringify(body) });
+      if (!r.ok) throw new Error(r.status);
+      said.textContent = 'Sent. Thank you!'; go.textContent = 'Sent ✓';
+    } catch (e) { go.disabled = false; said.textContent = "Couldn't send. Try again in a moment."; }
+  };
 }
 // after a change (or an undo): the tab, the preview's shape and Nibbles, the timeline
 function vmStudioSync() {
@@ -4155,6 +4532,22 @@ function edDel() { if (!ED.sel) return edHint('Tap a block first, then 🗑 take
 // how much this person's lips move around time t (the spread of their openness over nearly a second). Lips that hardly move
 // while there's a voice (a face half hidden, small or blurry, a singer behind a mask), or lips stuck open, say nothing
 // about the words: then the voice moves the mouth instead
+// how well a face's mouth follows the sound around time t (-1..1): the mouth's opening against the loudness at the same
+// moments (a little before or after: the mouth opens just ahead of the sound), over a second and a half
+function vmAVsync(i, t) {
+  const p = VM.people[i], env = VM.env; if (!env || !p.smp.length) return 0;
+  const key = Math.round(t * 10); p.avC = p.avC || {}; if (key in p.avC) return p.avC[key];
+  const tc = key / 10, a = p.smp; let lo = 0, hi = a.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m].t < tc - 0.75) lo = m + 1; else hi = m; }
+  const xs = []; for (let k = lo; k < a.length && a[k].t <= tc + 0.75; k++) xs.push(a[k]);
+  let best = 0;
+  if (xs.length >= 8) for (const lag of [-0.05, 0, 0.05, 0.1]) {
+    const e = xs.map(x => { let s = 0, c = 0; for (let j = Math.floor((x.t + lag - 0.04) * 50); j <= Math.floor((x.t + lag + 0.04) * 50); j++) if (j >= 0 && j < env.length) { s += env[j]; c++; } return c ? s / c : 0; });
+    const o = xs.map(x => x.mo), n = xs.length, me = e.reduce((s, x) => s + x, 0) / n, mo = o.reduce((s, x) => s + x, 0) / n;
+    let sxy = 0, sxx = 0, syy = 0; for (let k = 0; k < n; k++) { const dx = o[k] - mo, dy = e[k] - me; sxy += dx * dy; sxx += dx * dx; syy += dy * dy; }
+    const r = sxx > 1e-9 && syy > 1e-12 ? sxy / Math.sqrt(sxx * syy) : 0; if (Math.abs(r) > Math.abs(best)) best = r;
+  }
+  return p.avC[key] = best;
+}
 function vmLipAct(p, t) {
   const a = VM.people[p].smp; if (!a || !a.length) return 0;
   let lo = 0, hi = a.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m].t < t - 0.45) lo = m + 1; else hi = m; }
@@ -4188,8 +4581,9 @@ async function vmRender() {
     await Promise.all(pics.filter(Boolean).map(i => i.complete && i.naturalWidth ? 0 : new Promise(r => { i.addEventListener('load', r, { once:true }); i.addEventListener('error', r, { once:true }); setTimeout(r, 5000); })));
     S.bg = VM.bg;
     VM.rendering = true; setShape(VM.shape); vmFit();
-    const v = document.createElement('video'); v.src = VM.url; v.playsInline = true; v.preload = 'auto'; VM.v = v;
+    const v = vmPart(document.createElement('video')); v.src = VM.url; v.playsInline = true; v.preload = 'auto'; VM.v = v;
     await new Promise((res, rej) => { v.oncanplay = res; v.onerror = rej; v.load(); });
+    if (VM.off) await vmSeek(v, 0);   // (the part's start)
     const ac = audioCtx(); mixBus();
     const src = ac.createMediaElementSource(v), an = ac.createAnalyser(); an.fftSize = 2048; an.smoothingTimeConstant = 0.3;
     const dest = ac.createMediaStreamDestination();
@@ -4218,8 +4612,12 @@ async function vmRender() {
     $('vmStop').onclick = () => vmStop(true);
     v.onended = () => vmStop(false);
     try { vmFrame(performance.now()); } catch (e) {}   // the first picture recorded is already the Nibble (not what the main screen showed)
+    // the recording starts once the clip is really playing (picking up from the middle of a clip, its first picture can
+    // take a moment: recorded, that's a frozen first second)
+    const playing = new Promise(r => { v.addEventListener('playing', r, { once:true }); setTimeout(r, 1500); });
+    const pp = v.play(); await playing;
     rec.start(1000); if (VM.mus) VM.mus.start();
-    await v.play();
+    await pp;
   } catch (e) { vmRestore(); vmShow('Nibble a Video', '<p>Something went wrong making the video. Try again.</p>'); }
 }
 function vmStop(cancel) {
