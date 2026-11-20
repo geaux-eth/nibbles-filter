@@ -3,13 +3,16 @@
 // Voice prints are saved too (<clip>.voice.json) and reused; NOVOICEIN=1 makes them again, NOVOICE=1 leaves voices out.
 // Run one browser at a time (POOL=1) on a small machine: two software-drawn browsers starve each other and the voice
 // step gives up (the page then carries on without voices, as before). LOG=1 prints the page's messages; TMO=ms wait.
-import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
-import fs from 'fs';
-import { serve } from '../serve2.mjs';
+// Mouth checks read the mouth track itself (window.__nf.voicedTrack, every moment counted as inside a line); MOUTHOFF=1
+// runs them without the laugh rule (they must fail then). SND=1 dumps the sound readings, PROG=1 prints the bar's steps.
 const S = '/tmp/claude-0/-home-claude/983647b0-485b-5cec-a0d0-3276a7c1b795/scratchpad', mp = S + '/mp', G = process.env.GDIR || S + '/golden';
 const PAGE = process.env.PAGE || 'beta/index.html', FRESH = !!process.env.FRESH;
 const ov = (l, a, b) => Math.min(l[1], b) - Math.max(l[0], a);
 const real = r => r.people.filter(p => !p.off);
+// the mouth itself (what the video shows): the share of [a, b) seconds in which a mouth moves, every moment counted as
+// inside someone's line (so a line stretched over a laugh in the editor is covered too)
+const mv = (r, a, b) => { const m = r.mouth || [], i0 = Math.round(a / 0.05), i1 = Math.round(b / 0.05); let s = 0; for (let i = i0; i < i1; i++) s += m[i] || 0; return s / Math.max(1, i1 - i0); };
+const keepsTalk = r => ['talking isn\'t shut by the laugh rule (mouth moves at least 95% as much as without it)', !!r.mouth && r.mouth.reduce((a, b) => a + b, 0) >= 0.95 * r.mouthOff.reduce((a, b) => a + b, 0)];
 const CLIPS = {
   podcast26:{ file:'u11/r.webm', checks:r => [
     ['2 people (host + guest)', real(r).length === 2],
@@ -50,7 +53,8 @@ const CLIPS = {
     ['Kramer\'s close-ups are his lines (2–5.8, 12–14, 24–27 s)', K >= 0 && at(13) === K && at(25) === K],
     ['George\'s close-ups are his (8–11.9, 28–30, 43–45 s)', G >= 0 && G !== K && at(29) === G && at(44) === G],
     ['Jerry/Elaine two-shots go to Jerry or Elaine', [15, 19.5, 22].every(t => at(t) >= 0 && at(t) !== K && at(t) !== G)],
-    ['the laugh at 6.6–8.2 s is nobody\'s line', at(6.8) === -1 && at(7.6) === -1]]; } },
+    ['the laugh at 6.6–8.2 s is nobody\'s line', at(6.8) === -1 && at(7.6) === -1],
+    ['the laugh at 6.6–8.2 s doesn\'t move a mouth, even if a line is stretched over it', mv(r, 6.6, 8.2) <= 0.15]]; } },
   panel90:{ file:'n1/panel90.webm', checks:r => { const at = t => { const l = r.lines.find(l => l[0] <= t && t < l[1]); return l ? l[2] : -1; };
     const H = at(5), Ho = at(15), Gl = at(18.5), W = at(26), D = at(31);
     return [
@@ -68,13 +72,16 @@ CLIPS.panelB = { file:'n2/a.h264.mp4', checks:r => { const at = t => { const l =
     ['5 people: the host and the 4 on the panel (the BBC logo isn\'t one)', real(r).length === 5 && !r.people.some(p => p.off)],
     ['the host\'s intro is his (4–12 s)', H >= 0 && at(4.5) === H && at(12) === H],
     ['each one\'s first line is theirs (woman 15 s, piano 21 s, glasses 26 s, white shirt 33 s)', new Set([H, W, D, G, S]).size === 5 && ![W, D, G, S].includes(-1)],
-    ['and later on too (piano 47, 63.5 s; glasses 52, 69, 70 s; white shirt 55 s; woman 60, 75 s)', at(47) === D && at(63.5) === D && at(52) === G && at(69) === G && at(70) === G && at(55) === S && at(60) === W && at(75) === W]]; } };
+    ['and later on too (piano 47, 63.5 s; glasses 52, 69, 70 s; white shirt 55 s; woman 60, 75 s)', at(47) === D && at(63.5) === D && at(52) === G && at(69) === G && at(70) === G && at(55) === S && at(60) === W && at(75) === W],
+    ['mouths stay shut through the laughter (captioned LAUGHTER: 21.5–23.5, 28–32, 36–37.6, 65.5–67.5, 70.7–72 s)', [[21.5, 23.5], [28, 32], [36, 37.6], [65.5, 67.5], [70.7, 72]].every(([a, b]) => mv(r, a, b) <= 0.15)],
+    ['mouths move while they talk (host 5–11, woman 13.5–16.5, white shirt 32.6–34.3, woman 58–61 s)', [[5, 11], [13.5, 16.5], [32.6, 34.3], [58, 61]].every(([a, b]) => mv(r, a, b) >= 0.4)]]; } };
 CLIPS.latarian = { file:'n2/b.h264.mp4', checks:r => { const at = t => { const l = r.lines.find(l => l[0] <= t && t < l[1]); return l ? l[2] : -1; };
     const off = r.people.findIndex(p => p.off), K = at(26), Gm = at(21), O = at(45);
     return [
     ['the narrator over shots with nobody in them is a voice off camera (10, 40, 50 s)', off >= 0 && at(10) === off && at(40) === off && at(50) === off],
     ['grandma 21 s, the kid 26 s, the officer 45 s: three different people, none the narrator', new Set([K, Gm, O, off]).size === 4 && ![K, Gm, O].includes(-1)],
     ['the kid\'s later lines are his (34, 58 s)', at(34) === K && at(58) === K]]; } };
+for (const n of ['podcast26', 'podcast23', 'turtle', 'macho', 'podcast10mp4', 'latarian']) { const f = CLIPS[n].checks; CLIPS[n].checks = r => [...f(r), keepsTalk(r)]; }
 const routes = async pg => {
   await serve(pg);
   await pg.route(/cdn\.jsdelivr\.net\/npm\/@mediapipe\/tasks-vision@[^/]+\/(.*)/, r => { const p = r.request().url().split(/tasks-vision@[^/]+\//)[1]; r.fulfill({ body:fs.readFileSync(`${mp}/package/${p}`), contentType:p.endsWith('.wasm') ? 'application/wasm' : 'text/javascript' }); });
@@ -94,16 +101,23 @@ async function run(name) {
   const T = { noLike:true, noAV:!!process.env.NOAV, part:'whole', noFR:!!process.env.NOFR, frJoin:+process.env.FRJOIN || 0, frDoubt:+process.env.FRDOUBT || 0, seek:!!process.env.SEEK }; if (!FRESH && fs.existsSync(sf)) T.scanIn = JSON.parse(fs.readFileSync(sf)); if (!FRESH && fs.existsSync(ff)) T.followIn = JSON.parse(fs.readFileSync(ff)); { const vf = `${process.env.VOICES || G}/${name}.voice.json`; if (!process.env.NOVOICEIN && fs.existsSync(vf)) T.voiceIn = JSON.parse(fs.readFileSync(vf)); } if (process.env.NOVOICE) T.noVoice = true;
   await pg.evaluate(T => { window.__T = T; }, T);
   if (process.env.DBGT) await pg.evaluate(() => { window.__vm.dbgT = []; });
+  if (process.env.SND) await pg.evaluate(() => { window.__soundDbg = []; });
+  if (process.env.PROG) await pg.evaluate(() => { window.__prog = []; const ob = new MutationObserver(() => { const e = document.getElementById('vmProg'), m = document.getElementById('vmMsg'); if (e) window.__prog.push([e.style.width, m ? m.textContent : '']); }); ob.observe(document.body, { attributes:true, subtree:true, attributeFilter:['style'], childList:true, characterData:true }); });
   let tick = null; if (process.env.LOG) { pg.on('console', m => console.log('[c]', m.type(), m.text().slice(0, 300))); pg.on('pageerror', e => console.log('[err]', String(e).slice(0, 400))); tick = setInterval(async () => { try { console.log('[msg]', Math.round((Date.now() - t0) / 1000), await pg.evaluate(() => (document.getElementById('vmMsg') || {}).textContent)); } catch {} }, 20000); }
   await pg.click('#vidBtn'); await pg.setInputFiles('#vmFile', `${S}/${c.file}`);
   await pg.waitForSelector('#edMake', { timeout:+process.env.TMO || 1800000 }).finally(() => tick && clearInterval(tick));
+  if (process.env.VOICED) { const d = await pg.evaluate(() => ({ old:window.__nf.voicedTrack(true), now:window.__nf.voicedTrack(false) })); fs.writeFileSync(`${G}/${name}.voiced.json`, JSON.stringify(d)); }
+  const mouth = await pg.evaluate(() => window.__nf.voicedTrack ? { now:window.__nf.voicedTrack(false, true), off:window.__nf.voicedTrack(true, true) } : null).catch(() => null);
+  if (process.env.PROG) { const pr = await pg.evaluate(() => window.__prog); const seq = []; for (const [w, m] of pr) { if (!seq.length || seq[seq.length - 1][0] !== w || seq[seq.length - 1][1] !== m) seq.push([w, m]); } console.log(JSON.stringify(seq.filter((x, i) => i % Math.max(1, Math.floor(seq.length / 40)) === 0 || i === seq.length - 1))); }
+  if (process.env.SND) { const d = await pg.evaluate(() => { const E = window.__vm.env, T = E.vt; return { snd:window.__soundDbg, e:Array.from(T.e, x => +x.toFixed(5)), thr:T.thr, loud:T.loud, pitch:E.pitch ? Array.from(E.pitch) : null, nov:E.nov ? Array.from(E.nov) : null }; }); fs.writeFileSync(`${G}/${name}.env.json`, JSON.stringify(d)); }
   const r = await pg.evaluate(() => { const V = window.__vm; return { people:V.people.map(p => ({ t0:+p.t0.toFixed(1), t1:+p.t1.toFixed(1), n:p.n, lipOk:p.lipOk, off:!!p.off, pts:(p.smp || []).filter((x, i, a) => i % Math.max(1, Math.floor(a.length / 5)) === 0).slice(0, 6).map(x => [+x.t.toFixed(2), +x.cx.toFixed(2)]) })),
-    lines:V.lines.map(l => [+l.t0.toFixed(1), +l.t1.toFixed(1), l.who, l.show || 'solo']), back:(V.back || []).map(x => [x.t0, x.t1]), crowd:V.crowd && V.crowd.n, sing:V.sing, group:V.group, who:V.whoDbg, av:V.avDbg, err:V.err || null, found:(V.found || []).length, fr:!!V.frUsed, voice:V.voiceDbg || null, still:V.stillDbg || null, diag:V.diag ? { looks:V.diag.looks, same:V.diag.same, miss:V.diag.miss, mode:V.diag.mode, fill:V.diag.fill, rates:V.diag.rates, p:V.diag.p } : null }; });
+    lines:V.lines.map(l => [+l.t0.toFixed(1), +l.t1.toFixed(1), l.who, l.show || 'solo']), back:(V.back || []).map(x => [x.t0, x.t1]), crowd:V.crowd && V.crowd.n, sing:V.sing, group:V.group, who:V.whoDbg, av:V.avDbg, err:V.err || null, found:(V.found || []).length, fr:!!V.frUsed, voice:V.voiceDbg || null, still:V.stillDbg || null, vmem:V.voiceMem, diag:V.diag ? { looks:V.diag.looks, same:V.diag.same, miss:V.diag.miss, mode:V.diag.mode, fill:V.diag.fill, rates:V.diag.rates, p:V.diag.p } : null }; });
   if (process.env.DBGT) { const [a, z] = process.env.DBGT.split(',').map(Number); r.dbgT = await pg.evaluate(([a, z]) => (window.__vm.dbgT || []).filter(x => x[0] >= a && x[0] <= z), [a, z]); }
   { const vo = await pg.evaluate(() => window.__T.voiceOut ? JSON.stringify(window.__T.voiceOut) : null); if (vo) fs.writeFileSync(`${G}/${name}.voice.json`, vo); }
   const saved = await pg.evaluate(() => ({ scan:window.__T.scan && !window.__T.scanIn ? JSON.stringify(window.__T.scan) : null, follow:window.__T.follow ? JSON.stringify(window.__T.follow) : null }));
   if (saved.scan) fs.writeFileSync(sf, saved.scan); if (saved.follow) fs.writeFileSync(ff, saved.follow);
   await b.close();
+  r.mouth = mouth ? (process.env.MOUTHOFF ? mouth.off : mouth.now) : null; r.mouthOff = mouth ? mouth.off : null;
   const res = c.checks(r), secs = Math.round((Date.now() - t0) / 1000);
   fs.writeFileSync(`${G}/${name}${process.env.NOAV ? ".noav" : ""}.result.json`, JSON.stringify(r));
   return { name, secs, res, r, cached:!!T.scanIn, refollowed:!!saved.follow && !!T.followIn, errs };

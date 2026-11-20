@@ -1013,7 +1013,7 @@ async function donorFor(id, a, B) {
 // things in front of the mouth, kept whole on top of every talking mouth (kit.js)
 const FRONT_MOUTH = /mustache|straw|match|bubbles/i;   // (dark magic isn't: its still wisps are replaced by the moving ones)
 const KIT_BUSY = {};
-window.__nf = { voicedTrack:noLaugh => { VM.noLaugh = !!noLaugh; const o = []; for (let t = 0; t < VM.dur; t += 0.05) { vmVoice(performance.now(), t); o.push(V.voiced ? 1 : 0); } VM.noLaugh = false; return o; }, lookalikes:(feats, all) => { VM.people = feats.map(f => ({ feat:f, smp:[] })); VM.same = {}; VM.main = 0; VM.mine = null; return vmLookalikes(all !== false).then(() => VM.like); }, setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = k; }, setPose:p => { S.forcePose = p; }, faceAt:id => FACE_AT[id], setShape:n => setShape(n),
+window.__nf = { voicedTrack:(noLaugh, allIn) => { VM.noLaugh = !!noLaugh; const tk = VM.talk; if (allIn) VM.talk = null; const o = []; for (let t = 0; t < VM.dur; t += 0.05) { vmVoice(performance.now(), t); o.push(V.voiced ? 1 : 0); } VM.noLaugh = false; VM.talk = tk; return o; }, lookalikes:(feats, all) => { VM.people = feats.map(f => ({ feat:f, smp:[] })); VM.same = {}; VM.main = 0; VM.mine = null; return vmLookalikes(all !== false).then(() => VM.like); }, setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = k; }, setPose:p => { S.forcePose = p; }, faceAt:id => FACE_AT[id], setShape:n => setShape(n),
   groupShot:async (ids, shape, gl, slots) => {   // (tests) one frame of a group layout
     Object.assign(GLS[shape], gl || {}); if (slots) GLS[shape].slots = slots; setShape(shape);
     VM.people = ids.map(() => ({ smp:[] })); VM.cast = {}; ids.forEach((id, i) => VM.cast[i] = id); VM.same = {}; VM.flip = {}; VM.mirror = {}; VM.group = 'all'; VM.crowd = null; VM.arts = {};
@@ -1027,13 +1027,15 @@ window.__nf = { voicedTrack:noLaugh => { VM.noLaugh = !!noLaugh; const o = []; f
   soundOf:async url => { VM.soundTrack = null; const e = await vmEnvelope(await (await fetch(url)).blob()); return { from:VM.soundFrom, track:VM.soundTrack, err:VM.soundErr, secs:e && e.vt ? +(e.vt.e.length / 100).toFixed(2) : 0, thr:e && e.vt && e.vt.thr, music:e && e.nov && e.nov.music, noVoice:e && e.nov ? Array.from(e.nov).reduce((a, x) => a + x, 0) / 50 : null }; },
   mouthAt:(t, f) => { const now = performance.now(); V.on = true; vmVoice(now, t); const face = Object.assign({ open:0, wide:0, round:0, smile:0, press:0, frown:0, fv:0, jaw:0, lowIn:0, upIn:0 }, f || {});
     return { v:V.voiced, lv:+V.level.toFixed(2), sh:V.sh && (V.sh.nasal ? 'nasal' : V.sh.fric ? 'fric' : V.sh.back ? 'back' : 'm' + V.sh.m), dip:V.dip, m:pickMouth(face, now) }; }, get id() { return S.id; }, get art() { return S.art; }, NIBBLES, fetchNibble:id => fetchNibble(id), pickNibble:(c, f) => pickNibble(c, f), bgOptions:c => bgOptions(c), vmRandom:() => { vmRandom(); return VM.bg; } };   // for tests
+// (while a video is being looked at, a Nibble's news goes under the progress bar, not in a bubble over the picture)
+const kitSay = (msg, kind, ms) => { if (VM.looking) { vmMsg(msg); return; } setStatus('x', msg, kind, ms); };
 async function kitPrepare(id) {
   if (NIBBLES[id]) return true;
   if (KIT_BUSY[id]) return KIT_BUSY[id];
   return KIT_BUSY[id] = (async () => {
     const t = await traitsOf(id), ref = kitFor(t); if (!ref) return false;
     const a = t.a, kind = a.Character;
-    setStatus('x', `Getting ${kind} #${id} ready…`, '', 20000);
+    kitSay(`Getting ${kind} #${id} ready…`, '', 20000);
     try {
       const [B, K] = await Promise.all([import('./' + CODE + 'builder.js?v=' + ART_V), import('./' + CODE + 'kit.js?v=' + ART_V)]);
       const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
@@ -1054,9 +1056,9 @@ async function kitPrepare(id) {
       if (kind === 'Gnome' && /dark magic/i.test(String(a.Accessory || '')) && !NIBBLES[id].trait) NIBBLES[id].trait = { frames:20, fps:6.67, from:8549, box:[-24, -18, 1020, 1020], darkMagic:true };
       if (res.faceMask && res.faceMask.getContext) res.faceMask.width = res.faceMask.height = 0; drop();
       FACE_AT[id] = exp.layout.at; delete ART[id]; addOption(id, kind);
-      setStatus('x', `${kind} #${id} is ready.`, '', 1500);
+      kitSay(`${kind} #${id} is ready.`, '', 1500);
       return true;
-    } catch (e) { console.error('kit', e); delete KIT_BUSY[id]; setStatus('x', `Couldn't get #${id} ready. Try again.`, 'err'); return false; }
+    } catch (e) { console.error('kit', e); delete KIT_BUSY[id]; kitSay(`Couldn't get #${id} ready. Try again.`, 'err'); return false; }
   })();
 }
 // a face to show on each kind's tile
@@ -3097,7 +3099,7 @@ async function vmAnalyse(file, grab, want) {
     // the sound first: where the talking starts and ends decides the part to use (the quiet start and end are left out;
     // a clip over 90 seconds is cut to 90, placed on the talking, and can be moved before it's read)
     vmMsg('Listening…');
-    const T0 = window.__T, gw = setInterval(() => { const g = VM.grabV; if (VM.soundWait) { vmMsg('Listening to the sound…'); vmProg(1 + (g && g.duration ? 12 * g.currentTime / g.duration : 0)); } }, 250);
+    const T0 = window.__T, gw = setInterval(() => { const g = VM.grabV; if (VM.soundWait) { vmMsg('Listening to the sound…'); vmProg(1 + (g && g.duration ? 7 * g.currentTime / g.duration : 0)); } }, 250);
     const b = await vmDecode(file, grab); clearInterval(gw); if (VM.cancel) return;
     const part = T0 && T0.part === 'whole' ? [0, VM.full] : (T0 && T0.part) || await vmPickPart(v, b, want || {}); if (VM.cancel || !part) return;
     if (T0 && T0.partOnly) { T0.partOut = part; T0.talk = VM.talkRuns; return; }   // (tests: just the part it picks)
@@ -3105,11 +3107,11 @@ async function vmAnalyse(file, grab, want) {
     const envP = b ? vmSoundOf(VM.trimmed ? vmSlice(b, part[0], part[1]) : b) : Promise.resolve(null); vmCut.prev = null; vmCut.hist = null; VM.cutT = []; VM.strip = [];
     const idP = faceIdNet(); vmVoiceNetLoad();   // (the voice model comes down meanwhile)
     VM.lmi = VM.lmi || await makeLandmarker(6, 0.3, 'IMAGE');
-    vmProg(3); const fa = await idP;
+    vmProg(9); const fa = await idP;
     try { await v.play(); } catch (e) {} v.pause();
     vmMsg('Seeing who’s in it…');
     // (tests: a saved first look and saved face readings stand in for reading the video again; see vmTestHooks)
-    const T = window.__T, scan = T && T.scanIn ? vmScanLoad(T.scanIn) : await vmScan(v, fa, p => vmProg(4 + p * 56));
+    const T = window.__T, scan = T && T.scanIn ? vmScanLoad(T.scanIn) : await vmScan(v, fa, p => vmProg(10 + p * 38));
     if (VM.cancel || !scan) return;
     if (T) T.scan = vmScanSave(scan);
   VM.noAV = !!(T && T.noAV);   // (tests: the old way, to compare)
@@ -3123,7 +3125,7 @@ async function vmAnalyse(file, grab, want) {
     if (saved) who.people.forEach(p => Object.assign(p, T.followIn[sig(p)]));
     else if (who.people.length) {
       vmMsg(who.people.length > 1 ? 'Following everyone who talks…' : 'Following the main person…');
-      await vmFollow(v, who, p => vmProg(60 + p * 38));
+      await vmFollow(v, who, p => vmProg(48 + p * 24));
       if (T) { T.follow = {}; for (const p of who.people) T.follow[sig(p)] = { smp:p.smp, lipOk:p.lipOk, spans:p.spans, moLo:p.moLo, moHi:p.moHi }; }
       try { VM.lmi && VM.lmi.close(); } catch (e) {} VM.lmi = null;   // (its memory back for the Nibbles: made again for the next video)
       if (VM.cancel) return;
@@ -3133,16 +3135,18 @@ async function vmAnalyse(file, grab, want) {
     let died = 0; try { died = +localStorage.getItem('nfVoiceDied') || 0; } catch (e) {}
     if (!VM.voice && b && fa && !(T && T.noVoice) && Date.now() - died > 7 * 864e5) { vmMsg('Listening to who’s talking…');
       try { localStorage.setItem('nfVoiceDied', String(Date.now())); } catch (e) {}
-      try { VM.voice = await vmVoicePrints(VM.trimmed ? vmSlice(b, part[0], part[1]) : b, fa.tf); } catch (e) { console.warn('voices', e); VM.voice = null; }
+      try { VM.voice = await vmVoicePrints(VM.trimmed ? vmSlice(b, part[0], part[1]) : b, fa.tf, p => vmProg(72 + p * 18)); } catch (e) { console.warn('voices', e); VM.voice = null; }
       try { localStorage.removeItem('nfVoiceDied'); } catch (e) {}
       if (T && VM.voice) T.voiceOut = { win:VM.voice.win, hop:VM.voice.hop, t:VM.voice.t, rms:VM.voice.rms, e:VM.voice.e.map(a => Array.from(a, q => +q.toFixed(4))) }; }
-    vmProg(100);
+    vmProg(90);
     VM.people = who.people.map(p => ({ feat:p.feat, smp:p.smp, thumb:p.thumb, t0:p.smp.length ? p.smp[0].t : p.t0, t1:p.smp.length ? p.smp[p.smp.length - 1].t : p.t1, n:p.smp.length, spans:p.spans, lipOk:p.lipOk }));
     if (!VM.people.length) VM.people.push({ smp:[], thumb:null, t0:0, t1:VM.dur, n:0, noface:true });   // no face found: one Nibble, moving with the sound
     VM.crowd = who.crowd.n ? who.crowd : null; VM.whoStep = who.step;
     vmTimeline();
     VM.like = {}; VM.mine = S.chosen && NIBBLES[S.id] ? +S.id : null;
-    if (!(T && T.noLike)) { vmMsg('Picking Nibbles that look like them…'); try { await Promise.race([vmLookalikes(true), new Promise(r => setTimeout(r, 25000))]); } catch (e) {} }
+    // (the bar's last tenth: Nibbles that look like them, each made ready from its kit, its news under the bar too)
+    if (!(T && T.noLike)) { vmMsg('Picking Nibbles that look like them…'); VM.looking = true; try { await Promise.race([vmLookalikes(true, p => vmProg(90 + p * 10)), new Promise(r => setTimeout(r, 25000))]); } catch (e) {} VM.looking = false; }
+    vmProg(100);
     vmDefaults();
     vmStudio();
   } catch (e) {
@@ -3501,7 +3505,7 @@ function vmFbank(x) {
   }
   return { F:out, n };
 }
-async function vmVoicePrints(b, tf) {
+async function vmVoicePrints(b, tf, prog) {
   const net = await vmVoiceNetLoad(); if (!net || !tf) return null;
   const oc = new OfflineAudioContext(1, Math.max(1, Math.ceil(b.duration * 16000)), 16000), src = oc.createBufferSource(); src.buffer = b; src.connect(oc.destination); src.start();
   const x = (await oc.startRendering()).getChannelData(0), { F, n } = vmFbank(x); if (n < 98) return null;
@@ -3523,7 +3527,7 @@ async function vmVoicePrints(b, tf) {
   // if the phone's graphics chip stalls or is too slow, give up on voices and carry on without them (as before)
   const Tm = Math.ceil(n / 8), M = new Float32Array(Tm * 2560), C = 800, MG = 96, tEnd = performance.now() + (30 + 8 * b.duration) * 1000;
   try {
-    for (let s0 = 0; s0 < n; s0 += C) { if (VM.cancel) return null; vmMsg(`Listening to who’s talking… ${Math.round(100 * s0 / n)}%`);
+    for (let s0 = 0; s0 < n; s0 += C) { if (VM.cancel) return null; vmMsg('Listening to who’s talking…'); if (prog) prog(s0 / n);
       const a = Math.max(0, s0 - MG), z = Math.min(n, s0 + C + MG), L = z - a;
       const y = net34(tf.tidy(() => tf.tensor4d(F.subarray(a * NB, z * NB), [L, NB, 1, 1]).transpose([3, 1, 0, 2])));   // (1, 80 bands, L frames, 1)
       let d; try { let to; d = await Promise.race([y.data(), new Promise((_, no) => { to = setTimeout(() => no(new Error('voices took too long')), Math.max(1000, tEnd - performance.now())); })]); clearTimeout(to); } finally { y.dispose(); }
@@ -3865,12 +3869,12 @@ function vmBackDefaults() {
 // already playing someone else isn't picked again. Made ready (its talking faces built) before it's shown.
 const LIKE_SKIN = { light:/^(Light|Albino|White|Pale|Yellow|Mime|Pink)$/, mid:/^(Brown|Orange|Leopard|Grey|Stone|Wood|Teal|Blue|Lime Green|Pimples|Roughed Up)$/, dark:/^(Black|Dark|Brown)$/ };
 const HAT = /cap|beanie|hat|toque|bonnet|crown|hood|nightcap|nighcap|helmet/i, GLASS = /glasses|goggles|visor|shades/i;
-async function vmLookalikes(all) {
+async function vmLookalikes(all, prog) {
   VM.like = all ? {} : (VM.like || {});
   let M; try { M = await traitIndex(); } catch (e) { return; } if (!M) return;
   const col = name => M.k.indexOf(name), val = (id, name) => { const j = col(name), row = M.t[id - 1]; return row && row[j] >= 0 ? String(M.v[j][row[j]]) : ''; };
   const taken = new Set(Object.values(VM.like).map(Number)); if (VM.mine) taken.add(VM.mine);
-  for (let i = 0; i < VM.people.length; i++) {
+  for (let i = 0; i < VM.people.length; i++) { if (prog) prog(i / VM.people.length);
     const p = VM.people[i]; if (p.off || VM.like[i] || (VM.mine && i === VM.main) || vmRoot(i) !== i) continue;
     const f = p.feat, tone = !f ? null : f.skin > 0.5 ? 'light' : f.skin > 0.3 ? 'mid' : 'dark';
     const score = id => { if (taken.has(id) || !readyId(M, id)) return -1; const sk = val(id, 'Skin'); if (/gold/i.test(sk)) return -1;
