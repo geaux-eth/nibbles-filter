@@ -1013,7 +1013,7 @@ async function donorFor(id, a, B) {
 // things in front of the mouth, kept whole on top of every talking mouth (kit.js)
 const FRONT_MOUTH = /mustache|straw|match|bubbles/i;   // (dark magic isn't: its still wisps are replaced by the moving ones)
 const KIT_BUSY = {};
-window.__nf = { lookalikes:(feats, all) => { VM.people = feats.map(f => ({ feat:f, smp:[] })); VM.same = {}; VM.main = 0; VM.mine = null; return vmLookalikes(all !== false).then(() => VM.like); }, setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = k; }, setPose:p => { S.forcePose = p; }, faceAt:id => FACE_AT[id], setShape:n => setShape(n),
+window.__nf = { voicedTrack:noLaugh => { VM.noLaugh = !!noLaugh; const o = []; for (let t = 0; t < VM.dur; t += 0.05) { vmVoice(performance.now(), t); o.push(V.voiced ? 1 : 0); } VM.noLaugh = false; return o; }, lookalikes:(feats, all) => { VM.people = feats.map(f => ({ feat:f, smp:[] })); VM.same = {}; VM.main = 0; VM.mine = null; return vmLookalikes(all !== false).then(() => VM.like); }, setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = k; }, setPose:p => { S.forcePose = p; }, faceAt:id => FACE_AT[id], setShape:n => setShape(n),
   groupShot:async (ids, shape, gl, slots) => {   // (tests) one frame of a group layout
     Object.assign(GLS[shape], gl || {}); if (slots) GLS[shape].slots = slots; setShape(shape);
     VM.people = ids.map(() => ({ smp:[] })); VM.cast = {}; ids.forEach((id, i) => VM.cast[i] = id); VM.same = {}; VM.flip = {}; VM.mirror = {}; VM.group = 'all'; VM.crowd = null; VM.arts = {};
@@ -1454,6 +1454,19 @@ function readVoice(now) {
 // frames ahead (VM_LEAD), because a drawn mouth takes a moment to settle on a shape and should land on the syllable,
 // not after it. Between syllables (the sound dips well below the syllable's peak) the mouth closes, so it flaps in time.
 const VM_LEAD = 0.1;
+// a laugh track, an audience laughing or clapping, noise: loud, but almost none of it has a voice's pitch. Within ±0.4 s,
+// fewer than 1 in 20 of the loud moments pitched -> nobody's mouth moves for it, even inside someone's line (a line
+// usually runs on through the laugh after its punchline). Talking over the laugh is pitched, so it still moves the mouth.
+function vmLaughAt(j) {
+  const E = VM.env; if (!E || !E.pitch) return false;
+  if (!E.lau) { const T = E.vt, P = E.pitch, n = P.length, loud = new Uint8Array(n), lau = new Uint8Array(n);
+    for (let k = 0; k < n; k++) loud[k] = (T.e[Math.min(T.e.length - 1, 2 * k)] || 0) > T.thr ? 1 : 0;
+    let L = 0, V = 0; const W = 20, add = (k, s) => { if (k < 0 || k >= n || !loud[k]) return; L += s; if (P[k] > 0) V += s; };
+    for (let k = -W; k <= W; k++) add(k, 1);
+    for (let k = 0; k < n; k++) { if (k) { add(k - W - 1, -1); add(k + W, 1); } const m = Math.min(n, k + W + 1) - Math.max(0, k - W); lau[k] = L >= 0.3 * m && V < 0.05 * L ? 1 : 0; }
+    E.lau = lau; }
+  return !!E.lau[Math.min(E.lau.length - 1, j)];
+}
 function vmVoice(now, t) {
   const T = VM.env.vt, n = T.e.length, k = Math.max(0, Math.min(n - 1, Math.round(t * 100))), e = T.e[k];
   let pk = 0; for (let j = Math.max(0, k - 12); j <= Math.min(n - 1, k + 12); j++) if (T.e[j] > pk) pk = T.e[j];
@@ -1471,7 +1484,7 @@ function vmVoice(now, t) {
     V.voiced = ve > Math.max(T.evThr, pv * 0.3) && !(nv && nv[j]) && V.inLine;
     if (V.voiced) { V.lastVoice = now; V.level = clamp(ve / T.evLoud, 0, 1); V.dip = ve < pv * 0.45; }
   } else {
-    V.voiced = e > T.thr && !(nv && nv[j]) && V.inLine;
+    V.voiced = e > T.thr && !(nv && nv[j]) && V.inLine && (VM.noLaugh || !vmLaughAt(j));
     if (V.voiced) { V.lastVoice = now; V.level = clamp((e - T.thr) / (T.loud - T.thr), 0, 1); V.dip = e < pk * 0.45; }
   }
   if (V.voiced) {
