@@ -468,7 +468,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
   { const zone = grow(Zd, 140), dif = new Uint8Array(N * N);
     for (let p = 0; p < N * N; p++) { if (!zone[p]) continue; const i = p * 4; if (T0[i + 3] < 100 && R[i + 3] < 100) continue;
       if (Math.abs(T0[i + 3] - R[i + 3]) > 80) { dif[p] = 1; continue; } const m = mapped(R, i); if (m && Math.abs(m[0] - T0[i]) + Math.abs(m[1] - T0[i + 1]) + Math.abs(m[2] - T0[i + 2]) > 80) dif[p] = 1; }
-    const lab = new Int32Array(N * N), q = new Int32Array(N * N), fr = new Uint8Array(N * N), bh = new Uint8Array(N * N); let id = 0;
+    const lab = new Int32Array(N * N), q = new Int32Array(N * N), fr = new Uint8Array(N * N), bh = new Uint8Array(N * N), acc = new Uint8Array(N * N); let id = 0;
     for (let s0 = 0; s0 < N * N; s0++) { if (!dif[s0] || lab[s0]) continue; id++; let h = 0, t = 0, inZ = 0; q[t++] = s0; lab[s0] = id;
       while (h < t) { const p = q[h++], x = p % N; if (Zd[p]) inZ++;
         for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && dif[j] && !lab[j]) { lab[j] = id; q[t++] = j; } }
@@ -484,9 +484,19 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
         continue; }
       if (front === 'match' && donor) continue;
       if (front) { for (let k = 0; k < t; k++) fr[q[k]] = 1; continue; }
+      // something this Nibble wears over its face, mostly above the mouth (sunglasses, a visor, a monocle chain): its own,
+      // drawn back over every talking mouth where it reaches into the mouth zone (an opening beak cut a sunglasses rim)
+      { let cy = 0; for (let k = 0; k < t; k++) cy += (q[k] / N) | 0; cy /= t;
+        if (inZ < t * 0.25 && cy < zy - 20) { for (let k = 0; k < t; k++) acc[q[k]] = 1; continue; } }
       if (donor) continue;   // (the donor already shows the face there)
       if (inZ < t * 0.25 || t > 30000) continue;   // mostly outside the mouth: clothes, a collar, not the mouth
       for (let k = 0; k < t; k++) { const p = q[k], i = p * 4; if (Zd[p] || R[i + 3] < 200 || T[i + 3] < 100) continue; if (isSkin(R, i) || lum(R, i) < 160) bh[p] = 1; } }
+    { let n = 0; for (let p = 0; p < N * N; p++) if (acc[p] && Zd[p]) n++;
+      if (n) { const am = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) if (acc[p] && Zd[p]) am[p] = 1;
+        const aw = soft(grow(am, 1), 0.8);
+        for (let k = 1; k < frames.length; k++) { const g = frames[k].getContext('2d', { willReadFrequently:true }), id2 = g.getImageData(0, 0, N, N), o = id2.data;
+          for (let p = 0; p < N * N; p++) { if (!(aw[p] > 0)) continue; const i = p * 4, w = aw[p]; for (let ch = 0; ch < 4; ch++) o[i + ch] = Math.round(o[i + ch] * (1 - w) + T0[i + ch] * w); }
+          g.putImageData(id2, 0, 0); } } }
     let any = false; for (let p = 0; p < N * N && !any; p++) if (fr[p] || bh[p]) any = true;
     if (any) {
       const frm = front && front !== 'stick' ? fillHoles(fr) : fr, fa = front ? soft(grow(frm, 1), 1) : null;
