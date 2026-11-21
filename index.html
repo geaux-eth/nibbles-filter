@@ -1612,22 +1612,24 @@ function pickMouth(f, now) {
   if ((VM.rendering || VM.previewing) && f.live && V.on && V.trusted) {
     // talking: inside a line, and the lips are moving with a sound (a horn or a car over the words doesn't stop them; the
     // same sound with the lips shut doesn't open them)
-    const talking = V.inLine && ((V.loudish && lip > 0.08) || lip > 0.2);
+    // (a voice now or a moment ago: lips moving with no voice (a head turning, a grin, chewing) or with only a laugh,
+    // applause or a noise under them don't open the mouth)
+    const talking = V.inLine && (V.voiced || now - V.lastVoice < 150) && lip > 0.08;
     if (!talking) return f.press > 0.55 ? 1 : round && f.round > 0.5 ? 6 : f.frown > 0.55 ? 9 : 0;
     if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;              // M B P
     if (f.lowIn > 0.45 && f.upIn < 0.35 && lip < 0.3) return 7;                   // F V
     if (lip < 0.1) return round ? 6 : 1;                                           // lips together between sounds
     if (round) return lip > 0.45 ? 5 : 6;                                          // O / OO
     if (f.wide > 0.55 && f.smile > 0.5) return 4;                                  // EE, teeth
-    if (lip > 0.62) return 3;                                                      // AH
+    if (lip > 0.62 && V.level > 0.7) return 3;                                     // AH: wide open and loud (else it reads as shouting)
     return V.sh && V.sh.back && lip < 0.4 ? 8 : 2;
   }
   if (V.on && V.trusted && V.voiced && now - V.lastVoice < 60) {
     // Everyday talking is mostly the small open mouth. The big shapes (wide AH, round O, the teeth grin) are
     // saved for loud, stressed sounds, like a cartoon animator would: flapping between extremes reads as shouting.
-    const sh = V.sh, loud = V.level > 0.42;
+    const sh = V.sh, loud = V.level > 0.7;   // (level: 0 at the talking threshold, 1 at the clip's loud end; ordinary words sit around 0.6)
     const open = Math.max(Math.min(lip, 0.7), sh ? sh.open : 0);   // the camera's lip gap tops out on ordinary words
-    const big = (loud && open > 0.4) || V.level > 0.75;
+    const big = (loud && open > 0.45) || V.level > 0.9;
     if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;              // lips pressed: M B P
     if (V.dip && f.open < 0.6) return 1;                                           // (a video) between two syllables: shut
     if (sh && sh.nasal) return f.open > 0.5 ? 8 : 1;                               // M (shut) unless the lips are clearly apart (N)
