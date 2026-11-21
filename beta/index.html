@@ -499,7 +499,7 @@ const codeURL = f => new URL(CODE + f + '?v=' + ART_V, document.baseURI).href;
 // (and when one won't load, the tracking device notes the address and what the server said, so a phone's failure can be told
 // apart: not found, a network drop, or the script itself)
 const codeImport = f => import(codeURL(f)).catch(async e => { try { const r = await fetch(codeURL(f), { cache:'no-store' }); trk('importFailed', [codeURL(f), r.status, (r.headers.get('content-type') || '').slice(0, 40), String(e && e.message || e).slice(0, 120)]); } catch (e2) { trk('importFailed', [codeURL(f), 'no answer', String(e2).slice(0, 80)]); } throw e; });   // (the beta copy keeps its own code in beta/; art and data are shared)
-const ART_V = '20261121-1500';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261121-1700';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1013,13 +1013,16 @@ const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|vi
 // A plain-mouthed Nibble of the same kind, skin and outfit (and accessory if one exists): what this Nibble looks like under
 // its own big mouth, for the talking mouths (kit.js). null when this Nibble's mouth is plain already or there's none.
 const PLAIN_MOUTH = ['Smile', 'Frown'];
+// (a frown too: every kit's reference smiles, and a frowning Nibble's own beak or muzzle line left a ghost next to the
+// talking mouth (GEAUX's sitcom cock). Its smiling twin stands in under the talking mouths; the rest face stays a frown.)
 async function donorFor(id, a, B) {
-  if (PLAIN_MOUTH.includes(a.Mouth) || !TRAITS) return null;
+  if ((PLAIN_MOUTH.includes(a.Mouth) && a.Mouth !== 'Frown') || !TRAITS) return null;
+  const want = a.Mouth === 'Frown' ? ['Smile'] : PLAIN_MOUTH;
   const m = await TRAITS; if (!m) return null;
   const col = n => m.k.indexOf(n), val = (row, n) => { const j = col(n); return row[j] >= 0 ? m.v[j][row[j]] : undefined; };
   let best = 0, bs = -1;
   m.t.forEach((row, k) => { const did = k + 1; if (did === id || val(row, 'Character') !== a.Character || val(row, 'Skin') !== a.Skin || val(row, 'Outfit') !== a.Outfit) return;
-    const mo = val(row, 'Mouth'); if (!PLAIN_MOUTH.includes(mo)) return;
+    const mo = val(row, 'Mouth'); if (!want.includes(mo)) return;
     const sc = (mo === 'Smile' ? 2 : 1) + (val(row, 'Accessory') === a.Accessory ? 4 : 0) + (val(row, 'Eyes') === a.Eyes ? 1 : 0); if (sc > bs) { bs = sc; best = did; } });
   if (!best) return null;
   try { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(best); await im.decode(); return B.cutOriginal(im, KIT_GAPS[a.Character]).canvas; } catch (e) { return null; }
@@ -3616,7 +3619,10 @@ function vmFbank(x) {
 // Lip sync from the sound (Rhubarb Lip Sync, in a worker: beta/lipsync-worker.js): the mouth shape for each moment of the
 // speech, as [start, end, shape]. Started as soon as the part is known, so it runs while the faces are read. Its shapes
 // (Preston Blair's nine) map onto each Nibble's nine mouths. Null when it can't run (the old way then: lips and loudness).
-const RHU_MOUTH = { X:0, A:1, B:4, C:2, D:3, E:5, F:6, G:7, H:8 };   // rest, M B P, teeth (most consonants, EE), open, wide AH, O, OO W, F V, L
+// (GEAUX's sitcom, 21 Nov: B, the commonest shape, as the teeth mouth made a wolf grimace through every word; and the OO
+// pucker is badly drawn on wolves, cocks and beavers. So B is the small open mouth, the teeth only on a long B (a held EE),
+// C the open mouth (the wide AH only when loud), and both rounded shapes the O.)
+const RHU_MOUTH = { X:0, A:1, B:2, C:2, D:3, E:5, F:5, G:7, H:8 };
 function vmLipSync(b) {
   const T = window.__T; if (T && T.cuesIn) return Promise.resolve(T.cuesIn); if (T && T.noLipSync) return Promise.resolve(null);
   return (async () => {
@@ -3635,7 +3641,10 @@ function vmLipSync(b) {
 // the lip-sync shape at t (seconds into the part): a mouth index, or null without lip sync
 function vmCueAt(t) { const C = VM.cues; if (!C || !C.length) return null; let lo = 0, hi = C.length - 1;
   while (lo < hi) { const m = (lo + hi + 1) >> 1; if (C[m][0] <= t) lo = m; else hi = m - 1; }
-  const c = C[lo]; return c[0] <= t && t < c[1] ? RHU_MOUTH[c[2]] ?? 0 : 0; }
+  const c = C[lo]; if (!(c[0] <= t && t < c[1])) return 0;
+  if (c[2] === 'B' && c[1] - c[0] >= 0.45) return 4;   // a held EE: teeth (B lasts 0.2–0.4 s often: at 0.2 s the teeth showed 41% of the time)
+  if (c[2] === 'C' && V.level > 0.7) return 3;   // a loud open vowel: the wide AH
+  return RHU_MOUTH[c[2]] ?? 0; }
 async function vmVoicePrints(b, tf, prog) {
   const net = await vmVoiceNetLoad(); if (!net || !tf) return null;
   const oc = new OfflineAudioContext(1, Math.max(1, Math.ceil(b.duration * 16000)), 16000), src = oc.createBufferSource(); src.buffer = b; src.connect(oc.destination); src.start();
