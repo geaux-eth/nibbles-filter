@@ -997,7 +997,8 @@ function collection(onPick, cur) {
 }
 // ---------- kits: any Nibble of a kind talks with its kind's kit (see kit.js). Kinds are added as their kits are checked.
 const KIT_REF = { Wolf:271, Bear:1680, Cock:310, Gecko:6965, Raccoon:1992, Ghost:757, Gnome:67, Beaver:929 };
-const KIT_GAPS = { Gecko:[[380, 705]] };   // where the background shows through inside a kind's outline (the gecko's tail and neck)
+const KIT_GAPS = { Gecko:[[380, 705]] };
+const RIG_KINDS = new Set(['Wolf']);   // kinds whose talking mouths are drawn fresh (rig.js) instead of copied from the kit   // where the background shows through inside a kind's outline (the gecko's tail and neck)
 const KIT_NO_BLINK = new Set();
 const KIT_SKIP = new Set();   // kind:skin pairs whose results aren't good enough yet
 const SPECIAL_SKINS = new Set(['Red', 'Wrestler', 'Plush', 'Seawoman', 'Werewolf', 'Mage', 'Alien', 'Human', 'Metal', 'Dissection', 'Slime', 'Dragon', 'Fire', 'Mummy']);
@@ -1057,8 +1058,10 @@ async function kitPrepare(id) {
       const [B, K] = await Promise.all([codeImport('builder.js'), codeImport('kit.js')]);
       const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
       const cut = B.cutOriginal(im, KIT_GAPS[kind]), { art } = await fetchNibble(ref), donor = await donorFor(id, a, B);
+      // drawn mouths for the kinds that have them (rig.js), when the face under the mouth is a plain one (its own, or its twin's)
+      let rig = null; if (RIG_KINDS.has(kind) && (a.Mouth === 'Smile' || donor) && !groupOf(a)) { const RG = await codeImport('rig.js'); if (RG.RIGS[kind]) rig = { def:RG.RIGS[kind], draw:RG.rigFrames }; }
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop),
-        donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : /match/i.test(String(a.Mouth || '')) ? 'match' : FRONT_MOUTH.test(String(a.Mouth || '')) });
+        donor, rig, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : /match/i.test(String(a.Mouth || '')) ? 'match' : FRONT_MOUTH.test(String(a.Mouth || '')) });
       res.face = FACE_AT[ref];
       res.traits = B.findTraits(cut.canvas, res, kind, cut.bg, { halo:/halo/i.test(String(a.Accessory || '')), fire:/fire/i.test(String(a.Eyes || '')), laser:/laser/i.test(String(a.Eyes || '')) });
       const exp = await B.exportFiles(res, cut.canvas), files = {};

@@ -8,10 +8,10 @@ cd "$(dirname "$0")/.."
 case "$1" in
   start)
     mkdir -p beta
-    cp kit.js fx.js builder.js lipsync-worker.js beta/ 2>/dev/null || cp kit.js fx.js builder.js beta/
+    cp kit.js fx.js builder.js lipsync-worker.js rig.js beta/ 2>/dev/null || cp kit.js fx.js builder.js beta/
     sed -e 's#<html lang="en">#<html lang="en" data-code="beta/">#' -e 's#<head>#<head>\n<base href="../">#' -e 's#<title>Nibble FILTER</title>#<title>Nibble FILTER (beta)</title>#' index.html > beta/index.html ;;
   promote)
-    cp beta/kit.js beta/fx.js beta/builder.js beta/lipsync-worker.js .
+    cp beta/kit.js beta/fx.js beta/builder.js beta/lipsync-worker.js beta/rig.js .
     sed -e 's#<html lang="en" data-code="beta/">#<html lang="en">#' -e '/^<base href="..\/">$/d' -e 's#<title>Nibble FILTER (beta)</title>#<title>Nibble FILTER</title>#' beta/index.html > index.html ;;
   *) echo "usage: tools/beta.sh start|promote"; exit 1 ;;
 esac
