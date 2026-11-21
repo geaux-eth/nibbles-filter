@@ -490,7 +490,7 @@ header .credit b{font-weight:400}
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
 const CODE = document.documentElement.dataset.code || '';   // (the beta copy keeps its own code in beta/; art and data are shared)
-const ART_V = '20261121-0100';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261121-1200';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1045,7 +1045,7 @@ async function kitPrepare(id) {
       const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
       const cut = B.cutOriginal(im), { art } = await fetchNibble(ref), donor = await donorFor(id, a, B);
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop),
-        donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : FRONT_MOUTH.test(String(a.Mouth || '')) });
+        donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : /match/i.test(String(a.Mouth || '')) ? 'match' : FRONT_MOUTH.test(String(a.Mouth || '')) });
       res.face = FACE_AT[ref];
       res.traits = B.findTraits(cut.canvas, res, kind, cut.bg, { halo:/halo/i.test(String(a.Accessory || '')), fire:/fire/i.test(String(a.Eyes || '')), laser:/laser/i.test(String(a.Eyes || '')) });
       const exp = await B.exportFiles(res, cut.canvas), files = {};
@@ -2205,8 +2205,12 @@ function drawNibble(t) {
   let size = (S.shape === 'Square' && W > H * 1.05 ? H * (typeof TX !== 'undefined' && TX.on ? 0.82 : 0.95) : Math.min(W, H)) * (S.fit || 1);   // (no text: no room needed above its head)
   const f = S.face, live = S.tracking && f.seen;
   const fp = S.forcePose;   // (tests)
-  const roll = live ? f.roll : fp ? fp.roll : Math.sin(t/1400) * 0.03;
-  const yaw = live ? f.yaw : fp ? fp.yaw || 0 : 0, pitch = live ? f.pitch : fp ? fp.pitch || 0 : 0;
+  let roll = live ? f.roll : fp ? fp.roll : Math.sin(t/1400) * 0.03;
+  let yaw = live ? f.yaw : fp ? fp.yaw || 0 : 0, pitch = live ? f.pitch : fp ? fp.pitch || 0 : 0;
+  // (a made video: a person in a clip turns and tilts all the time, and every bit of it rocked the Nibble from its feet
+  // like on a boat: only a third of it, and that eased in slowly)
+  if (live && (VM.rendering || VM.previewing)) { const k = 0.12; f.rS = (f.rS ?? roll) + (roll - (f.rS ?? roll)) * k; f.yS = (f.yS ?? yaw) + (yaw - (f.yS ?? yaw)) * k; f.pS = (f.pS ?? pitch) + (pitch - (f.pS ?? pitch)) * k;
+    roll = f.rS * 0.33; yaw = f.yS * 0.33; pitch = f.pS * 0.33; }
   const breathe = Math.sin(t/650) * 0.006;
   if (live) {
     readVoice(t);
@@ -3109,7 +3113,7 @@ const vmProg = p => { const e = $('vmProg'); if (e) e.style.width = Math.max(0, 
 const vmMsg = s => { const e = $('vmMsg'); if (e) e.textContent = s; };
 async function vmAnalyse(file, grab, want) {
   Object.assign(VM, { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, soundFrom:null, lmiRetried:false, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null, found:[], like:{} });
-  vmShow('NIBBLING…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p><p class="note">Keep this screen open: your phone does all the work (nothing is uploaded), and it pauses while you're in another app.</p>`);
+  vmShow('NIBBLING…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`);
   let v = null; VM.busy = true; vmKeepAwake(true); VM.times = {}; const T00 = performance.now(), mark = k => { VM.times[k] = Math.round((performance.now() - T00) / 100) / 10; };
   try {
     if (VM.url) URL.revokeObjectURL(VM.url);

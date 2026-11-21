@@ -21,6 +21,13 @@ const kitFor = a => groupOf(a) ? groupOf(a).ref : (!SPECIAL_SKINS.has(a.Skin) &&
 const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || '')) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || '')));
 
 const traits = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/traits.json'), 'utf8'));
+// a plain-mouthed twin (same kind, skin and outfit; the accessory too if one has it), as the app picks one (donorFor)
+const PLAIN = ['Smile', 'Frown'];
+const donorOf = (id, a) => { if (PLAIN.includes(a.Mouth)) return null; let best = 0, bs = -1;
+  for (const [k, t] of Object.entries(traits)) { const b = t.a; if (+k === id || b.Character !== a.Character || b.Skin !== a.Skin || b.Outfit !== a.Outfit || !PLAIN.includes(b.Mouth)) continue;
+    if (PICS && !fs.existsSync(path.join(PICS, `${t.img || k}.png`))) continue;
+    const sc = (b.Mouth === 'Smile' ? 2 : 1) + (b.Accessory === a.Accessory ? 4 : 0) + (b.Eyes === a.Eyes ? 1 : 0); if (sc > bs) { bs = sc; best = +k; } }
+  return best || null; };
 const jobs = Object.entries(traits).map(([id, t]) => ({ id:+id, a:t.a, ref:process.env.REF || kitFor(t.a), img:t.img || +id })).filter(j => j.ref)
   .filter(j => !process.env.IDS || process.env.IDS.split(',').includes(String(j.id)))
   .filter((j, n) => n % +SHARDS === +SHARD);
@@ -49,7 +56,7 @@ for (const j of jobs) {
   let r;
   for (let tries = 0; tries < 3; tries++) {
     try {
-      r = await within(120000, page.evaluate(async ({ pic, ref, blink, strips }) => {
+      r = await within(120000, page.evaluate(async ({ pic, ref, blink, strips, front, dpic }) => {
         const B = await import('/builder.js'), K = await import('/kit.js');
         const li = async s => { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = s; await Promise.race([im.decode(), new Promise((_, rej) => setTimeout(() => rej(new Error('picture timed out')), 30000))]); return im; };
         if (!window.__refs[ref]) window.__refs[ref] = { base:await li(`/faces/${ref}/base.webp`), mouths:await Promise.all([0,1,2,3,4,5,6,7,8,9].map(k => li(`/faces/${ref}/m${k}.webp`))), eyes:await Promise.all([0,1,2,3,4].map(k => li(`/faces/${ref}/e${k}.webp`).catch(() => null))) };
@@ -65,7 +72,8 @@ for (const j of jobs) {
           for (const e of [R.eyes[3], R.eyes[4]]) if (e) { const D = dat0(e); for (let p = 0; p < N0 * N0; p++) { const i = p * 4; if (D[i + 3] > 200 && D[i] + D[i + 1] + D[i + 2] < 300) drawn[b0(D[i], D[i + 1], D[i + 2])]++; } }
           R.newCols = new Uint8Array(32768); for (let k = 0; k < 32768; k++) if (drawn[k] >= 20 && !inBase[k]) { const a = k >> 10, b = (k >> 5) & 31, c = k & 31;
             for (let x = Math.max(0, a - 1); x <= Math.min(31, a + 1); x++) for (let y = Math.max(0, b - 1); y <= Math.min(31, b + 1); y++) for (let z = Math.max(0, c - 1); z <= Math.min(31, c + 1); z++) R.newCols[(x << 10) | (y << 5) | z] = 1; } }
-        const res = K.fromKit(cut.canvas, { base:R.base, mouths:R.mouths, eyes:R.eyes }, { blink });
+        const donor = dpic ? B.cutOriginal(await li(dpic)).canvas : null;
+        const res = K.fromKit(cut.canvas, { base:R.base, mouths:R.mouths, eyes:R.eyes }, { blink, front, donor });
         const N = 1000, dat = c => { const x = document.createElement('canvas'); x.width = x.height = N; const g = x.getContext('2d', { willReadFrequently:true }); g.drawImage(c, 0, 0, N, N); return g.getImageData(0, 0, N, N).data; };
         const T = dat(cut.canvas), bin = (r, g, b) => ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
         // this Nibble's own colours (any shade near one it has)
@@ -106,11 +114,12 @@ for (const j of jobs) {
           g.drawImage(L, sx, sy, S, S, (list.length + 1) * W, 0, W, W);
           strip = c.toDataURL('image/webp', 0.8);
         }
-        return { worst, worstK:worstK && worstK.k, strip };
-      }, { pic, ref:j.ref, blink:blinks(j.a), strips:!!process.env.STRIPS }));
+        return { worst, worstK:worstK && worstK.k, strip, dbg:{ donor:!!donor } };
+      }, { pic, ref:j.ref, blink:blinks(j.a), dpic:(d => d ? (PICS ? `${base}/pic/${d}.png` : `https://d24r2edyfve7yo.cloudfront.net/nibbles/images/${d}.png`) : null)(process.env.NODONOR ? null : donorOf(j.id, j.a)), strips:!!process.env.STRIPS, front:/mustache/i.test(String(j.a.Mouth || '')) ? 'mustache' : /straw/i.test(String(j.a.Mouth || '')) ? 'stick' : /match/i.test(String(j.a.Mouth || '')) ? 'match' : /mustache|straw|match|bubbles/i.test(String(j.a.Mouth || '')) }));
       break;
     } catch (e) { r = { error:String(e).slice(0, 200) }; if (/timed out/.test(r.error)) await openPage(); }
   }
+  if (process.env.DBG) console.log(j.id, JSON.stringify(r.dbg));
   report.push({ id:j.id, kind:j.a.Character, skin:j.a.Skin, ref:j.ref, leak:r.worst ?? null, frame:r.worstK ?? null, error:r.error });
   if (r.strip) fs.writeFileSync(path.join(OUT, 'flags', `${j.id}.webp`), Buffer.from(r.strip.split(',')[1], 'base64'));
   if (++n % 50 === 0) { console.log(`${n}/${jobs.length}  ${((Date.now() - t0) / n / 1000).toFixed(2)} s each`); fs.writeFileSync(path.join(OUT, `report-${SHARD}.json`), JSON.stringify(report)); }
