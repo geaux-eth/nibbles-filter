@@ -49,7 +49,7 @@ for (const j of jobs) {
   let r;
   for (let tries = 0; tries < 3; tries++) {
     try {
-      r = await within(120000, page.evaluate(async ({ pic, ref, blink }) => {
+      r = await within(120000, page.evaluate(async ({ pic, ref, blink, strips }) => {
         const B = await import('/builder.js'), K = await import('/kit.js');
         const li = async s => { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = s; await Promise.race([im.decode(), new Promise((_, rej) => setTimeout(() => rej(new Error('picture timed out')), 30000))]); return im; };
         if (!window.__refs[ref]) window.__refs[ref] = { base:await li(`/faces/${ref}/base.webp`), mouths:await Promise.all([0,1,2,3,4,5,6,7,8,9].map(k => li(`/faces/${ref}/m${k}.webp`))), eyes:await Promise.all([0,1,2,3,4].map(k => li(`/faces/${ref}/e${k}.webp`).catch(() => null))) };
@@ -92,22 +92,22 @@ for (const j of jobs) {
           mark0 = marks.length;
         }
         let strip = null;
-        if (worst > 0) {   // the rest face and the frames, cropped to the face, leaks in magenta
+        if (worst > 0 || strips) {   // the rest face and the frames, cropped to the face, leaks in magenta
           const box = res.mouthBox && res.mouthBox[2] > res.mouthBox[0] ? res.mouthBox : [300, 400, 700, 700];
           const cx = (box[0] + box[2]) / 2, cy = (box[1] + box[3]) / 2, S = 520, sx = Math.max(0, Math.min(N - S, cx - S / 2)), sy = Math.max(0, Math.min(N - S, cy - S / 2 - 60));
-          const W = 160, list = [res.frames[0], ...res.frames.slice(1)], c = document.createElement('canvas'); c.width = W * (list.length + 2); c.height = W;
+          const W = strips ? 300 : 160, list = [res.frames[0], ...res.frames.slice(1)], c = document.createElement('canvas'); c.width = W * (list.length + 2); c.height = W;
           const g = c.getContext('2d'); g.fillStyle = cut.bg; g.fillRect(0, 0, c.width, W);
           list.forEach((f, k) => g.drawImage(f, sx, sy, S, S, k * W, 0, W, W));
           if (res.eyes[4]) { g.drawImage(res.frames[0], sx, sy, S, S, list.length * W, 0, W, W); g.drawImage(res.eyes[4], sx, sy, S, S, list.length * W, 0, W, W); }
           // the worst frame with its leaks in magenta
           const L = document.createElement('canvas'); L.width = L.height = N; const lg = L.getContext('2d'); lg.fillStyle = cut.bg; lg.fillRect(0, 0, N, N);
-          if (worstK.over) lg.drawImage(res.frames[0], 0, 0, N, N); lg.drawImage(worstK.c, 0, 0, N, N);
+          if (worstK && worstK.over) lg.drawImage(res.frames[0], 0, 0, N, N); if (worstK) lg.drawImage(worstK.c, 0, 0, N, N); else lg.drawImage(res.frames[3], 0, 0, N, N);
           const id = lg.getImageData(0, 0, N, N); for (const p of worstMarks) { id.data[p * 4] = 255; id.data[p * 4 + 1] = 0; id.data[p * 4 + 2] = 255; id.data[p * 4 + 3] = 255; } lg.putImageData(id, 0, 0);
           g.drawImage(L, sx, sy, S, S, (list.length + 1) * W, 0, W, W);
           strip = c.toDataURL('image/webp', 0.8);
         }
         return { worst, worstK:worstK && worstK.k, strip };
-      }, { pic, ref:j.ref, blink:blinks(j.a) }));
+      }, { pic, ref:j.ref, blink:blinks(j.a), strips:!!process.env.STRIPS }));
       break;
     } catch (e) { r = { error:String(e).slice(0, 200) }; if (/timed out/.test(r.error)) await openPage(); }
   }
