@@ -58,7 +58,9 @@ const CLIPS = {
     ['George\'s close-ups are his (8–11.9, 28–30, 43–45 s)', G >= 0 && G !== K && at(29) === G && at(44) === G],
     ['Jerry/Elaine two-shots go to Jerry or Elaine', [15, 19.5, 22].every(t => at(t) >= 0 && at(t) !== K && at(t) !== G)],
     ['the laugh at 6.6–8.2 s is nobody\'s line', at(6.8) === -1 && at(7.6) === -1],
-    ['the laugh at 6.6–8.2 s doesn\'t move a mouth, even if a line is stretched over it', mv(r, 6.6, 8.2) <= 0.15]]; } },
+    ['the laugh at 6.6–8.2 s doesn\'t move a mouth, even if a line is stretched over it', mv(r, 6.6, 8.2) <= 0.15],
+    ['GEAUX\'s own edit (21 Nov): Kramer 4, 12.5, 25, 38.3 s (and 35.2 s no one else); George 10, 30, 37, 44 s; Elaine 16, 41 s; Jerry 21.5 s',
+      (() => { const E = at(16), J = at(21.5); return [4, 12.5, 25, 38.3].every(t => at(t) === K) && [K, -1].includes(at(35.2)) && [10, 30, 37, 44].every(t => at(t) === G) && at(41) === E && new Set([K, G, E, J]).size === 4 && ![E, J].includes(-1); })()]]; } },
   panel90:{ file:'n1/panel90.webm', checks:r => { const at = t => { const l = r.lines.find(l => l[0] <= t && t < l[1]); return l ? l[2] : -1; };
     const H = at(5), Ho = at(15), Gl = at(18.5), W = at(26), D = at(31);
     return [

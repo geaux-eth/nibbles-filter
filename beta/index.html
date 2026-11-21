@@ -2912,18 +2912,26 @@ async function vmSoundOf(b) {
     const sr = b.sampleRate, hop = Math.round(sr / 50), n = Math.floor(b.length / hop), out = new Float32Array(n);
     const chs = Array.from({ length:b.numberOfChannels }, (_, i) => b.getChannelData(i));
     for (let k = 0; k < n; k++) { let e = 0; for (let i = k * hop; i < (k + 1) * hop; i++) { let x = 0; for (const c of chs) x += c[i]; x /= chs.length; e += x * x; } out[k] = Math.sqrt(e / hop); }
-    // the voice's pitch every 50th of a second (0 = no clear pitch), to tell voices apart when no face shows who's talking
-    const d = Math.max(1, Math.round(sr / 8000)), fs = sr / d, mono = new Float32Array(Math.floor(b.length / d));
-    for (let i = 0; i < mono.length; i++) { let x = 0; for (const c of chs) x += c[i * d]; mono[i] = x / chs.length; }
-    const pitch = new Float32Array(n), win = Math.round(fs * 0.04), lo = Math.round(fs / 450), hi = Math.round(fs / 75), step = fs / 50;
-    for (let k = 0; k < n; k++) {
-      const s0 = Math.round(k * step); if (s0 + win + hi >= mono.length || out[k] < 0.01) continue;
-      let e0 = 0; for (let i = 0; i < win; i++) e0 += mono[s0 + i] * mono[s0 + i]; if (!e0) continue;
-      let best = 0, bl = 0;
-      for (let l = lo; l <= hi; l++) { let c = 0, e1 = 0; for (let i = 0; i < win; i++) { c += mono[s0 + i] * mono[s0 + i + l]; e1 += mono[s0 + i + l] * mono[s0 + i + l]; } const r = c / Math.sqrt(e0 * e1 + 1e-12); if (r > best) { best = r; bl = l; } }
-      if (best > 0.6) pitch[k] = fs / bl;
-    }
-    out.pitch = pitch;
+    // the voice's pitch every 50th of a second (0 = no clear pitch), to tell voices apart when no face shows who's talking.
+    // Two readings: the strict one (on the plain sound: a laugh track or applause has almost none, so it finds them), and
+    // a voice one, low-passed at 1 kHz first (a voice's pitch lives down there; a laugh track, hiss or sibilants folded into
+    // the band hid a raspy, excited voice over a laugh track most of the time): that one says where someone is talking
+    const d = Math.max(1, Math.round(sr / 8000)), fs = sr / d, N8 = Math.floor(b.length / d), mono = new Float32Array(N8), mlp = new Float32Array(N8);
+    for (let i = 0; i < N8; i++) { let x = 0; for (const c of chs) x += c[i * d]; mono[i] = x / chs.length; }
+    { const lp = new Float32Array(b.length); for (let i = 0; i < b.length; i++) { let x = 0; for (const c of chs) x += c[i]; lp[i] = x / chs.length; }
+      for (const Q of [0.5412, 1.3066]) { const w = 2 * Math.PI * 1000 / sr, al = Math.sin(w) / (2 * Q), cw = Math.cos(w), a0 = 1 + al, b0 = (1 - cw) / 2 / a0, b1 = (1 - cw) / a0, a1 = -2 * cw / a0, a2 = (1 - al) / a0;
+        let x1 = 0, x2 = 0, y1 = 0, y2 = 0; for (let i = 0; i < lp.length; i++) { const x0 = lp[i], y = b0 * x0 + b1 * x1 + b0 * x2 - a1 * y1 - a2 * y2; lp[i] = y; x2 = x1; x1 = x0; y2 = y1; y1 = y; } }
+      for (let i = 0; i < N8; i++) mlp[i] = lp[i * d]; }
+    const win = Math.round(fs * 0.04), lo = Math.round(fs / 450), hi = Math.round(fs / 75), step = fs / 50;
+    const track = (m, cut) => { const P = new Float32Array(n);
+      for (let k = 0; k < n; k++) {
+        const s0 = Math.round(k * step); if (s0 + win + hi >= m.length || out[k] < 0.01) continue;
+        let e0 = 0; for (let i = 0; i < win; i++) e0 += m[s0 + i] * m[s0 + i]; if (!e0) continue;
+        let best = 0, bl = 0;
+        for (let l = lo; l <= hi; l++) { let c = 0, e1 = 0; for (let i = 0; i < win; i++) { c += m[s0 + i] * m[s0 + i + l]; e1 += m[s0 + i + l] * m[s0 + i + l]; } const r = c / Math.sqrt(e0 * e1 + 1e-12); if (r > best) { best = r; bl = l; } }
+        if (best > cut) P[k] = fs / bl;
+      } return P; };
+    const pitch = track(mono, 0.6); out.pitch = pitch; out.vpitch = track(mlp, 0.55);
     // the voice track for the Nibble's mouth: the whole clip is known before the video is made, so the mouth reads the
     // sound itself (not a live microphone-style listener that lags behind and has to guess how loud "loud" is)
     const full = new Float32Array(b.length); for (const c of chs) for (let i = 0; i < b.length; i++) full[i] += c[i] / chs.length;
@@ -3566,7 +3574,7 @@ function vmVoiceOf(t0, t1) {
 }
 // how much of the second around t has a voice's pitch (laughter, applause and music mostly don't: their windows would
 // make a voice sound like someone else)
-function vmVoiced(t) { const pf = VM.env && VM.env.pitch, nv = VM.env && VM.env.nov; if (!pf) return 1; let v = 0, m = 0;
+function vmVoiced(t) { const pf = VM.env && (VM.env.vpitch || VM.env.pitch), nv = VM.env && VM.env.nov; if (!pf) return 1; let v = 0, m = 0;
   for (let j = Math.max(0, Math.floor((t - 0.5) * 50)); j < Math.min(pf.length, Math.floor((t + 0.5) * 50)); j++) { m++; if (pf[j] > 0 && !(nv && nv[j])) v++; } return m ? v / m : 0; }
 const vmVoiceD = (a, b) => { let s = 0; for (let j = 0; j < a.length; j++) s += a[j] * b[j]; return 1 - s; };
 function vmVoices(lines, raw, dt) {
@@ -3628,6 +3636,46 @@ function vmVoices(lines, raw, dt) {
       if (to < 0) { const o = P.findIndex(q => q.off); if (o >= 0) to = o; else if (real < 3) { P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 }); to = P.length - 1; } }
       if (to < 0) continue;
       D.evict.push([+lose.l.t0.toFixed(2), +lose.l.t1.toFixed(2), i, to, +d.toFixed(2), +fa.toFixed(2), +fb.toFixed(2)]); lose.l.who = to; }
+  }
+  for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 2.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
+  // 3. the voice says who: once two or more people each have a voice of their own (from the seconds their lips are seen
+  // saying it), every second of talking is compared with them. A second or more clearly in someone else's voice inside a
+  // line (one in a two-shot whose listener's lips seemed to move, one talking off screen over someone else's face) is theirs.
+  // Voices of different people are far apart (0.8 and more) and one person's own close together (0.2): only a clear
+  // match counts. (Not in a song)
+  const known = refs.map((r, i) => r && !P[i].off ? i : -1).filter(i => i >= 0);
+  if (!song && known.length >= 2) {
+    // (each voice sharpened first: the seconds of each one's lines that already sound like them, averaged again, twice;
+    // the lips alone gave a blurred voice, with listeners' and the laugh track's seconds mixed in)
+    const R = known.map(i => refs[i]);
+    for (let it = 0; it < 2; it++) known.forEach((i, j) => { const m = new Float32Array(R[j].length); let c = 0;
+      for (let k = 0; k < V.t.length; k++) { const t = V.t[k]; if (V.rms[k] < V.gate || vmVoiced(t) < 0.4) continue; const l = lines.find(x => x.t0 <= t && t < x.t1); if (!l || l.who !== i) continue;
+        const ds = R.map(r => vmVoiceD(V.e[k], r)); if (ds[j] > 0.6 || ds.some((d, q) => q !== j && d < ds[j] + 0.1)) continue; for (let q = 0; q < m.length; q++) m[q] += V.e[k][q]; c++; }
+      if (c >= 4) { let nn = 0; for (const q of m) nn += q * q; nn = Math.sqrt(nn) || 1; for (let q = 0; q < m.length; q++) m[q] /= nn; R[j] = m; } });
+    known.forEach((i, j) => { refs[i] = R[j]; });
+    const lab = new Int8Array(raw.length).fill(-1);
+    for (let k = 0; k < V.t.length; k++) { const t = V.t[k]; if (V.rms[k] < V.gate || vmVoiced(t) < 0.2) continue;
+      const ds = known.map(i => vmVoiceD(V.e[k], refs[i])), o = ds.map((d, j) => [d, j]).sort((a, b) => a[0] - b[0]);
+      if (o[0][0] > 0.8 || o[1][0] - o[0][0] < 0.12) continue;   // (a shouted line over a laugh track can sit 0.7 from its own voice, but 0.85+ from the others)
+      for (let j = Math.max(0, Math.round((t - 0.125) / dt)); j < Math.min(raw.length, Math.round((t + 0.125) / dt)); j++) if (raw[j].speech) lab[j] = known[o[0][1]]; }
+    D.who = [];
+    for (let i = 0; i < lines.length; i++) { const l = lines[i], a = Math.round(l.t0 / dt), z = Math.min(raw.length, Math.round(l.t1 / dt));
+      // runs of one other voice (gaps of unknown up to 0.5 s inside), 1 s or more of it heard
+      let best = null;
+      for (let k = a; k < z; k++) { const w = lab[k]; if (w < 0 || w === l.who) continue; let e = k, n = 0, gap = 0;
+        for (let j = k; j < z; j++) { if (lab[j] === w) { e = j; n++; gap = 0; } else if (lab[j] >= 0 || ++gap * dt > 0.5) break; }
+        if (n * dt >= 0.75 && (!best || n > best.n)) best = { w, s:k, e, n }; k = e; }
+      if (!best) continue;
+      const s0 = best.s * dt, s1 = (best.e + 1) * dt;
+      // (the stretch as a whole, heard together: clearly theirs, and clearly not the line's own speaker; where the line's own
+      // speaker has no voice to compare with, only a close match)
+      const v = (() => { const m = new Float32Array(V.e[0].length); let c = 0; for (let k = 0; k < V.t.length; k++) { const t = V.t[k]; if (t < s0 || t > s1 || V.rms[k] < V.gate || vmVoiced(t) < 0.2) continue; for (let q = 0; q < m.length; q++) m[q] += V.e[k][q]; c++; }
+        if (c < 2) return null; let nn = 0; for (const q of m) nn += q * q; nn = Math.sqrt(nn) || 1; for (let q = 0; q < m.length; q++) m[q] /= nn; return m; })();
+      const dT = v ? vmVoiceD(v, refs[best.w]) : 9, dO = v && refs[l.who] ? vmVoiceD(v, refs[l.who]) : null;
+      D.who.push([+s0.toFixed(2), +s1.toFixed(2), l.who, best.w, +dT.toFixed(2), dO == null ? null : +dO.toFixed(2)]);
+      if (dO == null ? dT > 0.6 : (dT > 0.7 || dO - dT < 0.2)) { for (let k = best.s; k <= best.e; k++) if (lab[k] === best.w) lab[k] = -1; i--; continue; }
+      const parts = []; if (s0 - l.t0 >= 0.4) parts.push({ ...l, t1:s0 }); parts.push({ ...l, t0:parts.length ? s0 : l.t0, t1:l.t1 - s1 >= 0.4 ? s1 : l.t1, who:best.w }); if (l.t1 - s1 >= 0.4) parts.push({ ...l, t0:s1 });
+      lines.splice(i, 1, ...parts); i--; }
   }
   for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 2.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
 }
