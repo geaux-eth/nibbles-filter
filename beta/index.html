@@ -1610,13 +1610,17 @@ function pickMouth(f, now) {
   // Making a video with the person's face clearly in view: their own lips say how open the mouth is and which shape,
   // frame by frame, like rotoscoping; the sound only says whether they're talking at all (traffic, a horn or music under
   // them doesn't hold the mouth open, and words get their real open-shut rhythm)
-  if ((VM.rendering || VM.previewing) && f.live && V.on && V.trusted) {
+  // (the clip's sound is known before it plays: the first frames of a made video, before the sound is hooked up, aren't
+  // left to the lips alone — a made video started on a wide AH with nobody talking)
+  const vidKnown = (VM.rendering || VM.previewing) && VM.env && VM.env.vt;
+  if ((VM.rendering || VM.previewing) && f.live && ((V.on && V.trusted) || vidKnown)) {
     // talking: inside a line, and the lips are moving with a sound (a horn or a car over the words doesn't stop them; the
     // same sound with the lips shut doesn't open them)
     // (a voice now or a moment ago: lips moving with no voice (a head turning, a grin, chewing) or with only a laugh,
     // applause or a noise under them don't open the mouth)
-    const talking = V.inLine && (V.voiced || now - V.lastVoice < 150) && lip > 0.08;
-    if (!talking) return f.press > 0.55 ? 1 : round && f.round > 0.5 ? 6 : f.frown > 0.55 ? 9 : 0;
+    const talking = V.on && V.trusted && V.inLine && (V.voiced || now - V.lastVoice < 150) && lip > 0.08;
+    // not talking: shut (pressed or a frown show as such; a pucker read with no voice is a resting face or a laugh, not an OO)
+    if (!talking) return f.press > 0.55 ? 1 : f.frown > 0.55 ? 9 : 0;
     if (f.press > 0.55 || (f.lowIn > 0.4 && f.upIn > 0.4)) return 1;              // M B P
     if (f.lowIn > 0.45 && f.upIn < 0.35 && lip < 0.3) return 7;                   // F V
     if (lip < 0.1) return round ? 6 : 1;                                           // lips together between sounds
