@@ -20,6 +20,11 @@ inbox = (xx >= x0) & (xx < x1) & (yy >= y0) & (yy < y1)
 diff = (np.abs(al - base).sum(-1) > 90) & inbox
 zone = ndimage.binary_fill_holes(ndimage.binary_closing(ndimage.binary_opening(diff, iterations=2), iterations=10))
 zone = ndimage.binary_dilation(zone, iterations=6) & inbox & (A > 200)
+# (never the nose, the muzzle or anything below the eyes: a Nibble's own nose colour stays its own)
+grey = (np.abs(base.astype(int) - base[..., :1].astype(int)).max(-1) < 12) & (base.sum(-1) > 60) & (base.sum(-1) < 200)   # the nose's dark grey fill
+lg, ng = ndimage.label(grey & inbox); sz = ndimage.sum(grey & inbox, lg, range(1, ng + 1))
+nose = ndimage.binary_dilation(ndimage.binary_fill_holes(lg == np.argmax(sz) + 1), iterations=10) if ng else np.zeros_like(zone)
+zone &= ~nose
 a = ndimage.gaussian_filter(zone.astype(np.float32), 2)
 a = np.where(ndimage.binary_erosion(zone, iterations=3), 1.0, a)
 out = np.zeros((N, N, 4), np.uint8); out[..., :3] = np.clip(al, 0, 255).astype(np.uint8); out[..., 3] = (a * 255).astype(np.uint8)
