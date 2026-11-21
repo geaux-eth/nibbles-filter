@@ -482,6 +482,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
             for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && part[j] && !lb2[j]) { lb2[j] = n2; q2[t2++] = j; } }
           if (Math.hypot(x1 - x0, y1 - y0) > 60) for (let k = 0; k < t2; k++) fr[q2[k]] = 1; }
         continue; }
+      if (front === 'match' && donor) continue;
       if (front) { for (let k = 0; k < t; k++) fr[q[k]] = 1; continue; }
       if (donor) continue;   // (the donor already shows the face there)
       if (inZ < t * 0.25 || t > 30000) continue;   // mostly outside the mouth: clothes, a collar, not the mouth
@@ -498,6 +499,27 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
         g.putImageData(id2, 0, 0); }
       for (let p = 0; p < N * N; p++) if (frm[p] || bh[p]) { const x = p % N, y = (p / N) | 0; if (x < mb[0]) mb[0] = x; if (y < mb[1]) mb[1] = y; if (x > mb[2]) mb[2] = x; if (y > mb[3]) mb[3] = y; }
     } }
+  // A match held in the mouth: the whole match (its stick and red head), found by comparing this Nibble with its plain-mouthed
+  // twin (the kit reference has the same muzzle colour as the stick, so only the red head stood out and the stick was lost),
+  // drawn back whole over every talking mouth, where it is in the picture
+  if (front === 'match' && donor) {
+    const Dn = data(donor), zone = grow(Zd, 160), dm = new Uint8Array(N * N);
+    for (let p = 0; p < N * N; p++) { if (!zone[p]) continue; const i = p * 4; if (T0[i + 3] > 128 && (Dn[i + 3] < 100 || dist(T0, i, Dn, i) > 70)) dm[p] = 1; }
+    const lab = new Int32Array(N * N), q = new Int32Array(N * N), fr = new Uint8Array(N * N); let id = 0;
+    for (let s0 = 0; s0 < N * N; s0++) { if (!dm[s0] || lab[s0]) continue; id++; let h = 0, t = 0, red = 0; q[t++] = s0; lab[s0] = id;
+      while (h < t) { const p = q[h++], x = p % N, i = p * 4; if (T0[i] > 160 && T0[i + 1] < 110 && T0[i + 2] < 110) red++;
+        for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && dm[j] && !lab[j]) { lab[j] = id; q[t++] = j; } }
+      if (red >= 25 && t < 40000) for (let k = 0; k < t; k++) fr[q[k]] = 1; }
+    // (the stick runs from the red head into the lips: the part of the component that is the mouth line itself is left
+    // to the talking mouth: only what's well outside the lips' line, and the stick's own outline, comes back)
+    const body = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) if (fr[p] && lum(T0, p * 4) >= 150) body[p] = 1;
+    const nearB = grow(body, 6); for (let p = 0; p < N * N; p++) if (fr[p] && !body[p] && !nearB[p]) fr[p] = 0;
+    const fa = soft(grow(fr, 1), 1);
+    for (let k = 1; k < frames.length; k++) { const g = frames[k].getContext('2d', { willReadFrequently:true }), id2 = g.getImageData(0, 0, N, N), o = id2.data;
+      for (let p = 0; p < N * N; p++) { if (!(fa[p] > 0)) continue; const i = p * 4, w = fa[p]; for (let ch = 0; ch < 4; ch++) o[i + ch] = Math.round(o[i + ch] * (1 - w) + T0[i + ch] * w); }
+      g.putImageData(id2, 0, 0); }
+    for (let p = 0; p < N * N; p++) if (fr[p]) { const x = p % N, y = (p / N) | 0; if (x < mb[0]) mb[0] = x; if (y < mb[1]) mb[1] = y; if (x > mb[2]) mb[2] = x; if (y > mb[3]) mb[3] = y; }
+  }
   // the talking frames show the donor's pixels wherever this Nibble's big mouth was: all of that is part of the mouth box
   if (donor && donor.box && donor.box[2] >= donor.box[0]) { const b = donor.box; mb = [Math.min(mb[0], b[0]), Math.min(mb[1], b[1]), Math.max(mb[2], b[2]), Math.max(mb[3], b[3])]; }
   if (mb[2] < mb[0]) mb = [0, 0, 0, 0];
