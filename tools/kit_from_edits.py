@@ -8,9 +8,9 @@ import sys, numpy as np
 from PIL import Image
 from scipy import ndimage
 
-BOX = { '310':(330, 470, 880, 900), '929':(420, 500, 800, 830) }
+BOX = { '310':(330, 470, 880, 900), '929':(420, 500, 800, 830), '271':(400, 540, 920, 920) }
 # kits with a mouth (not a beak): the area always taken (the old mouth line and teeth), as an ellipse (cx, cy, rx, ry)
-MOUTH_AREA = { '929':(600, 620, 165, 80) }
+MOUTH_AREA = { '929':(600, 620, 165, 80), '271':(630, 690, 230, 125) }
 ref, out_dir, pairs = sys.argv[1], sys.argv[2], [a.split('=', 1) for a in sys.argv[3:]]
 base = np.array(Image.open(f'faces/{ref}/base.webp').convert('RGBA')).astype(np.float32)
 N = base.shape[0]; x0, y0, x1, y1 = BOX[ref]
