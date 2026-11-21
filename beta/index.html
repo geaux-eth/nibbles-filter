@@ -4045,7 +4045,7 @@ const HAT = /cap|beanie|hat|toque|bonnet|crown|hood|nightcap|nighcap|helmet/i, G
 const nibKind = id => { const M = TRAITS_M, row = M && M.t[id - 1]; if (!row) return {};
   const v = n => { const c = M.k.indexOf(n); return c >= 0 && row[c] >= 0 ? String(M.v[c][row[c]]) : ''; }, eyes = v('Eyes');
   return { robot:eyes === 'Robot' || v('Skin') === 'Metal', girl:v('Character') === 'Beaver' || /Eyelashes/.test(eyes) }; };
-const fitsPerson = (id, p) => { const f = p && p.feat && p.feat.fem; if (f == null) return true; const g = !!nibKind(id).girl; return f > 0.65 ? g : f < 0.35 ? !g : true; };
+const fitsPerson = (id, p) => { const f = p && p.feat && p.feat.fem; if (f == null) return true; const g = !!nibKind(id).girl; return f > 0.55 ? g : f < 0.35 ? !g : true; };   // (the sitcom, read fresh: Elaine 0.63, the three men 0.13–0.19)
 async function vmLookalikes(all, prog) {
   VM.like = all ? {} : (VM.like || {});
   let M; try { M = await traitIndex(); } catch (e) { return; } if (!M) return;
