@@ -490,7 +490,7 @@ header .credit b{font-weight:400}
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
 const CODE = document.documentElement.dataset.code || '';   // (the beta copy keeps its own code in beta/; art and data are shared)
-const ART_V = '20261121-0000';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261121-0040';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -2665,8 +2665,9 @@ const TRACKS = [
   ['m_song', 'Fun Starts Here', 24.87, 98.41], ['m_bd_woods', 'Forest Romp', 11.47, 100.84], ['m_bd_mountain', 'Mountain Music', 21.48, 99.47],
   ['m_bd_canyon', 'Banjo Showdown', 66.25, 145.06], ['m_bd_desert', 'Spaghetti Western', 31.42, 120.05], ['m_bd_harvest', 'Harvest', 60.81, 108.81],
 ];
-const PADS = [['s_boing','Boing'],['s_bonk','Bonk'],['s_shoeHonk','Honk'],['s_pieSplat','Splat'],['s_poof','Poof'],['s_whoosh','Whoosh'],
-  ['s_clang','Clang'],['s_gumPop','Pop'],['s_boom','Boom'],['s_thunder','Thunder'],['s_cheer','Cheer'],['s_ko','KO']];
+// (recorded sounds, free to use with no credit needed: audio/SOURCES.md)
+const PADS = [['s_boing','Boing'],['s_bonk','Bonk'],['s_knock','Knock'],['s_splat','Splat'],['s_pop','Pop'],['s_whoosh','Whoosh'],
+  ['s_clang','Clang'],['s_whistle','Whistle'],['s_boom','Boom'],['s_thunder','Thunder'],['s_tada','Ta-da'],['s_fight','Fight!']];
 const AU = { buf:{}, mix:null, music:null, musicG:null, out:null, trk:null, hp:false, micSrc:null, micTrack:null }; window.__au = AU;
 function audioCtx() { wakeAudio(); return V.ac; }
 function mixBus() {
