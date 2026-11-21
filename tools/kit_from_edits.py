@@ -8,13 +8,25 @@ import sys, numpy as np
 from PIL import Image
 from scipy import ndimage
 
-BOX = { '310':(330, 470, 880, 900) }
+BOX = { '310':(330, 470, 880, 900), '929':(470, 520, 770, 760) }
+# kits with a mouth (not a beak): the area always taken (the old mouth line and teeth), as an ellipse (cx, cy, rx, ry)
+MOUTH_AREA = { '929':(605, 600, 125, 50) }
 ref, out_dir, pairs = sys.argv[1], sys.argv[2], [a.split('=', 1) for a in sys.argv[3:]]
 base = np.array(Image.open(f'faces/{ref}/base.webp').convert('RGBA')).astype(np.float32)
 N = base.shape[0]; x0, y0, x1, y1 = BOX[ref]
 yy, xx = np.mgrid[0:N, 0:N]; inbox = (xx >= x0) & (xx < x1) & (yy >= y0) & (yy < y1)
 
-def mouth_parts(rgb, both=False):   # the beak, and what's inside its outline (mouth, tongue); not the wattle or the shirt
+def mouth_parts(rgb, both=False):
+    if ref in MOUTH_AREA: return lip_parts(rgb, both)
+    return beak_parts(rgb, both)
+def lip_parts(rgb, both=False):   # a mouth under a muzzle: what's drawn in mouth colours (inside, tongue, teeth) in the box
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    inside = (((r > 70) & (g < r * 0.55) & (b < r * 0.75) & (r + g + b < 520)) | ((r > 190) & (g > 80) & (g < 180) & (b > 95) & (b < 200) & (r - g > 45))) & inbox
+    inside = ndimage.binary_opening(inside, iterations=1)
+    cx, cy, rx, ry = MOUTH_AREA[ref]; ell = (((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2 < 1) & inbox
+    m = ell | ndimage.binary_fill_holes(ndimage.binary_closing(inside, iterations=4))
+    return (m, inside) if both else m
+def beak_parts(rgb, both=False):   # the beak, and what's inside its outline (mouth, tongue); not the wattle or the shirt
     from scipy.spatial import ConvexHull
     from PIL import ImageDraw
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
@@ -53,7 +65,11 @@ for k, pic in pairs:
         dark = (g.sum(-1) < 130) & (np.abs(g[..., 0] - g[..., 2]) < 60) & ndimage.binary_erosion(hole, iterations=12)
         g[ndimage.binary_dilation(dark, iterations=2) & ndimage.binary_erosion(hole, iterations=9) & (g.sum(-1) < 200)] = deep
     # the area taken from the edit: the beak before and after, with its outline (a margin), and nothing else
-    zone = ndimage.binary_dilation(was | now, iterations=14) & inbox
+    changed = np.zeros_like(was)
+    if ref in MOUTH_AREA:
+        diff = np.abs(g - base[..., :3]).sum(-1) > 110
+        changed = ndimage.binary_opening(diff & inbox, iterations=5)
+    zone = ndimage.binary_dilation(was | now | changed, iterations=14 if ref not in MOUTH_AREA else 8) & inbox
     a = ndimage.gaussian_filter(zone.astype(np.float32), 2.5)
     a = np.where(ndimage.binary_erosion(zone, iterations=4), 1.0, a)[..., None]
     out = base.copy()
