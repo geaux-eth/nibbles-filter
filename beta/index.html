@@ -567,7 +567,7 @@ const NIBBLES = {
   6931: { bg:'#ffe46b', fullFace:true, layout:{"at":[611,666,1.35],"mb":[426,568,796,764],"eb":[344,194,812,571]} },
   1823: { bg:'#9ee8ff', fullFace:true, layout:{"at":[543,643,1.35],"mb":[314,532,772,754],"eb":[344,194,812,571]} },
 };
-const IMG_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest', Cockfight:'cleeroy' };
+const IMG_BGS = { Meadow:'meadow', Woods:'woods', Mountain:'mountain', Canyon:'canyon', Desert:'desert', Harvest:'harvest', Cockfight:'cleeroy', Apartment:'apartment' };
 // backdrops that hang a sign: it goes in open space the Nibble can never reach, and the text keeps clear of it too
 const SIGNS = { Cockfight:'cleeroy_logo' };   // Cleeroy's Cockfight Club (Cleeroy owns Cock #8212)
 // when the screen is tall enough, the club's own entrance art is used instead, cropped so its sign sits at the top
@@ -588,7 +588,8 @@ function entrance() {
 // Backgrounds come in three groups: the NFT collection's own (its flat colours and its one-of-one scenes),
 // BONKD's scenes, the Cockfight scenes, and pictures people added (theirs on this device, plus everyone's that GEAUX approved)
 const COCK_NAMES = ['Cockfight'];   // Cleeroy's Cockfight Club scenes get their own group
-const BONKD_NAMES = Object.keys(IMG_BGS).filter(n => !COCK_NAMES.includes(n));
+const SCENE_NAMES = ['Apartment'];   // other places (a sitcom apartment, drawn in the Nibbles style)
+const BONKD_NAMES = Object.keys(IMG_BGS).filter(n => !COCK_NAMES.includes(n) && !SCENE_NAMES.includes(n));
 const NFT_COLORS = { 'Sea Foam':'#8aecd4', 'Sky Blue':'#9fe8ff', 'Pink':'#ffb8dc', 'Light Yellow':'#fee46b', 'Coral Pink':'#ff8688', 'Peach':'#ffc184', 'Light Turquoise':'#c3f8f6', 'Dark':'#3e3a52' };
 // The collection's one-of-one backgrounds, redrawn from the originals' colours and shapes. Each painter fills the whole
 // canvas (W x H) with the Nibble's square at X, Y; u is that square's size / 2160 (the collection's picture size).
@@ -690,7 +691,7 @@ const MY_BG = {};   // backgrounds this person added: name -> picture (data URL)
 try { Object.assign(MY_BG, JSON.parse(localStorage.getItem('nf-bgs') || '{}')); } catch (e) {}
 for (const k in MY_BG) IMG_BGS[k] = 'mine';
 const SHARED_BG = {};   // backgrounds people submitted and GEAUX approved: name -> picture URL (Supabase)
-const bgCat = name => name === 'Nibble color' || NFT_COLORS[name] || NFT_ART[name] ? 'nft' : BONKD_NAMES.includes(name) ? 'bonkd' : COCK_NAMES.includes(name) ? 'cock' : 'user';
+const bgCat = name => name === 'Nibble color' || NFT_COLORS[name] || NFT_ART[name] ? 'nft' : BONKD_NAMES.includes(name) ? 'bonkd' : COCK_NAMES.includes(name) ? 'cock' : SCENE_NAMES.includes(name) ? 'scene' : 'user';
 const bgList = () => ['Nibble color', ...Object.keys(NFT_COLORS), ...Object.keys(NFT_ART), ...Object.keys(IMG_BGS)];
 const BACKGROUNDS = bgList();
 const bgSrc = name => MY_BG[name] || SHARED_BG[name] || `bg/${ENTRANCE[name] ? ENTRANCE[name].name : IMG_BGS[name]}.webp?v=${ART_V}`;
@@ -1073,7 +1074,7 @@ function bgThumb(el, name) {
   el.style.backgroundColor = NFT_COLORS[name] || (name === 'Nibble color' ? (S.id ? NIBBLES[S.id].bg : '#fff') : '#fff');
 }
 // the background picker: four tabs (NFT Collection, BONKD, Cockfights, User Submitted); it opens on the tab of the current choice
-const BG_TABS = [['nft', 'NFT Collection'], ['bonkd', 'BONKD'], ['cock', 'Cockfights'], ['user', 'User Submitted']];
+const BG_TABS = [['nft', 'NFT Collection'], ['bonkd', 'BONKD'], ['cock', 'Cockfights'], ['scene', 'Scenes'], ['user', 'User Submitted']];
 const bgLabel = name => name === 'Nibble color' ? 'This Nibble\'s color' : name;
 function pickBackground(cur, onPick, tab = bgCat(cur)) {
   const again = t => pickBackground(cur, onPick, t), tile = name => ({ name:bgLabel(name), on:name === cur, paint:el => bgThumb(el, name), pick:() => { pkClose(); onPick(name); },
