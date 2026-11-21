@@ -10,7 +10,7 @@ ref, pic, out = sys.argv[1], sys.argv[2], sys.argv[3]
 rows, cols = (int(sys.argv[4]), int(sys.argv[5])) if len(sys.argv) > 5 else (1, 1)
 b = Image.open(f'faces/{ref}/base.webp').convert('RGBA'); w = Image.new('RGBA', b.size, (255, 255, 255, 255)); w.alpha_composite(b)
 base = np.array(w.convert('RGB')); N = base.shape[0]
-MOUTH = { '310':(400, 560, 860, 860), '929':(520, 540, 760, 800) }[ref]    # left out of the fit (it's what changed)
+MOUTH = { '310':(400, 560, 860, 860), '929':(520, 540, 760, 800), '271':(420, 560, 900, 900) }[ref]    # left out of the fit (it's what changed)
 gray = lambda a: cv2.GaussianBlur(cv2.cvtColor(a, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255, (0, 0), 2)
 mask = np.ones((N, N), np.uint8); x0, y0, x1, y1 = MOUTH; mask[y0:y1, x0:x1] = 0
 
