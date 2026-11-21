@@ -489,7 +489,7 @@ header .credit b{font-weight:400}
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
 const CODE = document.documentElement.dataset.code || '';   // (the beta copy keeps its own code in beta/; art and data are shared)
-const ART_V = '20261120-2330';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261121-0000';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -529,6 +529,7 @@ const NIBBLES = {
   k5842: { bg:'#ffe46b', fullFace:true },
   k4946: { bg:'#9ee8ff', fullFace:true },
   k500: { bg:'#ffc185', fullFace:true },
+  k929b: { bg:'#8aecd3', fullFace:true },   // the beaver kit with the chipped tooth (broken-tooth beavers)
   // the special Nibbles (robots, dissections, one of ones): their own ten mouths (and blink where they have one), made from Canva sheets
   546: { bg:'#3e3951', fullFace:true, layout:{"at":[640,664,1.35],"mb":[450,508,830,820],"eb":[0,0,0,0]} },
   2775: { bg:'#385049', fullFace:true, layout:{"at":[665,586,1.35],"mb":[574,508,756,664],"eb":[0,0,0,0]} },
@@ -787,7 +788,7 @@ new ResizeObserver(fitStage).observe($('bezel'));
 addEventListener('resize', fitStage);
 setShape('Square');
 // Each control shows a picture of its current choice; the name sits underneath.
-const FACE_AT = { k500:[573,533,1.35], k4946:[609,582,1.35], k2757:[612,590,1.35], k5842:[611,581,1.35], 757:[608,610,1.35], 929:[516,455,1.35], 67:[564,554,1.35], 1680:[559,536,1.35], 310:[560,589,1.35], 6965:[564,519,1.35], 1992:[602,582,1.35], 5502:[566,458,1.35], 4075:[534,551,1.35], 1486:[600,560,1.35], 4248:[499,469,1.35], 3133:[560,494,1.35], 271:[560,494,1.35], 7996:[600,520,1.35], 8549:[507,533,1.35], 3385:[585,560,1.35], 8212:[496,520,1.35], 3154:[496,520,1.35] };   // face centre + zoom in the 1000px art
+const FACE_AT = { k929b:[516,455,1.35], k500:[573,533,1.35], k4946:[609,582,1.35], k2757:[612,590,1.35], k5842:[611,581,1.35], 757:[608,610,1.35], 929:[516,455,1.35], 67:[564,554,1.35], 1680:[559,536,1.35], 310:[560,589,1.35], 6965:[564,519,1.35], 1992:[602,582,1.35], 5502:[566,458,1.35], 4075:[534,551,1.35], 1486:[600,560,1.35], 4248:[499,469,1.35], 3133:[560,494,1.35], 271:[560,494,1.35], 7996:[600,520,1.35], 8549:[507,533,1.35], 3385:[585,560,1.35], 8212:[496,520,1.35], 3154:[496,520,1.35] };   // face centre + zoom in the 1000px art
 FACE_AT[7389] = [536, 627, 1.35];
 FACE_AT[872] = [515, 660, 1.35];
 FACE_AT[6785] = [551, 642, 1.35];
@@ -991,12 +992,12 @@ const SPECIAL_SKINS = new Set(['Red', 'Wrestler', 'Plush', 'Seawoman', 'Werewolf
 // special skins whose whole group shares a pose: one kit each, with a moving body loop played behind the face
 const KIT_GROUP = { 'Ghost:Fire':{ ref:'k2757', loop:'ghostfire', frames:48, fps:12, drawnBlink:true }, 'Ghost:Slime':{ ref:'k5842', loop:'ghostslime', frames:48, fps:12, wideFace:true, skinThrough:true }, 'Ghost:Mummy':{ ref:'k4946' }, 'Gecko:Dragon':{ ref:'k500', noBlink:/big|eyelashes/i } };
 const groupOf = a => a && KIT_GROUP[a.Character + ':' + a.Skin];
-const kitFor = t => { const a = t && t.a; if (groupOf(a)) return groupOf(a).ref; return a && !SPECIAL_SKINS.has(a.Skin) && !KIT_SKIP.has(a.Character + ':' + a.Skin) ? KIT_REF[a.Character] || null : null; };
+const kitFor = t => { const a = t && t.a; if (groupOf(a)) return groupOf(a).ref; if (a && a.Character === 'Beaver' && a.Mouth === 'Broken Tooth' && kitFor0(a)) return 'k929b';   // (its own chipped tooth in every mouth: tools/chip_tooth.py)
+  return kitFor0(a); };
+const kitFor0 = a => { return a && !SPECIAL_SKINS.has(a.Skin) && !KIT_SKIP.has(a.Character + ':' + a.Skin) ? KIT_REF[a.Character] || null : null; };
 // eyes that don't blink: fire, lasers, X / knocked out, spirals, slot machines, glasses and anything worn over the eyes
 const NO_BLINK = /fire|ignis|laser|knocked|dizzy|slot|3d|glasses|monocle|robot|anatomy|empty|whites|eyepatch|button|glowing|magic|three|awooga|burglar/i;
-// (light beavers with eyelashes: the kit's closed eyes smear their lashes into a grey ghost, so they don't blink until the
-// beaver kit has closed eyes drawn for them)
-const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || '')) && !(a.Eyes === 'Beaver Eyelashes' && /albino|white|light/i.test(String(a.Skin || '')));
+const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || ''));
 // A plain-mouthed Nibble of the same kind, skin and outfit (and accessory if one exists): what this Nibble looks like under
 // its own big mouth, for the talking mouths (kit.js). null when this Nibble's mouth is plain already or there's none.
 const PLAIN_MOUTH = ['Smile', 'Frown'];
