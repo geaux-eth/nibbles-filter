@@ -264,6 +264,8 @@ header .credit b{font-weight:400}
 .ed-bstack{position:relative;display:block;width:44px;height:34px}.ed-bstack .circ{position:absolute;top:4px;width:26px;height:26px}.ed-bstack .circ:nth-child(1){left:0}.ed-bstack .circ:nth-child(2){left:9px;top:0}.ed-bstack .circ:nth-child(3){left:18px}
 .ed-back{background:repeating-linear-gradient(135deg,transparent 0 10px,rgba(120,80,200,.06) 10px 20px)}
 .ed-head .lbl{font-size:8.5px;max-width:58px}
+.ed-hw{position:relative}
+.ed-out{position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;border:2px solid var(--ink);background:#fff;font:700 11px/1 system-ui,sans-serif;padding:0;cursor:pointer;z-index:2}
 .ed-head.on{background:var(--c)}
 .ed-scroll{min-width:0;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
 .ed-inner{position:relative;padding-right:24px}
@@ -274,6 +276,7 @@ header .credit b{font-weight:400}
 .ed-lane{position:relative;height:56px;border-bottom:1.5px solid #ddd}
 .ed-lane.on{background:rgba(255,210,63,.18)}
 .ed-blk{position:absolute;top:8px;height:40px;border:2.5px solid var(--ink);border-radius:9px;touch-action:pan-x pan-y;cursor:grab;box-sizing:border-box}
+.ed-blk.ed-ro{cursor:pointer;border-style:dashed}
 .ed-blk.sel{touch-action:none;border-color:var(--ink);box-shadow:0 0 0 3px var(--gold);z-index:2}
 .ed-blk.drag{z-index:5;cursor:grabbing;will-change:left,width,transform}
 .ed-blk.now{filter:brightness(1.12);outline:2px dashed var(--ink);outline-offset:1px}
@@ -489,8 +492,14 @@ header .credit b{font-weight:400}
 // Config
 // ---------------------------------------------------------------------------
 const MP_VERSION = '0.10.14';
-const CODE = document.documentElement.dataset.code || '';   // (the beta copy keeps its own code in beta/; art and data are shared)
-const ART_V = '20261121-1200';   // bump when art changes, so phones never show old cached frames
+const CODE = document.documentElement.dataset.code || '';
+// (the page's own scripts, as full addresses: iPhone browsers resolve import() against the page's own folder, not <base>,
+// so 'beta/kit.js' became beta/beta/kit.js on the debug site and every kit Nibble failed to load)
+const codeURL = f => new URL(CODE + f + '?v=' + ART_V, document.baseURI).href;
+// (and when one won't load, the tracking device notes the address and what the server said, so a phone's failure can be told
+// apart: not found, a network drop, or the script itself)
+const codeImport = f => import(codeURL(f)).catch(async e => { try { const r = await fetch(codeURL(f), { cache:'no-store' }); trk('importFailed', [codeURL(f), r.status, (r.headers.get('content-type') || '').slice(0, 40), String(e && e.message || e).slice(0, 120)]); } catch (e2) { trk('importFailed', [codeURL(f), 'no answer', String(e2).slice(0, 80)]); } throw e; });   // (the beta copy keeps its own code in beta/; art and data are shared)
+const ART_V = '20261121-1500';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -809,7 +818,7 @@ FACE_AT[3113] = [558, 634, 1.35];
 FACE_AT[3159] = [657, 676, 1.35];
 FACE_AT[3295] = [599, 600, 1.35];
 FACE_AT[3543] = [588, 526, 1.35];
-FACE_AT[5900] = [603, 655, 1.35];
+FACE_AT[5900] = [565, 440, 1.35];   // (its face: the thumbnail had showed his chest)
 FACE_AT[8482] = [592, 712, 1.35];
 FACE_AT[794] = [586, 635, 1.35];
 FACE_AT[1998] = [466, 547, 1.35];
@@ -988,6 +997,7 @@ function collection(onPick, cur) {
 }
 // ---------- kits: any Nibble of a kind talks with its kind's kit (see kit.js). Kinds are added as their kits are checked.
 const KIT_REF = { Wolf:271, Bear:1680, Cock:310, Gecko:6965, Raccoon:1992, Ghost:757, Gnome:67, Beaver:929 };
+const KIT_GAPS = { Gecko:[[380, 705]] };   // where the background shows through inside a kind's outline (the gecko's tail and neck)
 const KIT_NO_BLINK = new Set();
 const KIT_SKIP = new Set();   // kind:skin pairs whose results aren't good enough yet
 const SPECIAL_SKINS = new Set(['Red', 'Wrestler', 'Plush', 'Seawoman', 'Werewolf', 'Mage', 'Alien', 'Human', 'Metal', 'Dissection', 'Slime', 'Dragon', 'Fire', 'Mummy']);
@@ -1012,7 +1022,7 @@ async function donorFor(id, a, B) {
     const mo = val(row, 'Mouth'); if (!PLAIN_MOUTH.includes(mo)) return;
     const sc = (mo === 'Smile' ? 2 : 1) + (val(row, 'Accessory') === a.Accessory ? 4 : 0) + (val(row, 'Eyes') === a.Eyes ? 1 : 0); if (sc > bs) { bs = sc; best = did; } });
   if (!best) return null;
-  try { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(best); await im.decode(); return B.cutOriginal(im).canvas; } catch (e) { return null; }
+  try { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(best); await im.decode(); return B.cutOriginal(im, KIT_GAPS[a.Character]).canvas; } catch (e) { return null; }
 }
 // things in front of the mouth, kept whole on top of every talking mouth (kit.js)
 const FRONT_MOUTH = /mustache|straw|match|bubbles/i;   // (dark magic isn't: its still wisps are replaced by the moving ones)
@@ -1041,9 +1051,9 @@ async function kitPrepare(id) {
     const a = t.a, kind = a.Character;
     kitSay(`Getting ${kind} #${id} ready…`, '', 20000);
     try {
-      const [B, K] = await Promise.all([import('./' + CODE + 'builder.js?v=' + ART_V), import('./' + CODE + 'kit.js?v=' + ART_V)]);
+      const [B, K] = await Promise.all([codeImport('builder.js'), codeImport('kit.js')]);
       const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
-      const cut = B.cutOriginal(im), { art } = await fetchNibble(ref), donor = await donorFor(id, a, B);
+      const cut = B.cutOriginal(im, KIT_GAPS[kind]), { art } = await fetchNibble(ref), donor = await donorFor(id, a, B);
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop),
         donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : /match/i.test(String(a.Mouth || '')) ? 'match' : FRONT_MOUTH.test(String(a.Mouth || '')) });
       res.face = FACE_AT[ref];
@@ -1229,7 +1239,7 @@ function fetchNibble(id) {
     if (art.laser && cfg.layout) art.mouths.forEach(c => c.getContext && c.getContext('2d').drawImage(art.laser.img, 0, 0, 1000, 1000));
     // traits that move on their own (fx.js): bees, coins, light rays, steam, propellers, spinning eyes, robot lights, beating hearts
     try {
-      const tr = /^\d+$/.test(String(id)) ? await traitsOf(+id) : null, FX = FXM || (FXM = await import('./' + CODE + 'fx.js?v=' + ART_V)), hand = FX.FX_HAND[id];
+      const tr = /^\d+$/.test(String(id)) ? await traitsOf(+id) : null, FX = FXM || (FXM = await codeImport('fx.js')), hand = FX.FX_HAND[id];
       if (FX.wantsFx(tr ? tr.a : {}, hand)) {
         const fx = FX.prepareFx(art.base, tr ? tr.a : {}, hand);
         if (fx.erase) {   // the moving pieces leave the still frames, so they never show twice
@@ -1474,6 +1484,7 @@ function vmLaughAt(j) {
   return !!E.lau[Math.min(E.lau.length - 1, j)];
 }
 function vmVoice(now, t) {
+  V.t = t;   // (the moment, for lip sync)
   const T = VM.env.vt, n = T.e.length, k = Math.max(0, Math.min(n - 1, Math.round(t * 100))), e = T.e[k];
   let pk = 0; for (let j = Math.max(0, k - 12); j <= Math.min(n - 1, k + 12); j++) if (T.e[j] > pk) pk = T.e[j];
   const nv = VM.env.nov, j = Math.floor(t * 50);
@@ -1613,6 +1624,13 @@ function pickMouth(f, now) {
   // (the clip's sound is known before it plays: the first frames of a made video, before the sound is hooked up, aren't
   // left to the lips alone — a made video started on a wide AH with nobody talking)
   const vidKnown = (VM.rendering || VM.previewing) && VM.env && VM.env.vt;
+  // Lip sync from the sound (Rhubarb): while someone talks, the speech itself says the shape (the words, not the loudness or
+  // a guess from the lips); outside their lines, a laugh, a noise: shut. Not in songs (it reads speech, not singing).
+  if (vidKnown && VM.cues && !VM.sing) {
+    const talking = V.on && V.trusted && V.inLine && (V.voiced || now - V.lastVoice < 150);
+    if (!talking) return f.live && f.press > 0.55 ? 1 : f.live && f.frown > 0.55 ? 9 : 0;
+    return vmCueAt(V.t) ?? 0;
+  }
   if ((VM.rendering || VM.previewing) && f.live && ((V.on && V.trusted) || vidKnown)) {
     // talking: inside a line, and the lips are moving with a sound (a horn or a car over the words doesn't stop them; the
     // same sound with the lips shut doesn't open them)
@@ -3025,6 +3043,7 @@ function faceIdNet() {
     const fa = await import(`${FA_URL}/dist/face-api.esm.js`);
     try { await fa.tf.setBackend('webgl'); } catch (e) {} try { trk('graphics', fa.tf.getBackend()); } catch (e) {}
     await fa.tf.ready(); await fa.nets.faceRecognitionNet.loadFromUri(`${FA_URL}/model`);
+    try { await fa.nets.ageGenderNet.loadFromUri(`${FA_URL}/model`); } catch (e) { console.warn('gender net', e); }   // (a woman gets a girl Nibble: 420 KB)
     return fa;
   })().catch(e => { console.warn('face id', e); FACEID = null; return null; });
   return FACEID;
@@ -3182,6 +3201,7 @@ async function vmAnalyse(file, grab, want) {
     VM.off = part[0]; VM.dur = part[1] - part[0]; VM.trimmed = VM.off > 0.05 || VM.dur < VM.full - 0.05; vmPart(v);
     const envP = b ? vmSoundOf(VM.trimmed ? vmSlice(b, part[0], part[1]) : b) : Promise.resolve(null); vmCut.prev = null; vmCut.hist = null; VM.cutT = []; VM.strip = [];
     const idP = faceIdNet(); vmVoiceNetLoad();   // (the voice model comes down meanwhile)
+    { const tok = VM.cuesTok = {}; VM.cues = null; VM.cuesP = b ? vmLipSync(VM.trimmed ? vmSlice(b, part[0], part[1]) : b).then(c => { if (VM.cuesTok === tok) VM.cues = c; return c; }) : null; }   // (lip sync: in a worker, meanwhile)
     VM.lmi = VM.lmi || await makeLandmarker(6, 0.3, 'IMAGE');
     vmProg(9); const fa = await idP;
     try { await v.play(); } catch (e) {} v.pause();
@@ -3194,7 +3214,7 @@ async function vmAnalyse(file, grab, want) {
     vmMsg('Working out who’s who…'); VM.env = await envP;
     const who = vmWho(scan, (VM.env && VM.env.nov && VM.env.nov.music) || 0);
     if (T) T.who = who;   // (tests: the faces behind each person)
-    if (fa) { try { fa.nets.faceRecognitionNet.dispose(); } catch (e) {} FACEID = null; }   // its memory back (phones need it for the Nibbles)
+    if (fa) { try { fa.nets.faceRecognitionNet.dispose(); } catch (e) {} try { fa.nets.ageGenderNet.dispose(); } catch (e) {} FACEID = null; }   // its memory back (phones need it for the Nibbles)
     const sig = p => p.tracks.map(tr => tr.faces[0].n + ':' + Math.round(tr.faces[0].cx * 100)).sort().join(',');
     VM.voice = T && T.voiceIn ? { ...T.voiceIn, gate:null, e:T.voiceIn.e.map(v => { const a = Float32Array.from(v); let n = 0; for (const q of a) n += q * q; n = Math.sqrt(n) || 1; for (let j = 0; j < a.length; j++) a[j] /= n; return a; }) } : null;   // (test: voices read beforehand)
     const saved = T && T.followIn && who.people.length && who.people.every(p => T.followIn[sig(p)]);
@@ -3310,6 +3330,9 @@ async function vmScan(v, fa, prog) {
         dg.setTransform(1, 0, 0, 1, 75, 75); dg.scale(150 / s, 150 / s); dg.rotate(-ang); dg.translate(-cx, -cy); dg.drawImage(fc, 0, 0); dg.setTransform(1, 0, 0, 1, 0, 0);
         const tR = performance.now(), d = await fa.nets.faceRecognitionNet.computeFaceDescriptor(dc); f.desc = d.length === 128 ? d : d[0];
         if (TRK.run) { TRK.n.recog = (TRK.n.recog || 0) + 1; TRK.n.recogMs = (TRK.n.recogMs || 0) + Math.round(performance.now() - tR); }
+        if (fa.nets.ageGenderNet.isLoaded) {   // (the same lined-up face: woman 1 … man 0)
+          const tG = performance.now(), g = await fa.nets.ageGenderNet.predictAgeAndGender(dc); f.fem = g.gender === 'female' ? g.genderProbability : 1 - g.genderProbability;
+          if (TRK.run) TRK.n.genderMs = (TRK.n.genderMs || 0) + Math.round(performance.now() - tG); }
       } catch (e) { VM.err = String(e); }
       f.score = f.s * (1 - Math.min(1, Math.abs(((L[1].x - L[234].x) / ((L[454].x - L[234].x) || 1e-6)) - 0.5) * 2));
       f.mo = dist(L[13], L[14]) / (dist(L[10], L[152]) || 1e-6);   // how far apart the lips are (still lips: someone not talking)
@@ -3371,6 +3394,8 @@ function vmWho(scan, music) {
     p.t0 = p.faces[0].t; p.t1 = p.faces[p.faces.length - 1].t;
     const fs = p.faces.map(f => f.feat).filter(Boolean);
     p.feat = fs.length ? { skin:fs.reduce((a, x) => a + x.skin, 0) / fs.length, glass:fs.filter(x => x.glass).length > fs.length * 0.5, hat:fs.filter(x => x.hat).length > fs.length * 0.5 } : null;
+    // a woman or a man: the faces' own reading, the bigger faces counting more (null when it couldn't tell)
+    { const gs = p.faces.filter(f => f.fem != null); if (p.feat && gs.length) { const w = gs.reduce((a, f) => a + f.s, 0); p.feat.fem = +(gs.reduce((a, f) => a + f.fem * f.s, 0) / (w || 1)).toFixed(2); } }
   }
   // a picture of a face (a logo, a poster, a still on the screen): it never moves and its mouth never changes. Not someone
   const still = p => { if (p.faces.length < 4) return false; const r = k => { const v = p.faces.map(f => f[k]); return Math.max(...v) - Math.min(...v); }, ss = p.faces.map(f => f.s);
@@ -3556,7 +3581,8 @@ function vmCut(v) {
 // The voice prints: the WeSpeaker ResNet34-LM model (trained on VoxCeleb; CC BY 4.0; see models/voice/README.md),
 // its weights in 8 bits (6.7 MB), run here with TensorFlow.js (already in the page for faces). The sound is read once,
 // whole, and each second (every quarter second) gets its own 256 numbers from it.
-const VOICE_URL = (location.pathname.includes('/beta/') ? '../' : '') + 'models/voice/';
+window.__nf.prepare = id => kitPrepare(id); window.__nf.thumb = (el, id) => nibThumb(el, id); window.__nf.artOf = (id, n) => artURL(id, n); window.__nf.layout = id => NIBBLES[id] && NIBBLES[id].layout; window.__nf.voiceNet = async () => { try { return !!(await vmVoiceNetLoad()); } catch (e) { return String(e && e.message || e); } };   // (tests: a kit Nibble and the voice net load as on a phone)
+const VOICE_URL = 'models/voice/';   // (fetch goes by <base>: the site's own folder on live and on the debug site alike)
 let VOICE_NET = null;
 function vmVoiceNetLoad() {
   return VOICE_NET = VOICE_NET || Promise.all([fetch(VOICE_URL + 'voice.json').then(r => r.json()), fetch(VOICE_URL + 'voice.bin').then(r => r.arrayBuffer())])
@@ -3587,6 +3613,29 @@ function vmFbank(x) {
   }
   return { F:out, n };
 }
+// Lip sync from the sound (Rhubarb Lip Sync, in a worker: beta/lipsync-worker.js): the mouth shape for each moment of the
+// speech, as [start, end, shape]. Started as soon as the part is known, so it runs while the faces are read. Its shapes
+// (Preston Blair's nine) map onto each Nibble's nine mouths. Null when it can't run (the old way then: lips and loudness).
+const RHU_MOUTH = { X:0, A:1, B:4, C:2, D:3, E:5, F:6, G:7, H:8 };   // rest, M B P, teeth (most consonants, EE), open, wide AH, O, OO W, F V, L
+function vmLipSync(b) {
+  const T = window.__T; if (T && T.cuesIn) return Promise.resolve(T.cuesIn); if (T && T.noLipSync) return Promise.resolve(null);
+  return (async () => {
+    const t0 = performance.now(), oc = new OfflineAudioContext(1, Math.max(1, Math.ceil(b.duration * 16000)), 16000), src = oc.createBufferSource(); src.buffer = b; src.connect(oc.destination); src.start();
+    const x = (await oc.startRendering()).getChannelData(0), pcm = new Int16Array(x.length); for (let i = 0; i < x.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, Math.round(x[i] * 32767)));
+    const w = new Worker(codeURL('lipsync-worker.js'), { type:'module' });
+    const r = await new Promise(res => { const to = setTimeout(() => res({ err:'timeout' }), Math.max(120, b.duration * 6) * 1000);   // (a phone that can't keep up: the old way)
+      w.onmessage = e => { clearTimeout(to); res(e.data); }; w.onerror = e => { clearTimeout(to); res({ err:'worker ' + (e.message || 'failed') }); };
+      w.postMessage({ base:new URL('.', document.baseURI).href, pcm:pcm.buffer }, [pcm.buffer]); });
+    w.terminate();   // (its memory back)
+    trk('lipsync', r.err ? ['failed', r.err, Math.round(performance.now() - t0)] : [r.cues.length + ' shapes', Math.round(performance.now() - t0)]);
+    if (r.err) { console.warn('lip sync', r.err); return null; }
+    if (T) T.cuesOut = r.cues; return r.cues;
+  })().catch(e => { console.warn('lip sync', e); return null; });
+}
+// the lip-sync shape at t (seconds into the part): a mouth index, or null without lip sync
+function vmCueAt(t) { const C = VM.cues; if (!C || !C.length) return null; let lo = 0, hi = C.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (C[m][0] <= t) lo = m; else hi = m - 1; }
+  const c = C[lo]; return c[0] <= t && t < c[1] ? RHU_MOUTH[c[2]] ?? 0 : 0; }
 async function vmVoicePrints(b, tf, prog) {
   const net = await vmVoiceNetLoad(); if (!net || !tf) return null;
   const oc = new OfflineAudioContext(1, Math.max(1, Math.ceil(b.duration * 16000)), 16000), src = oc.createBufferSource(); src.buffer = b; src.connect(oc.destination); src.start();
@@ -3991,6 +4040,12 @@ function vmBackDefaults() {
 // already playing someone else isn't picked again. Made ready (its talking faces built) before it's shown.
 const LIKE_SKIN = { light:/^(Light|Albino|White|Pale|Yellow|Mime|Pink)$/, mid:/^(Brown|Orange|Leopard|Grey|Stone|Wood|Teal|Blue|Lime Green|Pimples|Roughed Up)$/, dark:/^(Black|Dark|Brown)$/ };
 const HAT = /cap|beanie|hat|toque|bonnet|crown|hood|nightcap|nighcap|helmet/i, GLASS = /glasses|goggles|visor|shades/i;
+// what a Nibble is, for picking: a robot (metal skin, robot eyes), a girl (GEAUX: every beaver; and eyelashes, on wolves
+// and geckos too). A woman gets a girl, a man doesn't; one robot at most in a video. (Needs the trait index loaded.)
+const nibKind = id => { const M = TRAITS_M, row = M && M.t[id - 1]; if (!row) return {};
+  const v = n => { const c = M.k.indexOf(n); return c >= 0 && row[c] >= 0 ? String(M.v[c][row[c]]) : ''; }, eyes = v('Eyes');
+  return { robot:eyes === 'Robot' || v('Skin') === 'Metal', girl:v('Character') === 'Beaver' || /Eyelashes/.test(eyes) }; };
+const fitsPerson = (id, p) => { const f = p && p.feat && p.feat.fem; if (f == null) return true; const g = !!nibKind(id).girl; return f > 0.65 ? g : f < 0.35 ? !g : true; };
 async function vmLookalikes(all, prog) {
   VM.like = all ? {} : (VM.like || {});
   let M; try { M = await traitIndex(); } catch (e) { return; } if (!M) return;
@@ -3999,7 +4054,9 @@ async function vmLookalikes(all, prog) {
   for (let i = 0; i < VM.people.length; i++) { if (prog) prog(i / VM.people.length);
     const p = VM.people[i]; if (p.off || VM.like[i] || (VM.mine && i === VM.main) || vmRoot(i) !== i) continue;
     const f = p.feat, tone = !f ? null : f.skin > 0.5 ? 'light' : f.skin > 0.3 ? 'mid' : 'dark';
+    const robot = [...taken].some(id => nibKind(id).robot);
     const score = id => { if (taken.has(id) || !readyId(M, id)) return -1; const sk = val(id, 'Skin'); if (/gold/i.test(sk)) return -1;
+      if (!fitsPerson(id, p) || (robot && nibKind(id).robot)) return -1;
       let s = Math.random() * 2;
       if (tone && LIKE_SKIN[tone].test(sk)) s += 3;
       const acc = val(id, 'Accessory'), eyes = val(id, 'Eyes'), g = GLASS.test(eyes) || GLASS.test(acc), h = HAT.test(acc);
@@ -4016,8 +4073,12 @@ function vmRandom(keepMain) {
   const ids = NIB_NAMES().map(x => x[0]).filter(id => id !== mine).sort(() => Math.random() - 0.5), P = VM.people;
   // the rest: look-alikes when they're ready, else built-in ones (the specials, dissections and robots, only now and then)
   const plain = ids.filter(id => !/^(546|2775|3113|3159|3295|3543|5900|8482|794|1998|3538|5807|7192|7813|8617|8637)$/.test(String(id)) || Math.random() < 0.15);
-  P.forEach((p, i) => VM.cast[i] = mine != null && i === VM.main ? mine : (VM.like && VM.like[i]) || plain[i % plain.length]); vmLink();
-  for (let k = 0; k < 6; k++) VM.cast[CROWD0 + k] = plain[(P.length + (k % 3)) % plain.length];
+  // (each one different; a woman gets a girl Nibble and a man doesn't, when there's one to give; one robot at most)
+  const used = new Set(); let robot = false; const take = id => { used.add(id); if (nibKind(id).robot) robot = true; return id; };
+  P.forEach((p, i) => { const id = mine != null && i === VM.main ? mine : VM.like && VM.like[i]; VM.cast[i] = id ? take(id) : null; });
+  const ok = id => !used.has(id) && !(robot && nibKind(id).robot);
+  P.forEach((p, i) => { if (VM.cast[i] == null) VM.cast[i] = take(plain.find(id => ok(id) && fitsPerson(id, p)) ?? plain.find(ok) ?? plain[i % plain.length]); }); vmLink();
+  const crowd = plain.filter(id => ok(id) && !nibKind(id).robot); for (let k = 0; k < 6; k++) VM.cast[CROWD0 + k] = (crowd.length ? crowd : plain)[k % 3 % Math.max(1, (crowd.length ? crowd : plain).length)];
   const bgs = bgList().filter(n => bgCat(n) !== 'user'); VM.bg = bgs[Math.floor(Math.random() * bgs.length)];
 }
 // Undo: every change first saves how things were. "Start over" goes back to the first choices.
@@ -4250,7 +4311,10 @@ function vmPeopleTab(el) {
     d.append(face, arrow, nw, tag);
     box.appendChild(d);
   });
-  if (VM.crowd && VM.crowd.n) {   // everyone else: their faces, then the Nibbles in the row behind (each one can be changed)
+  // everyone else: their faces, then the Nibbles in the row behind (each one can be changed). Only when they're in the
+  // video (everyone together, or a part set to Everyone): in a talking clip the people around are just there (GEAUX:
+  // listing them as "everyone else" made no sense when they never showed up). "On screen: Everyone" brings them in.
+  if (VM.crowd && VM.crowd.n && vmCrowdUsed()) {
     const d = document.createElement('div'); d.className = 'vm-crowd';
     const fs = document.createElement('span'); fs.className = 'vm-faces';
     (VM.crowd.thumbs || []).filter(c => c && c.width).slice(0, 3).forEach(c => { const x = document.createElement('canvas'); x.width = x.height = 64; x.getContext('2d').drawImage(c, 0, 0, 64, 64); fs.appendChild(x); });
@@ -4408,6 +4472,8 @@ function edHint(msg, ok) {
 // When it's made, every block becomes a cut to that speaker's Nibble.
 // ---------------------------------------------------------------------------
 const BACK_COL = '#d9c2ff';   // the backing vocals' row
+const ALL_COL = '#c9d7e6';   // the everyone-else row
+const vmCrowdUsed = () => !!(VM.crowd && VM.crowd.n && vmCrowdN() && (VM.group === 'all' || (VM.lines || []).some(l => l.show === 'all')));
 const LANE_COL = ['#8ee26b', '#9fe3fb', '#f48aa8', '#ffd23f', '#c9a7ff', '#ffb36b', '#7fe0d0'];
 const ED = { pps:40, sel:null, lane:0 };
 const fmtT = x => `${Math.floor(x / 60)}:${(x % 60).toFixed(1).padStart(4, '0')}`;
@@ -4519,13 +4585,31 @@ function edDraw() {
     const h = document.createElement('button'); h.type = 'button'; h.className = 'ed-head' + (ED.lane === i ? ' on' : ''); h.style.setProperty('--c', LANE_COL[i % LANE_COL.length]);
     const c = document.createElement('span'); c.className = 'circ'; nibThumb(c, VM.cast[i]); flipThumb(c, i); const nm = document.createElement('span'); nm.className = 'lbl'; nm.textContent = pName(i);
     h.append(c, nm); h.onclick = () => { if (ED.lane === i) pickNibble(VM.cast[i], Object.assign(id => vmDo(() => { VM.cast[i] = id; delete VM.same[i]; vmLink(); }), { noAdd:true })); else { ED.lane = i; edDraw(); } };
-    heads.appendChild(h);
+    // the row picked: a ✕ takes that person out (their lines go to the main speaker; Undo brings them back)
+    if (ED.lane === i && P.length > 1) { const w = document.createElement('div'); w.className = 'ed-hw'; const x = document.createElement('button'); x.type = 'button'; x.className = 'ed-out'; x.textContent = '✕';
+      x.setAttribute('aria-label', 'Take ' + pName(i) + ' out'); x.onclick = e => { e.stopPropagation(); vmDo(() => { vmRemovePerson(i); ED.lane = Math.max(0, Math.min(i, VM.people.length - 1)); ED.sel = null; }); };
+      w.append(h, x); heads.appendChild(w); }
+    else heads.appendChild(h);
     const lane = document.createElement('div'); lane.className = 'ed-lane' + (ED.lane === i ? ' on' : ''); lane.style.width = W + 'px'; lane.dataset.lane = i;
     lane.addEventListener('click', e => { if (e.target !== lane) return; ED.lane = i; ED.sel = null; seekAt(e); edDraw(); });   // a tap (a swipe scrolls)
     inner.appendChild(lane);
   });
   { const add = document.createElement('button'); add.type = 'button'; add.className = 'ed-addh'; add.textContent = '＋'; add.setAttribute('aria-label', 'Add someone');
     add.onclick = () => edAddSpeaker(); ED.addH = add; }
+  // everyone else: a row of their own when they're in the video, showing the parts they're on screen in (a tap picks that
+  // part, to change who's on screen there)
+  if (vmCrowdUsed()) {
+    const h = document.createElement('button'); h.type = 'button'; h.className = 'ed-head'; h.style.setProperty('--c', ALL_COL);
+    const st = document.createElement('span'); st.className = 'ed-bstack'; vmCrowdKeys().slice(0, 3).forEach(k => { const c = document.createElement('span'); c.className = 'circ'; nibThumb(c, VM.cast[k]); flipThumb(c, k); st.appendChild(c); });
+    const nm = document.createElement('span'); nm.className = 'lbl'; nm.textContent = 'Everyone'; h.append(st, nm);
+    h.onclick = () => { VM.tab = 'people'; vmTabShow(); }; heads.appendChild(h);
+    const lane = document.createElement('div'); lane.className = 'ed-lane ed-all'; lane.style.width = W + 'px';
+    const spans = VM.group === 'all' && !L.some(l => l.show && l.show !== 'all') ? [{ t0:0, t1:VM.dur }] : L.filter(l => l.show === 'all');
+    spans.forEach(l => { const b = document.createElement('div'); b.className = 'ed-blk ed-ro'; b.style.left = (l.t0 * pps) + 'px'; b.style.width = Math.max(6, (l.t1 - l.t0) * pps) + 'px'; b.style.background = ALL_COL;
+      const m = document.createElement('i'); m.className = 'ed-mode'; m.textContent = '👥'; b.appendChild(m);
+      if (L.includes(l)) b.onclick = () => { ED.lane = l.who; ED.sel = l; edDraw(); }; lane.appendChild(b); });
+    inner.appendChild(lane);
+  }
   // the backing vocals: a row of their own (when the video has a crowd that sings)
   if (VM.back) {
     const h = document.createElement('button'); h.type = 'button'; h.className = 'ed-head' + (ED.lane === -1 ? ' on' : ''); h.style.setProperty('--c', BACK_COL);
@@ -4717,6 +4801,8 @@ async function vmRender() {
   const P = VM.people;
   vmShow('Getting ready…', `<div class="vm-bar"><i id="vmProg"></i></div>`);
   try {
+    // (the lip sync, if it's still working on the words: wait for it, then make the video with it)
+    if (VM.cuesP && !VM.cues && !VM.sing) { vmShow('Getting ready…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Matching the mouths to the words…</p>`); await VM.cuesP; }
     if ($('camSwitch').checked) { $('camSwitch').checked = false; $('camToggle').classList.remove('on'); cameraOff(); }
     stopMusic(); drawTracks();
     const keys = vmKeys(), arts = {}; for (const id of new Set(keys.map(k => +VM.cast[k]))) arts[id] = (VM.arts && VM.arts[id]) || await fetchNibble(id);
@@ -5035,7 +5121,7 @@ function addNibble() {
   if (AN.cut) $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg));
   $('anPic').onchange = async e => {
     const f = e.target.files && e.target.files[0]; if (!f) return;
-    const B = await import('./' + CODE + 'builder.js?v=' + ART_V);
+    const B = await codeImport('builder.js');
     try { const im = await B.loadImage(f); AN.cut = B.cutOriginal(im); AN.cutOrig = null; AN.picAuto = 0; $('anPrev').innerHTML = ''; $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg)); }
     catch (err) { setStatus('x', 'That picture wouldn\'t open. Try another one.', 'err'); }
   };
@@ -5049,7 +5135,7 @@ function addNibble() {
     AN.metaLine = `${kind} #${id}: ${words}`; $('anMeta').textContent = AN.metaLine;
     // its picture comes straight from the collection's image server, unless they added their own
     if (!AN.cut || (AN.picAuto && AN.picAuto !== id)) {
-      try { const B = await import('./' + CODE + 'builder.js?v=' + ART_V), im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
+      try { const B = await codeImport('builder.js'), im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(id); await im.decode();
         if (+$('anTok').value !== id) return;
         AN.cut = B.cutOriginal(im); AN.cutOrig = null; AN.picAuto = id; $('anPrev').innerHTML = ''; $('anPrev').appendChild(thumbOf(AN.cut.canvas, AN.cut.bg));
         $('anPicNote').textContent = `Found ${kind} #${id}'s picture. Not the right one? Add your own.`; }
@@ -5110,7 +5196,7 @@ async function addBuild() {
   if (!AN.f1 || !AN.f2 || (!AN.f3 && !AN.noEyes)) { setStatus('x', 'Add all the pictures first.', 'err'); return; }
   vmShow('Building…', `<div class="vm-bar"><i id="vmProg" style="width:100%;animation:anPulse 1.2s ease-in-out infinite"></i></div><p class="note" id="anMsg">Getting started…</p>`);
   try {
-    const B = await import('./' + CODE + 'builder.js?v=' + ART_V);
+    const B = await codeImport('builder.js');
     // any layout Gemini chose (a row, a grid), read from the sheet's green gutters; extra panels are dropped
     AN.layoutNotes = [];
     const read = async (f, want, cols, rows) => { const im = await B.loadImage(f), g = B.gridOf(im); let n = g.cols * g.rows;
@@ -5209,6 +5295,7 @@ async function addPublish() {
 
 function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return S['_' + k]; } }
 function sessionStorageSet(k) { try { sessionStorage.setItem(k, '1'); } catch (e) { S['_' + k] = 1; } }
+window.__nf.ready = true;   // (tests: the whole script has run)
 </script>
 </body>
 </html>
