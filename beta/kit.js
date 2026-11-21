@@ -410,6 +410,9 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     const keepT = ownCloth, foreign = new Uint8Array(N * N), subst = subst0;
     for (let p = 0; p < N * N; p++) { if (!useG[p] || hole[p] || subst.has(p) || keepT[p]) continue; const i = p * 4; if (D[i + 3] < 200) continue;
       const mouthy = isMouthC(D[i], D[i + 1], D[i + 2]);
+      // this Nibble's own mouth (a frown line, a grin) where the kit's mouth shows plain face: filled from this Nibble's own
+      // face around it, not the reference's face colour mapped over (on a yellow ghost that left a pale streak)
+      if (!donor && own[p] && sameDR(i) && R[i + 3] > 200 && isSkin(R, i)) { hole[p] = 1; continue; }
       // the reference's own clothes (not skin, not ink), only redrawn a shade off by the image tool: never part of a
       // talking mouth, this Nibble's own stays (a grey suspender came through as cream scraps on a plaid shirt)
       if (!mouthy && R[i + 3] > 200 && lum(R, i) >= 150 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2]) && dist(D, i, R, i) < 100 && !isSkin(D, i)) { keepT[p] = 1; continue; }
