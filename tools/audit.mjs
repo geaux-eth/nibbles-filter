@@ -21,7 +21,7 @@ const kitFor = a => groupOf(a) ? groupOf(a).ref : (!SPECIAL_SKINS.has(a.Skin) &&
 const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || '')) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || '')));
 
 const traits = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/traits.json'), 'utf8'));
-const jobs = Object.entries(traits).map(([id, t]) => ({ id:+id, a:t.a, ref:kitFor(t.a), img:t.img || +id })).filter(j => j.ref)
+const jobs = Object.entries(traits).map(([id, t]) => ({ id:+id, a:t.a, ref:process.env.REF || kitFor(t.a), img:t.img || +id })).filter(j => j.ref)
   .filter(j => !process.env.IDS || process.env.IDS.split(',').includes(String(j.id)))
   .filter((j, n) => n % +SHARDS === +SHARD);
 
@@ -29,7 +29,7 @@ const jobs = Object.entries(traits).map(([id, t]) => ({ id:+id, a:t.a, ref:kitFo
 const types = { '.js':'text/javascript', '.webp':'image/webp', '.png':'image/png', '.json':'application/json', '.html':'text/html' };
 const server = http.createServer((q, r) => {
   const u = decodeURIComponent(q.url.split('?')[0]);
-  const f = u.startsWith('/pic/') ? path.join(PICS, u.slice(5)) : path.join(ROOT, u);
+  const f = u.startsWith('/pic/') ? path.join(PICS, u.slice(5)) : process.env.CODE && /^\/(kit|builder)\.js$/.test(u) ? path.join(ROOT, process.env.CODE, u) : path.join(ROOT, u);   // (CODE=beta: the beta engine, the shared art)
   fs.readFile(f, (e, d) => { if (e) { r.writeHead(404); r.end(); return; } r.writeHead(200, { 'Content-Type':types[path.extname(f)] || 'application/octet-stream', 'Access-Control-Allow-Origin':'*' }); r.end(d); });
 }).listen(0);
 const base = `http://127.0.0.1:${server.address().port}`;
