@@ -125,7 +125,7 @@ function colourMap(R, T, where, okT) {
 
 // T: this Nibble's picture (background cut, 1000 px). ref: { base, mouths[10], eyes[5] } of the kind's reference.
 // Returns { frames[10], eyes[5], mouthBox, eyeBox } in the builder's format.
-export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null } = {}) {
+export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null } = {}) {
   const T = data(Timg), T0 = T.slice(), R = data(ref.base), K = ref.mouths.map(data);
   // Gemini's panels have small dark flecks in the fur: a dark spot too small to be part of a line takes the colour around it
   for (let k = 1; k < 10; k++) unfleck(K[k]);
@@ -459,6 +459,12 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     }
     g.putImageData(id, 0, 0); frames.push(c);
   }
+  // drawn mouths (rig.js): the talking mouths drawn fresh on this Nibble's own picture (its plain-mouthed twin's face
+  // under its own big mouth), in place of the ones copied from the reference. The blink and the rest stay as above.
+  if (rig) { const tc = cv(), tg = tc.getContext('2d'), tid = tg.createImageData(N, N); tid.data.set(T); tg.putImageData(tid, 0, 0);
+    const rf = rig.draw(tc, rig.def); mb = [N, N, 0, 0];
+    for (let k = 1; k < 10; k++) { frames[k] = rf[k]; const D = data(rf[k]);
+      for (let p = 0; p < N * N; p++) { const i = p * 4; if (Math.abs(D[i + 3] - T0[i + 3]) > 8 || dist(D, i, T0, i) > 12) { const x = p % N, y = (p / N) | 0; if (x < mb[0]) mb[0] = x; if (y < mb[1]) mb[1] = y; if (x > mb[2]) mb[2] = x; if (y > mb[3]) mb[3] = y; } } } }
   // This Nibble's own things where the mouth zone ends: the parts of it that differ from the reference (its own mouth
   // trait, a mustache, a straw, dark magic...) that reach out past the zone. Two kinds:
   //  - in front of the mouth (front: a mustache, straw, match, gum bubble, dark magic): drawn back over every talking
@@ -488,7 +494,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       // drawn back over every talking mouth where it reaches into the mouth zone (an opening beak cut a sunglasses rim)
       { let cy = 0; for (let k = 0; k < t; k++) cy += (q[k] / N) | 0; cy /= t;
         if (inZ < t * 0.25 && cy < zy - 20) { for (let k = 0; k < t; k++) acc[q[k]] = 1; continue; } }
-      if (donor) continue;   // (the donor already shows the face there)
+      if (donor || rig) continue;   // (the donor already shows the face there; a drawn mouth leaves the rest of the face alone)
       if (inZ < t * 0.25 || t > 30000) continue;   // mostly outside the mouth: clothes, a collar, not the mouth
       for (let k = 0; k < t; k++) { const p = q[k], i = p * 4; if (Zd[p] || R[i + 3] < 200 || T[i + 3] < 100) continue; if (isSkin(R, i) || lum(R, i) < 160) bh[p] = 1; } }
     { let n = 0; for (let p = 0; p < N * N; p++) if (acc[p] && Zd[p]) n++;
