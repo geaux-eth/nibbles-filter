@@ -3150,14 +3150,14 @@ if (TRK.on) {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') TRK.n.hide++; trk('vis', document.visibilityState); trkSave(); });
   addEventListener('pagehide', () => { trk('pagehide'); trkSave(); }); addEventListener('pageshow', e => trk('pageshow', !!e.persisted));
   addEventListener('error', e => trk('error', String(e.message || e).slice(0, 200))); addEventListener('unhandledrejection', e => trk('reject', String(e.reason && (e.reason.message || e.reason)).slice(0, 200)));
-  for (const k of ['warn', 'error']) { const o = console[k]; console[k] = (...a) => { try { trk(k, a.map(x => String(x && x.message || x)).join(' ').slice(0, 200)); } catch (e) {} return o.apply(console, a); }; }
+  for (const k of ['warn', 'error']) { const o = console[k]; console[k] = (...a) => { try { const m0 = String(a[0]); if (!/^(INFO:|[WIE]\d{4} )/.test(m0)) trk(k, a.map(x => String(x && x.message || x)).join(' ').slice(0, 200)); } catch (e) {} return o.apply(console, a); }; }
 }
 const vmProg = p => { const e = $('vmProg'); if (e) e.style.width = Math.max(0, Math.min(100, p)).toFixed(1) + '%'; if (TRK.run) { const b = Math.floor(p / 5); if (b !== TRK.bar) { TRK.bar = b; trk('bar', Math.round(p)); } } };
 const vmMsg = s => { const e = $('vmMsg'); if (e && e.textContent !== s) trk('msg', s); if (e) e.textContent = s; };
 async function vmAnalyse(file, grab, want) {
   Object.assign(VM, { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, soundFrom:null, lmiRetried:false, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null, found:[], like:{} });
   vmShow('NIBBLING…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`);
-  trkStart(file); if (TRK.on) { const m = $('vmMsg'); if (m && !$('trkOn')) m.insertAdjacentHTML('afterend', '<p class="note" id="trkOn" style="opacity:.6;font-size:11px">● tracking on (debug site)</p>'); } let v = null; VM.busy = true; vmKeepAwake(true); VM.times = {}; const T00 = performance.now(), mark = k => { VM.times[k] = Math.round((performance.now() - T00) / 100) / 10; trk('step', [k, VM.times[k]]); };
+  trkStart(file); if (TRK.on) { const m = $('vmMsg'); if (m && !$('trkOn')) m.insertAdjacentHTML('afterend', '<p class="note" id="trkOn" style="opacity:.6;font-size:11px">● tracking on (debug site)</p>'); } let v = null; VM.busy = true; vmKeepAwake(true); VM.times = {}; const T00 = performance.now(), mark = k => { VM.times[k] = Math.round((performance.now() - T00) / 100) / 10; trk('step', [k, VM.times[k], { ...TRK.n }]); };
   try {
     if (VM.url) URL.revokeObjectURL(VM.url);
     VM.url = URL.createObjectURL(file);
@@ -3304,7 +3304,8 @@ async function vmScan(v, fa, prog) {
         const ang = Math.atan2((L[263].y - L[33].y) * fh, (L[263].x - L[33].x) * fw), s = f.sp * 1.1, cx = ex - Math.sin(ang) * s * 0.12, cy = ey + Math.cos(ang) * s * 0.12;
         dg.setTransform(1, 0, 0, 1, 0, 0); dg.fillStyle = '#808080'; dg.fillRect(0, 0, 150, 150);
         dg.setTransform(1, 0, 0, 1, 75, 75); dg.scale(150 / s, 150 / s); dg.rotate(-ang); dg.translate(-cx, -cy); dg.drawImage(fc, 0, 0); dg.setTransform(1, 0, 0, 1, 0, 0);
-        const d = await fa.nets.faceRecognitionNet.computeFaceDescriptor(dc); f.desc = d.length === 128 ? d : d[0];
+        const tR = performance.now(), d = await fa.nets.faceRecognitionNet.computeFaceDescriptor(dc); f.desc = d.length === 128 ? d : d[0];
+        if (TRK.run) { TRK.n.recog = (TRK.n.recog || 0) + 1; TRK.n.recogMs = (TRK.n.recogMs || 0) + Math.round(performance.now() - tR); }
       } catch (e) { VM.err = String(e); }
       f.score = f.s * (1 - Math.min(1, Math.abs(((L[1].x - L[234].x) / ((L[454].x - L[234].x) || 1e-6)) - 0.5) * 2));
       f.mo = dist(L[13], L[14]) / (dist(L[10], L[152]) || 1e-6);   // how far apart the lips are (still lips: someone not talking)
@@ -4774,7 +4775,7 @@ function vmStop(cancel) {
   if (cancel) vmHide();
 }
 function vmRestore() {
-  if (!VM.rendering) return; VM.rendering = false; vmKeepAwake(false); trk('made', VM.cancel ? 'cancelled' : 'done'); setTimeout(() => trkSend(VM.cancel ? 'make cancelled' : 'made'), 500); $('vm').classList.remove('rendering');
+  if (!VM.rendering) return; VM.rendering = false; vmKeepAwake(false); trk('made', VM.cancel ? 'cancelled' : 'done'); trkSend(VM.cancel ? 'make cancelled' : 'made'); $('vm').classList.remove('rendering');
   const k = VM.keep; if (!k) return;
   Object.assign(V, k.v); V.noWhistle = false; S.id = k.id; S.art = k.art; S.trait = k.trait; S.bg = k.bg; S.face = k.face; S.mouth = k.mouth; S.eye = k.eye; S.tracking = false;
   setShape(k.shape); MH.length = 0; openLvl = 0; S.fit = 1;
