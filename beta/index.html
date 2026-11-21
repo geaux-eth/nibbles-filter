@@ -1327,7 +1327,7 @@ async function makeLandmarker(numFaces, conf = 0.5, mode = 'VIDEO', cpu = false)
   return lm;
 }
 // the video's face reader failed part way (a phone can take the graphics chip back mid-video): once, made again on the CPU
-async function vmLmiAgain(e) { VM.err = String(e); if (VM.lmiRetried) return false; VM.lmiRetried = true;
+async function vmLmiAgain(e) { VM.err = String(e); trk('faceReaderFailed', [String(e).slice(0, 150), !!VM.lmiRetried]); if (VM.lmiRetried) return false; VM.lmiRetried = true;
   try { VM.lmi && VM.lmi.close(); } catch (e2) {} VM.lmi = await makeLandmarker(6, 0.3, 'IMAGE', true); return true; }
 async function cameraOn() {
   $('camToggle').classList.add('busy');
@@ -3019,7 +3019,7 @@ let FACEID = null;
 function faceIdNet() {
   if (!FACEID) FACEID = (async () => {
     const fa = await import(`${FA_URL}/dist/face-api.esm.js`);
-    try { await fa.tf.setBackend('webgl'); } catch (e) {}
+    try { await fa.tf.setBackend('webgl'); } catch (e) {} try { trk('graphics', fa.tf.getBackend()); } catch (e) {}
     await fa.tf.ready(); await fa.nets.faceRecognitionNet.loadFromUri(`${FA_URL}/model`);
     return fa;
   })().catch(e => { console.warn('face id', e); FACEID = null; return null; });
@@ -3035,10 +3035,11 @@ const vmSeek1 = (v, t) => new Promise(res => {
   v.onseeked = () => { if (v.requestVideoFrameCallback) { v.requestVideoFrameCallback(fin); setTimeout(fin, 250); } else requestAnimationFrame(fin); };
   setTimeout(fin, 1500); v.currentTime = t;
 });
-const vmSeek = async (v, t) => { for (let k = 0; k < 5; k++) { await vmAwake(); const h = vmHiddenN; await vmSeek1(v, t); if (h === vmHiddenN && document.visibilityState === 'visible') return; } };
+const vmSeek = async (v, t) => { const t0 = performance.now(); for (let k = 0; k < 5; k++) { await vmAwake(); const h = vmHiddenN; await vmSeek1(v, t); if (h === vmHiddenN && document.visibilityState === 'visible') break; if (k) trk('reseek', +t.toFixed(2)); }
+  if (TRK.run) { const ms = performance.now() - t0; TRK.n.seek++; TRK.n.seekMs += Math.round(ms); if (ms > 1200) { TRK.n.slowSeek++; if (TRK.n.slowSeek <= 30) trk('slowSeek', [+t.toFixed(2), Math.round(ms)]); } } };
 // (the screen kept on while a video is read or made: a phone going to sleep stops it)
 let vmLock = null;
-async function vmKeepAwake(on) { try { if (on) { if (!vmLock && navigator.wakeLock) { vmLock = await navigator.wakeLock.request('screen'); vmLock.addEventListener('release', () => { vmLock = null; }); } } else if (vmLock) { await vmLock.release(); vmLock = null; } } catch (e) {} }
+async function vmKeepAwake(on) { if (on && !navigator.wakeLock) trk('wake', 'none'); try { if (on) { if (!vmLock && navigator.wakeLock) { vmLock = await navigator.wakeLock.request('screen'); trk('wake', 'on'); vmLock.addEventListener('release', () => { vmLock = null; trk('wake', 'released'); }); } } else if (vmLock) { await vmLock.release(); vmLock = null; } } catch (e) { trk('wake', 'refused ' + String(e && e.name)); } }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && (VM.busy || VM.rendering)) vmKeepAwake(true); });
 // The part of the clip in use: VM.off seconds in, VM.dur long (the quiet start and end trimmed off, or the 90 seconds
 // picked from a longer clip). Every video made from the clip gets a clock that starts at the part's start and stops at
@@ -3109,12 +3110,54 @@ function vmPart(v) {
   v.addEventListener('play', () => { if (cut() && !raf) raf = requestAnimationFrame(watch); });
   return v;
 }
-const vmProg = p => { const e = $('vmProg'); if (e) e.style.width = Math.max(0, Math.min(100, p)).toFixed(1) + '%'; };
-const vmMsg = s => { const e = $('vmMsg'); if (e) e.textContent = s; };
+// ---------------------------------------------------------------------------
+// The tracking device (the beta site only): a record of everything that happens while a video is read and made — each
+// step and how long it took, the bar and its messages, the page going to the background and back, the screen lock, slow
+// frame reads, warnings and errors, the phone and the clip (its size and kind, never the clip itself, faces or words),
+// what was found. Sent by itself when the reading ends (and when a video is made); kept on the phone as it goes, so a
+// run cut short by Safari reloading the page is sent the next time the page opens.
+const TRK = { on:!!CODE, ev:[], t0:0, run:null, sent:false, n:{ seek:0, slowSeek:0, seekMs:0, hide:0 } };
+const trk = (k, d) => { if (!TRK.on || !TRK.run) return; if (TRK.ev.length >= 1500) { if (TRK.ev.length === 1500) TRK.ev.push([Math.round(performance.now() - TRK.t0), 'cap']); return; }
+  TRK.ev.push(d === undefined ? [Math.round(performance.now() - TRK.t0), k] : [Math.round(performance.now() - TRK.t0), k, d]); };
+function trkSave() { if (!TRK.on || !TRK.run || !(VM.busy || VM.rendering)) return; try { localStorage.setItem('nfTrace', JSON.stringify(trkBody('unfinished'))); } catch (e) {} }
+function trkStart(file, v) {
+  if (!TRK.on) return; TRK.t0 = performance.now(); TRK.ev = []; TRK.sent = false; TRK.n = { seek:0, slowSeek:0, seekMs:0, hide:0 };
+  const nav = navigator, c = nav.connection || {};
+  TRK.run = { id:Math.random().toString(36).slice(2, 10), at:new Date().toISOString(), ua:nav.userAgent.slice(0, 200), cores:nav.hardwareConcurrency || null, mem:nav.deviceMemory || null,
+    screen:[screen.width, screen.height, devicePixelRatio], view:[innerWidth, innerHeight], net:c.effectiveType || null, wake:!!nav.wakeLock,
+    file:file ? { size:file.size, type:file.type || null } : null };
+  trk('start'); clearInterval(TRK.save); TRK.save = setInterval(trkSave, 4000); trkSave();
+}
+function trkBody(state) {
+  const r1 = x => Math.round(x * 10) / 10, P = VM.people || [];
+  return { kind:'trace', state, run:TRK.run, n:TRK.n, times:VM.times || null,
+    clip:{ dur:r1(VM.full || 0), part:[r1(VM.off || 0), r1(VM.dur || 0)], w:VM.vw, h:VM.vh },
+    found:{ people:P.map(p => ({ t0:r1(p.t0 || 0), t1:r1(p.t1 || 0), n:p.n || 0, lipOk:p.lipOk, off:!!p.off })), who:VM.whoDbg || null, crowd:VM.crowd ? VM.crowd.n : 0,
+      follow:VM.diag ? { mode:VM.diag.mode, looks:VM.diag.looks, miss:VM.diag.miss, fill:VM.diag.fill, rates:(VM.diag.rates || []).slice(0, 20) } : null,
+      voice:VM.voice ? { n:VM.voice.t.length, mem:VM.voiceMem || null } : null, voiceDbg:VM.voiceDbg ? { split:VM.voiceDbg.split, evict:VM.voiceDbg.evict, who:VM.voiceDbg.who, refs:VM.voiceDbg.refs } : null,
+      lines:(VM.lines || []).map(l => [r1(l.t0), r1(l.t1), l.who]), sound:{ from:VM.soundFrom || null, err:VM.soundErr || null, classifier:VM.env && VM.env.nov ? 'ok' : 'none' }, err:VM.err ? String(VM.err).slice(0, 300) : null },
+    ev:TRK.ev };
+}
+async function trkSend(state) {
+  if (!TRK.on || !TRK.run || TRK.sent) return; TRK.sent = state !== 'read'; trk('send', state);
+  try { const body = { page:'beta', version:ART_V, note:'[trace] ' + state, data:trkBody(state) };
+    let j = JSON.stringify(body); if (j.length > 90000) { body.data.ev = body.data.ev.slice(0, 700).concat([[0, 'cut']], body.data.ev.slice(-300)); j = JSON.stringify(body); }
+    const r = await sbFetch('/rest/v1/nf_reports', { method:'POST', headers:{ 'Content-Type':'application/json', Prefer:'return=minimal' }, body:j });
+    if (r.ok) { try { localStorage.removeItem('nfTrace'); } catch (e) {} } } catch (e) {}
+  if (state !== 'read') { clearInterval(TRK.save); TRK.run = null; } else TRK.ev = [];
+}
+if (TRK.on) {
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') TRK.n.hide++; trk('vis', document.visibilityState); trkSave(); });
+  addEventListener('pagehide', () => { trk('pagehide'); trkSave(); }); addEventListener('pageshow', e => trk('pageshow', !!e.persisted));
+  addEventListener('error', e => trk('error', String(e.message || e).slice(0, 200))); addEventListener('unhandledrejection', e => trk('reject', String(e.reason && (e.reason.message || e.reason)).slice(0, 200)));
+  for (const k of ['warn', 'error']) { const o = console[k]; console[k] = (...a) => { try { trk(k, a.map(x => String(x && x.message || x)).join(' ').slice(0, 200)); } catch (e) {} return o.apply(console, a); }; }
+}
+const vmProg = p => { const e = $('vmProg'); if (e) e.style.width = Math.max(0, Math.min(100, p)).toFixed(1) + '%'; if (TRK.run) { const b = Math.floor(p / 5); if (b !== TRK.bar) { TRK.bar = b; trk('bar', Math.round(p)); } } };
+const vmMsg = s => { const e = $('vmMsg'); if (e && e.textContent !== s) trk('msg', s); if (e) e.textContent = s; };
 async function vmAnalyse(file, grab, want) {
   Object.assign(VM, { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, soundFrom:null, lmiRetried:false, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null, found:[], like:{} });
   vmShow('NIBBLING…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`);
-  let v = null; VM.busy = true; vmKeepAwake(true); VM.times = {}; const T00 = performance.now(), mark = k => { VM.times[k] = Math.round((performance.now() - T00) / 100) / 10; };
+  trkStart(file); if (TRK.on) { const m = $('vmMsg'); if (m && !$('trkOn')) m.insertAdjacentHTML('afterend', '<p class="note" id="trkOn" style="opacity:.6;font-size:11px">● tracking on (debug site)</p>'); } let v = null; VM.busy = true; vmKeepAwake(true); VM.times = {}; const T00 = performance.now(), mark = k => { VM.times[k] = Math.round((performance.now() - T00) / 100) / 10; trk('step', [k, VM.times[k]]); };
   try {
     if (VM.url) URL.revokeObjectURL(VM.url);
     VM.url = URL.createObjectURL(file);
@@ -3175,11 +3218,11 @@ async function vmAnalyse(file, grab, want) {
     VM.like = {}; VM.mine = S.chosen && NIBBLES[S.id] ? +S.id : null;
     // (the bar's last tenth: Nibbles that look like them, each made ready from its kit, its news under the bar too)
     mark('voices'); if (!(T && T.noLike)) { vmMsg('Picking Nibbles that look like them…'); VM.looking = true; try { await Promise.race([vmLookalikes(true, p => vmProg(90 + p * 10)), new Promise(r => setTimeout(r, 25000))]); } catch (e) {} VM.looking = false; }
-    vmProg(100);
+    vmProg(100); mark('like');
     vmDefaults();
-    vmStudio();
+    vmStudio(); if (VM.times) VM.times.all = Math.round((performance.now() - T00) / 100) / 10; trkSend('read');
   } catch (e) {
-    console.warn('analyse', e);
+    console.warn('analyse', e); trk('failed', String(e && e.message || e).slice(0, 200)); setTimeout(() => trkSend('failed'), 0);
     vmShow('Nibble a Video', `<p>${e === 'long' ? 'That video is longer than 3 minutes. Trim it and try again.' : 'That video wouldn’t open here. Try another file (MP4 or MOV).'}</p>`);
   } finally { if (v) v.remove(); if (VM.times) VM.times.all = Math.round((performance.now() - T00) / 100) / 10; VM.busy = false; if (!VM.rendering) vmKeepAwake(false); }
 }
@@ -3249,7 +3292,9 @@ async function vmScan(v, fa, prog) {
       }
       take({ res:VM.lmi.detect(fc), ox:0, oy:0, sw:fw, sh:fh });   // and the whole picture, for a face too big for any piece
     };
+    const tS = performance.now();
     try { pics(); } catch (e) { if (await vmLmiAgain(e)) { found.length = 0; try { pics(); } catch (e2) { VM.err = String(e2); } } }
+    if (TRK.run) { const ms = performance.now() - tS; TRK.n.scan = (TRK.n.scan || 0) + 1; TRK.n.scanMs = (TRK.n.scanMs || 0) + Math.round(ms); TRK.n.faces = (TRK.n.faces || 0) + found.length; if (ms > 2500 && (TRK.n.slowScan = (TRK.n.slowScan || 0) + 1) <= 20) trk('slowScan', [+t.toFixed(2), Math.round(ms), found.length]); }
     // which track each face carries on (the one it's nearest, in this shot, a picture or two ago)
     const open = cut ? [] : tracks.filter(tr => n - tr.last <= 2), used = new Set();
     for (const f of found.sort((a, b) => b.s - a.s)) {
@@ -4681,7 +4726,7 @@ async function vmRender() {
     }
     await Promise.all(pics.filter(Boolean).map(i => i.complete && i.naturalWidth ? 0 : new Promise(r => { i.addEventListener('load', r, { once:true }); i.addEventListener('error', r, { once:true }); setTimeout(r, 5000); })));
     S.bg = VM.bg;
-    VM.rendering = true; vmKeepAwake(true); setShape(VM.shape); vmFit();
+    VM.rendering = true; vmKeepAwake(true); if (TRK.on && !TRK.run) { TRK.run = { id:'make', at:new Date().toISOString(), ua:navigator.userAgent.slice(0, 200) }; TRK.t0 = performance.now(); TRK.ev = []; TRK.sent = false; } trk('make', [VM.shape, +(VM.dur || 0).toFixed(1)]); setShape(VM.shape); vmFit();
     const v = vmPart(document.createElement('video')); v.src = VM.url; v.playsInline = true; v.preload = 'auto'; VM.v = v;
     await new Promise((res, rej) => { v.oncanplay = res; v.onerror = rej; v.load(); });
     if (VM.off) await vmSeek(v, 0);   // (the part's start)
@@ -4729,7 +4774,7 @@ function vmStop(cancel) {
   if (cancel) vmHide();
 }
 function vmRestore() {
-  if (!VM.rendering) return; VM.rendering = false; vmKeepAwake(false); $('vm').classList.remove('rendering');
+  if (!VM.rendering) return; VM.rendering = false; vmKeepAwake(false); trk('made', VM.cancel ? 'cancelled' : 'done'); setTimeout(() => trkSend(VM.cancel ? 'make cancelled' : 'made'), 500); $('vm').classList.remove('rendering');
   const k = VM.keep; if (!k) return;
   Object.assign(V, k.v); V.noWhistle = false; S.id = k.id; S.art = k.art; S.trait = k.trait; S.bg = k.bg; S.face = k.face; S.mouth = k.mouth; S.eye = k.eye; S.tracking = false;
   setShape(k.shape); MH.length = 0; openLvl = 0; S.fit = 1;
@@ -4879,6 +4924,8 @@ function vmFrame(now) {
 const SB = 'https://jmiesqhrpcmrthrquqpq.supabase.co';
 const SBK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptaWVzcWhycGNtcnRocnF1cXBxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5NzIxMTcsImV4cCI6MjEwNzU0ODExN30.fr2o1fmS-FwXE3Y1niz15J0K_U4AEdiCUcdgjdLEt6k';
 const sbFetch = (path, opts = {}) => fetch(SB + path, { ...opts, headers:{ apikey:SBK, Authorization:'Bearer ' + SBK, ...(opts.headers || {}) } });
+// (the tracking device) a run the page never finished — Safari reloaded it, the phone ran out of memory: sent now
+if (TRK.on) try { const old = localStorage.getItem('nfTrace'); if (old) { localStorage.removeItem('nfTrace'); sbFetch('/rest/v1/nf_reports', { method:'POST', headers:{ 'Content-Type':'application/json', Prefer:'return=minimal' }, body:JSON.stringify({ page:'beta', version:ART_V, note:'[trace] cut short (page reloaded)', data:JSON.parse(old) }) }).catch(() => {}); } } catch (e) {}
 const sbRpc = async (fn, args) => { const r = await sbFetch('/rest/v1/rpc/' + fn, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(args) }); return r.json(); };
 const KINDS = ['Bear', 'Beaver', 'Cock', 'Gecko', 'Ghost', 'Gnome', 'Raccoon', 'Wolf'];
 // every Nibble's traits, read from its on-chain metadata by the "Trait index" workflow (data/traits.json)
