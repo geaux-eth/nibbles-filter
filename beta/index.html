@@ -998,7 +998,7 @@ function collection(onPick, cur) {
 // ---------- kits: any Nibble of a kind talks with its kind's kit (see kit.js). Kinds are added as their kits are checked.
 const KIT_REF = { Wolf:271, Bear:1680, Cock:310, Gecko:6965, Raccoon:1992, Ghost:757, Gnome:67, Beaver:929 };
 const KIT_GAPS = { Gecko:[[380, 705]] };
-const RIG_KINDS = new Set(['Wolf']);   // kinds whose talking mouths are drawn fresh (rig.js) instead of copied from the kit   // where the background shows through inside a kind's outline (the gecko's tail and neck)
+const RIG_KINDS = new Set([]);   // kinds whose talking mouths are drawn fresh (rig.js) instead of copied from the kit   // where the background shows through inside a kind's outline (the gecko's tail and neck)
 const KIT_NO_BLINK = new Set();
 const KIT_SKIP = new Set();   // kind:skin pairs whose results aren't good enough yet
 const SPECIAL_SKINS = new Set(['Red', 'Wrestler', 'Plush', 'Seawoman', 'Werewolf', 'Mage', 'Alien', 'Human', 'Metal', 'Dissection', 'Slime', 'Dragon', 'Fire', 'Mummy']);
