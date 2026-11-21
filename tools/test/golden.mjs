@@ -5,6 +5,7 @@
 // step gives up (the page then carries on without voices, as before). LOG=1 prints the page's messages; TMO=ms wait.
 // Mouth checks read the mouth track itself (window.__nf.voicedTrack, every moment counted as inside a line); MOUTHOFF=1
 // runs them without the laugh rule (they must fail then). SND=1 dumps the sound readings, PROG=1 prints the bar's steps.
+// RENDER=1 also makes the video and checks its mouths: none open with no voice near, the wide AH under 30% when talking.
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 import fs from 'fs';
 import { serve } from '../serve2.mjs';
@@ -93,7 +94,7 @@ const routes = async pg => {
   await pg.route(/cdn\.jsdelivr\.net\/npm\/@vladmandic\/human-models@[^/]+\/(.*)/, r => { const p = r.request().url().split(/human-models@[^/]+\//)[1]; r.fulfill({ body:fs.readFileSync(`${S}/hm/package/${p}`), contentType:p.endsWith('.json') ? 'application/json' : 'application/octet-stream', headers:{ 'access-control-allow-origin':'*' } }); });
   await pg.route(/storage\.googleapis\.com.*yamnet\.tflite/, r => r.fulfill({ body:fs.readFileSync('/tmp/yam/package/src/model/yamnet.tflite'), contentType:'application/octet-stream' }));
   await pg.route(/storage\.googleapis\.com.*face_landmarker\.task/, r => r.fulfill({ body:fs.readFileSync(`${mp}/pk/package/face_landmarker.task`), contentType:'application/octet-stream' }));
-  await pg.route('https://d24r2edyfve7yo.cloudfront.net/**', r => r.abort());
+  await pg.route('https://d24r2edyfve7yo.cloudfront.net/**', r => { const m = r.request().url().match(/(\d+)\.png/), f = m && `${S}/research/full/${m[1]}.png`; if (process.env.RENDER && f && fs.existsSync(f)) r.fulfill({ path:f, contentType:'image/png', headers:{ 'access-control-allow-origin':'*' } }); else r.abort(); });
   await pg.route('https://jmiesqhrpcmrthrquqpq.supabase.co/**', r => r.fulfill({ json:[] }));
 };
 async function run(name) {
@@ -110,6 +111,13 @@ async function run(name) {
   await pg.click('#vidBtn'); await pg.setInputFiles('#vmFile', `${S}/${c.file}`);
   await pg.waitForSelector('#edMake', { timeout:+process.env.TMO || 1800000 }).finally(() => tick && clearInterval(tick));
   if (process.env.VOICED) { const d = await pg.evaluate(() => ({ old:window.__nf.voicedTrack(true), now:window.__nf.voicedTrack(false) })); fs.writeFileSync(`${G}/${name}.voiced.json`, JSON.stringify(d)); }
+  if (process.env.BGTEST) { await pg.click('[data-tab="look"]'); await pg.waitForSelector('#vmBg');
+    const fc = pg.waitForEvent('filechooser'); await pg.selectOption('#vmBg', '+add'); const ch = await fc; await ch.setFiles(process.env.BGTEST);
+    await pg.waitForSelector('#bgAdd'); await pg.screenshot({ path:`${G}/bgtest1.png` }); await pg.fill('#bgName', 'Test room'); await pg.uncheck('#bgShare'); await pg.click('#bgAdd'); await pg.waitForTimeout(800);
+    console.log('BGTEST', JSON.stringify(await pg.evaluate(() => ({ bg:window.__vm.bg, sel:document.getElementById('vmBg') && document.getElementById('vmBg').value, opts:[...document.querySelectorAll('#vmBg option')].map(o => o.value).slice(-3) }))));
+    await pg.screenshot({ path:`${G}/bgtest2.png` }); }
+  if (process.env.RENDER) { await pg.waitForTimeout(2500); await pg.evaluate(() => { window.__mlog = []; }); await pg.click('#edMake'); await pg.waitForFunction(() => window.__vm.rendering, null, { timeout:120000 });
+    await pg.waitForFunction(() => !window.__vm.rendering, null, { timeout:1200000 }); fs.writeFileSync(`${G}/${name}.mlog.json`, JSON.stringify(await pg.evaluate(() => ({ log:window.__mlog, cast:window.__vm.cast, lines:window.__vm.lines.map(l => [l.t0, l.t1, l.who]) })))); }
   const mouth = await pg.evaluate(() => window.__nf.voicedTrack ? { now:window.__nf.voicedTrack(false, true), off:window.__nf.voicedTrack(true, true) } : null).catch(() => null);
   if (process.env.PROG) { const pr = await pg.evaluate(() => window.__prog); const seq = []; for (const [w, m] of pr) { if (!seq.length || seq[seq.length - 1][0] !== w || seq[seq.length - 1][1] !== m) seq.push([w, m]); } console.log(JSON.stringify(seq.filter((x, i) => i % Math.max(1, Math.floor(seq.length / 40)) === 0 || i === seq.length - 1))); }
   if (process.env.SND) { const d = await pg.evaluate(() => { const E = window.__vm.env, T = E.vt; return { snd:window.__soundDbg, e:Array.from(T.e, x => +x.toFixed(5)), thr:T.thr, loud:T.loud, pitch:E.pitch ? Array.from(E.pitch) : null, nov:E.nov ? Array.from(E.nov) : null }; }); fs.writeFileSync(`${G}/${name}.env.json`, JSON.stringify(d)); }
@@ -121,7 +129,12 @@ async function run(name) {
   if (saved.scan) fs.writeFileSync(sf, saved.scan); if (saved.follow) fs.writeFileSync(ff, saved.follow);
   await b.close();
   r.mouth = mouth ? (process.env.MOUTHOFF ? mouth.off : mouth.now) : null; r.mouthOff = mouth ? mouth.off : null;
-  const res = c.checks(r), secs = Math.round((Date.now() - t0) / 1000);
+  if (process.env.RENDER) { const ml = JSON.parse(fs.readFileSync(`${G}/${name}.mlog.json`)).log, n = ml.length; let op = 0, bad = 0, ah = 0;
+    ml.forEach((x, i) => { if ([0, 1, 9].includes(x[2])) return; op++; if (x[2] === 3) ah++; let near = false; for (let j = Math.max(0, i - 6); j < Math.min(n, i + 7); j++) if (ml[j][6]) near = true; if (!near) bad++; });
+    r.render = { open:op, noVoice:bad, ah }; }
+  const res0 = c.checks(r), res = process.env.RENDER ? [...res0, ['made video: a mouth open with no voice near it: under 3% of open frames (' + r.render.noVoice + '/' + r.render.open + ')', r.render.noVoice <= 0.03 * r.render.open],
+    ...(r.sing ? [] : [['made video: the wide AH is under 30% of open frames when talking, not shouting all the time (' + r.render.ah + ')', r.render.ah <= 0.3 * r.render.open]])] : res0;
+  const secs = Math.round((Date.now() - t0) / 1000);
   fs.writeFileSync(`${G}/${name}${process.env.NOAV ? ".noav" : ""}.result.json`, JSON.stringify(r));
   return { name, secs, res, r, cached:!!T.scanIn, refollowed:!!saved.follow && !!T.followIn, errs };
 }
