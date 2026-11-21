@@ -3020,11 +3020,21 @@ function faceIdNet() {
   })().catch(e => { console.warn('face id', e); FACEID = null; return null; });
   return FACEID;
 }
-const vmSeek = (v, t) => new Promise(res => {
+// Safari in the background (another app, the screen off): the page stops and the video draws nothing new. A frame read
+// then is a stale or blank one, so the faces in it go missing (a whole cast came out as one person). The reading waits
+// until the page is back, and a seek that the page left in the middle of is done again.
+let vmHiddenN = 0; document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') vmHiddenN++; });
+const vmAwake = () => document.visibilityState === 'visible' ? Promise.resolve() : new Promise(r => { const f = () => { if (document.visibilityState === 'visible') { document.removeEventListener('visibilitychange', f); setTimeout(r, 400); } }; document.addEventListener('visibilitychange', f); });
+const vmSeek1 = (v, t) => new Promise(res => {
   let done = false; const fin = () => { if (!done) { done = true; res(); } };
   v.onseeked = () => { if (v.requestVideoFrameCallback) { v.requestVideoFrameCallback(fin); setTimeout(fin, 250); } else requestAnimationFrame(fin); };
   setTimeout(fin, 1500); v.currentTime = t;
 });
+const vmSeek = async (v, t) => { for (let k = 0; k < 5; k++) { await vmAwake(); const h = vmHiddenN; await vmSeek1(v, t); if (h === vmHiddenN && document.visibilityState === 'visible') return; } };
+// (the screen kept on while a video is read or made: a phone going to sleep stops it)
+let vmLock = null;
+async function vmKeepAwake(on) { try { if (on) { if (!vmLock && navigator.wakeLock) { vmLock = await navigator.wakeLock.request('screen'); vmLock.addEventListener('release', () => { vmLock = null; }); } } else if (vmLock) { await vmLock.release(); vmLock = null; } } catch (e) {} }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && (VM.busy || VM.rendering)) vmKeepAwake(true); });
 // The part of the clip in use: VM.off seconds in, VM.dur long (the quiet start and end trimmed off, or the 90 seconds
 // picked from a longer clip). Every video made from the clip gets a clock that starts at the part's start and stops at
 // its end, so the rest of the code works in the part's own time as if the clip were only that.
@@ -3080,7 +3090,7 @@ async function vmPartScreen(v, s0, len) {
   $('ppPlay').onclick = () => { if (!pv.paused) { pv.pause(); return; } pv.currentTime = st; pv.play().catch(() => {});
     const stop = () => { if (pv.currentTime >= st + len) { pv.pause(); pv.removeEventListener('timeupdate', stop); } }; pv.addEventListener('timeupdate', stop); };
   return new Promise(res => {
-    $('ppGo').onclick = () => { pv.pause(); vmShow('Watching your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`); res([st, st + len]); };
+    $('ppGo').onclick = () => { pv.pause(); vmShow('NIBBLING…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`); res([st, st + len]); };
     const iv = setInterval(() => { if (VM.cancel || !$('ppGo')) { clearInterval(iv); if (VM.cancel) res(null); } }, 300);
   });
 }
@@ -3098,8 +3108,8 @@ const vmProg = p => { const e = $('vmProg'); if (e) e.style.width = Math.max(0, 
 const vmMsg = s => { const e = $('vmMsg'); if (e) e.textContent = s; };
 async function vmAnalyse(file, grab, want) {
   Object.assign(VM, { cap:{ on:false, style:'pop', words:null, busy:false, err:null }, soundFrom:null, lmiRetried:false, grabInfo:null, soundTrack:null, soundErr:null, cancel:false, flip:null, same:{}, lines:[], talk:null, crowd:null, cast:{}, group:null, sing:null, bgSet:false, hist:[], start:null, arts:{}, ps:{}, people:[], tab:'people', env:null, found:[], like:{} });
-  vmShow('Watching your video…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p>`);
-  let v = null;
+  vmShow('NIBBLING…', `<div class="vm-bar"><i id="vmProg"></i></div><p class="note" id="vmMsg">Getting ready…</p><p class="note">Keep this screen open: your phone does all the work (nothing is uploaded), and it pauses while you're in another app.</p>`);
+  let v = null; VM.busy = true; vmKeepAwake(true); VM.times = {}; const T00 = performance.now(), mark = k => { VM.times[k] = Math.round((performance.now() - T00) / 100) / 10; };
   try {
     if (VM.url) URL.revokeObjectURL(VM.url);
     VM.url = URL.createObjectURL(file);
@@ -3123,7 +3133,7 @@ async function vmAnalyse(file, grab, want) {
     VM.lmi = VM.lmi || await makeLandmarker(6, 0.3, 'IMAGE');
     vmProg(9); const fa = await idP;
     try { await v.play(); } catch (e) {} v.pause();
-    vmMsg('Seeing who’s in it…');
+    mark('sound'); vmMsg('Seeing who’s in it…');
     // (tests: a saved first look and saved face readings stand in for reading the video again; see vmTestHooks)
     const T = window.__T, scan = T && T.scanIn ? vmScanLoad(T.scanIn) : await vmScan(v, fa, p => vmProg(10 + p * 38));
     if (VM.cancel || !scan) return;
@@ -3138,7 +3148,7 @@ async function vmAnalyse(file, grab, want) {
     const saved = T && T.followIn && who.people.length && who.people.every(p => T.followIn[sig(p)]);
     if (saved) who.people.forEach(p => Object.assign(p, T.followIn[sig(p)]));
     else if (who.people.length) {
-      vmMsg(who.people.length > 1 ? 'Following everyone who talks…' : 'Following the main person…');
+      mark('look'); vmMsg(who.people.length > 1 ? 'Following everyone who talks…' : 'Following the main person…');
       await vmFollow(v, who, p => vmProg(48 + p * 24));
       if (T) { T.follow = {}; for (const p of who.people) T.follow[sig(p)] = { smp:p.smp, lipOk:p.lipOk, spans:p.spans, moLo:p.moLo, moHi:p.moHi }; }
       try { VM.lmi && VM.lmi.close(); } catch (e) {} VM.lmi = null;   // (its memory back for the Nibbles: made again for the next video)
@@ -3147,7 +3157,7 @@ async function vmAnalyse(file, grab, want) {
     // the voices (tests: read beforehand, or not at all)
     // (if the page died while listening last time (out of memory: the phone reloads it), this phone skips it for a week)
     let died = 0; try { died = +localStorage.getItem('nfVoiceDied') || 0; } catch (e) {}
-    if (!VM.voice && b && fa && !(T && T.noVoice) && Date.now() - died > 7 * 864e5) { vmMsg('Listening to who’s talking…');
+    mark('follow'); if (!VM.voice && b && fa && !(T && T.noVoice) && Date.now() - died > 7 * 864e5) { vmMsg('Listening to who’s talking…');
       try { localStorage.setItem('nfVoiceDied', String(Date.now())); } catch (e) {}
       try { VM.voice = await vmVoicePrints(VM.trimmed ? vmSlice(b, part[0], part[1]) : b, fa.tf, p => vmProg(72 + p * 18)); } catch (e) { console.warn('voices', e); VM.voice = null; }
       try { localStorage.removeItem('nfVoiceDied'); } catch (e) {}
@@ -3159,14 +3169,14 @@ async function vmAnalyse(file, grab, want) {
     vmTimeline();
     VM.like = {}; VM.mine = S.chosen && NIBBLES[S.id] ? +S.id : null;
     // (the bar's last tenth: Nibbles that look like them, each made ready from its kit, its news under the bar too)
-    if (!(T && T.noLike)) { vmMsg('Picking Nibbles that look like them…'); VM.looking = true; try { await Promise.race([vmLookalikes(true, p => vmProg(90 + p * 10)), new Promise(r => setTimeout(r, 25000))]); } catch (e) {} VM.looking = false; }
+    mark('voices'); if (!(T && T.noLike)) { vmMsg('Picking Nibbles that look like them…'); VM.looking = true; try { await Promise.race([vmLookalikes(true, p => vmProg(90 + p * 10)), new Promise(r => setTimeout(r, 25000))]); } catch (e) {} VM.looking = false; }
     vmProg(100);
     vmDefaults();
     vmStudio();
   } catch (e) {
     console.warn('analyse', e);
     vmShow('Nibble a Video', `<p>${e === 'long' ? 'That video is longer than 3 minutes. Trim it and try again.' : 'That video wouldn’t open here. Try another file (MP4 or MOV).'}</p>`);
-  } finally { if (v) v.remove(); }
+  } finally { if (v) v.remove(); if (VM.times) VM.times.all = Math.round((performance.now() - T00) / 100) / 10; VM.busy = false; if (!VM.rendering) vmKeepAwake(false); }
 }
 // (tests) the first look as plain data and back: faces once each (their numbers as plain lists), samples and tracks by id
 function vmScanSave(scan) {
@@ -3410,6 +3420,7 @@ async function vmFollow(v, who, prog) {
       v.onended = () => end(true);
       const onFrame = (_, meta) => {
         if (fin) return; if (VM.cancel) return end(true);
+        if (document.visibilityState !== 'visible') { v.requestVideoFrameCallback(onFrame); return; }   // (missed frames are gone back for below)
         const t = meta && meta.mediaTime != null ? meta.mediaTime - (VM.off || 0) : v.currentTime;
         if (t >= VM.dur - 0.02) return end(true);
         if (t - last >= step * 0.95) {
@@ -3425,7 +3436,9 @@ async function vmFollow(v, who, prog) {
       v.requestVideoFrameCallback(onFrame);
       let ticks = 0;
       try { await v.play(); } catch (e) { return end(false); }
-      const watch = setInterval(() => { ticks++; if (fin) return clearInterval(watch); if (ticks > 8 && v.currentTime < 0.05) { clearInterval(watch); end(false); } }, 500);   // no frames came
+      const back = () => { if (document.visibilityState === 'visible' && !fin && v.paused) v.play().catch(() => {}); };   // (Safari pauses it in the background)
+      document.addEventListener('visibilitychange', back);
+      const watch = setInterval(() => { ticks++; if (fin) { document.removeEventListener('visibilitychange', back); return clearInterval(watch); } back(); if (ticks > 8 && v.currentTime < 0.05) { clearInterval(watch); end(false); } }, 500);   // no frames came
     });
   }
   D.mode = played ? 'play' : 'seek';
@@ -4113,7 +4126,7 @@ function vmReportData() {
     back:(VM.back || []).map(b => [r1(b.t0), r1(b.t1)]), crowd:VM.crowd ? VM.crowd.n : 0, group:VM.group, sing:VM.sing, found:(VM.found || []).length,
     who:VM.whoDbg || null, follow:VM.diag || null, cuts:(VM.cutT || []).length,
     sound:{ from:VM.soundFrom, err:VM.soundErr || null, grab:VM.grabInfo || null, classifier:nv ? 'ok' : 'none', noVoice:nv ? r1(quiet / 50) : null, music:nv ? +(nv.music || 0).toFixed(2) : null },
-    captions:VM.cap ? { on:!!VM.cap.on, words:(VM.cap.words || []).length } : null, err:VM.err ? String(VM.err).slice(0, 300) : null, edits:(VM.hist || []).length };
+    captions:VM.cap ? { on:!!VM.cap.on, words:(VM.cap.words || []).length } : null, times:VM.times || null, hidden:vmHiddenN, err:VM.err ? String(VM.err).slice(0, 300) : null, edits:(VM.hist || []).length };
 }
 function vmReportWire() {
   const go = $('vmRepGo'), said = $('vmRepSaid');
@@ -4663,7 +4676,7 @@ async function vmRender() {
     }
     await Promise.all(pics.filter(Boolean).map(i => i.complete && i.naturalWidth ? 0 : new Promise(r => { i.addEventListener('load', r, { once:true }); i.addEventListener('error', r, { once:true }); setTimeout(r, 5000); })));
     S.bg = VM.bg;
-    VM.rendering = true; setShape(VM.shape); vmFit();
+    VM.rendering = true; vmKeepAwake(true); setShape(VM.shape); vmFit();
     const v = vmPart(document.createElement('video')); v.src = VM.url; v.playsInline = true; v.preload = 'auto'; VM.v = v;
     await new Promise((res, rej) => { v.oncanplay = res; v.onerror = rej; v.load(); });
     if (VM.off) await vmSeek(v, 0);   // (the part's start)
@@ -4711,7 +4724,7 @@ function vmStop(cancel) {
   if (cancel) vmHide();
 }
 function vmRestore() {
-  if (!VM.rendering) return; VM.rendering = false; $('vm').classList.remove('rendering');
+  if (!VM.rendering) return; VM.rendering = false; vmKeepAwake(false); $('vm').classList.remove('rendering');
   const k = VM.keep; if (!k) return;
   Object.assign(V, k.v); V.noWhistle = false; S.id = k.id; S.art = k.art; S.trait = k.trait; S.bg = k.bg; S.face = k.face; S.mouth = k.mouth; S.eye = k.eye; S.tracking = false;
   setShape(k.shape); MH.length = 0; openLvl = 0; S.fit = 1;
