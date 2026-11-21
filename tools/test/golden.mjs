@@ -98,7 +98,9 @@ const routes = async pg => {
   await pg.route(/storage\.googleapis\.com.*yamnet\.tflite/, r => r.fulfill({ body:fs.readFileSync('/tmp/yam/package/src/model/yamnet.tflite'), contentType:'application/octet-stream' }));
   await pg.route(/storage\.googleapis\.com.*face_landmarker\.task/, r => r.fulfill({ body:fs.readFileSync(`${mp}/pk/package/face_landmarker.task`), contentType:'application/octet-stream' }));
   await pg.route('https://d24r2edyfve7yo.cloudfront.net/**', r => { const m = r.request().url().match(/(\d+)\.png/), f = m && `${S}/research/full/${m[1]}.png`; if (process.env.RENDER && f && fs.existsSync(f)) r.fulfill({ path:f, contentType:'image/png', headers:{ 'access-control-allow-origin':'*' } }); else r.abort(); });
-  await pg.route('https://jmiesqhrpcmrthrquqpq.supabase.co/**', r => r.fulfill({ json:[] }));
+  await pg.route('https://jmiesqhrpcmrthrquqpq.supabase.co/**', r => { const q = r.request();
+    if (process.env.TRACE && q.method() === 'POST' && /nf_reports/.test(q.url())) fs.appendFileSync(process.env.TRACE, q.postData() + '\n');   // (the tracking device's reports, kept for the check)
+    r.fulfill({ json:[] }); });
 };
 async function run(name) {
   const c = CLIPS[name], t0 = Date.now(), sf = `${G}/${name}.scan.json`, ff = `${G}/${name}.follow.json`;
