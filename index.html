@@ -994,7 +994,9 @@ const groupOf = a => a && KIT_GROUP[a.Character + ':' + a.Skin];
 const kitFor = t => { const a = t && t.a; if (groupOf(a)) return groupOf(a).ref; return a && !SPECIAL_SKINS.has(a.Skin) && !KIT_SKIP.has(a.Character + ':' + a.Skin) ? KIT_REF[a.Character] || null : null; };
 // eyes that don't blink: fire, lasers, X / knocked out, spirals, slot machines, glasses and anything worn over the eyes
 const NO_BLINK = /fire|ignis|laser|knocked|dizzy|slot|3d|glasses|monocle|robot|anatomy|empty|whites|eyepatch|button|glowing|magic|three|awooga|burglar/i;
-const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || ''));
+// (light beavers with eyelashes: the kit's closed eyes smear their lashes into a grey ghost, so they don't blink until the
+// beaver kit has closed eyes drawn for them)
+const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|visor|opera mask/i.test(String(a.Accessory || '')) && !(a.Eyes === 'Beaver Eyelashes' && /albino|white|light/i.test(String(a.Skin || '')));
 // A plain-mouthed Nibble of the same kind, skin and outfit (and accessory if one exists): what this Nibble looks like under
 // its own big mouth, for the talking mouths (kit.js). null when this Nibble's mouth is plain already or there's none.
 const PLAIN_MOUTH = ['Smile', 'Frown'];
