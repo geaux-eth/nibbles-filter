@@ -6,6 +6,7 @@
 // Mouth checks read the mouth track itself (window.__nf.voicedTrack, every moment counted as inside a line); MOUTHOFF=1
 // runs them without the laugh rule (they must fail then). SND=1 dumps the sound readings, PROG=1 prints the bar's steps.
 // RENDER=1 also makes the video and checks its mouths: none open with no voice near, the wide AH under 30% when talking.
+// HIDE=ms hides the page (as if Safari went to the background) once the bar passes 15%.
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 import fs from 'fs';
 import { serve } from '../serve2.mjs';
@@ -110,7 +111,10 @@ async function run(name) {
   if (process.env.SND) await pg.evaluate(() => { window.__soundDbg = []; });
   if (process.env.PROG) await pg.evaluate(() => { window.__prog = []; const ob = new MutationObserver(() => { const e = document.getElementById('vmProg'), m = document.getElementById('vmMsg'); if (e) window.__prog.push([e.style.width, m ? m.textContent : '']); }); ob.observe(document.body, { attributes:true, subtree:true, attributeFilter:['style'], childList:true, characterData:true }); });
   let tick = null; if (process.env.LOG) { pg.on('console', m => console.log('[c]', m.type(), m.text().slice(0, 300))); pg.on('pageerror', e => console.log('[err]', String(e).slice(0, 400))); tick = setInterval(async () => { try { console.log('[msg]', Math.round((Date.now() - t0) / 1000), await pg.evaluate(() => (document.getElementById('vmMsg') || {}).textContent)); } catch {} }, 20000); }
+  if (process.env.HIDE) await pg.evaluate(() => { let vis = 'visible'; Object.defineProperty(document, 'visibilityState', { get:() => vis }); Object.defineProperty(document, 'hidden', { get:() => vis !== 'visible' });
+    window.__hide = ms => { vis = 'hidden'; document.dispatchEvent(new Event('visibilitychange')); const v = window.__vm.grabV || document.querySelector('video'); setTimeout(() => { vis = 'visible'; document.dispatchEvent(new Event('visibilitychange')); }, ms); }; });
   await pg.click('#vidBtn'); await pg.setInputFiles('#vmFile', `${S}/${c.file}`);
+  if (process.env.HIDE) { const hid = setInterval(async () => { try { const w = await pg.evaluate(() => parseFloat((document.getElementById('vmProg') || {}).style?.width || '0')); if (w > 15) { clearInterval(hid); await pg.evaluate(ms => window.__hide(ms), +process.env.HIDE); console.log('hidden at', w + '%'); } } catch (e) {} }, 500); }
   await pg.waitForSelector('#edMake', { timeout:+process.env.TMO || 1800000 }).finally(() => tick && clearInterval(tick));
   if (process.env.VOICED) { const d = await pg.evaluate(() => ({ old:window.__nf.voicedTrack(true), now:window.__nf.voicedTrack(false) })); fs.writeFileSync(`${G}/${name}.voiced.json`, JSON.stringify(d)); }
   if (process.env.BGTEST) { await pg.click('[data-tab="look"]'); await pg.waitForSelector('#vmBg');
