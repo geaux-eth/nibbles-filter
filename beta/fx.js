@@ -17,7 +17,7 @@ export const FX_HAND = {
   3159: { lights:[[572, 150, 30, '#ffffff'], [570, 480, 130, '#38f800', 80]] },         // antenna ball, the two green pupils (not the round shines on them)
   3295: { lights:[[540, 450, 130, '#ffd23f'], [560, 330, 45, '#a24bff']] },              // yellow eyes, purple gem
   3543: { lights:[[560, 330, 150, '#3cff5a']] },                                        // green visor
-  5900: { lights:[[500, 215, 45, '#ff3b30'], [150, 240, 26, '#ffffff'], [560, 400, 150, '#ffd23f']] },   // red antenna light, eyes
+  5900: { lights:[[500, 215, 45, '#ff3b30'], [150, 240, 26, '#ffffff'], [560, 400, 150, '#ffd23f']], bulb:[667, 460, 50, '#ffd23f'] },   // red antenna light, eyes; the nose is a light bulb (GEAUX: it switches on and off at random)
   8482: { lights:[[602, 168, 30, '#ffffff'], [560, 440, 120, '#3cff5a'], [470, 900, 110, '#3cff5a']] },  // antenna, visor, chest screen
   794:  { heart:true }, 1998:{ heart:true }, 3538:{ heart:true }, 5807:{ heart:true },
   7192: { heart:true }, 7813:{ heart:true }, 8617:{ heart:true }, 8637:{ heart:{ x1:530 } },   // (8637: the wattle beside the heart is red too, and stays still)
@@ -204,6 +204,22 @@ export function prepareFx(base, traits = {}, hand = null) {
     const sm = cv(Math.max(1, Math.round(w / 10)), Math.max(1, Math.round(h / 10))), smg = sm.getContext('2d'); smg.imageSmoothingQuality = 'high'; smg.drawImage(sh, 0, 0, sm.width, sm.height);
     const glow = cv(w, h), gg = glow.getContext('2d'); gg.imageSmoothingQuality = 'high'; gg.drawImage(sm, 0, 0, w, h); gg.drawImage(sm, -3, -3, w + 6, h + 6);
     return { x, y, r, col, img:sprite(d, m, bx), glow, pad, box:bx, ph:k * 1.7 }; }) });
+  // a light bulb (the robot bear's nose): its grey glass and filament lit warm yellow, switched on and off at random
+  if (hand && hand.bulb) {
+    const [x, y, r, col] = hand.bulb, [cr, cg, cb] = hexRGB(col), m = new Uint8Array(N * N), bx = [x - r, y - r, x + r, y + r];
+    for (let yy = y - r; yy <= y + r; yy++) for (let xx = x - r; xx <= x + r; xx++) { const i = yy * N + xx;   // the glass: blue-grey, not the black rim
+      if (A(i) > 200 && Math.hypot(xx - x, yy - y) < r && lum(d, i) > 80 && d[i * 4 + 2] > d[i * 4] + 15) m[i] = 1; }
+    const lit = sprite(d, m, bx), lg = lit.getContext('2d'), im = lg.getImageData(0, 0, lit.width, lit.height);
+    for (let o = 0; o < im.data.length; o += 4) { if (!im.data[o + 3]) continue; const L = (0.3 * im.data[o] + 0.59 * im.data[o + 1] + 0.11 * im.data[o + 2] - 100) / 90, k = Math.max(0, Math.min(1, L));
+      im.data[o] = cr + (255 - cr) * k; im.data[o + 1] = cg + (250 - cg) * k; im.data[o + 2] = cb + (215 - cb) * k; }   // the glass yellow, the filament and the shine near white
+    lg.putImageData(im, 0, 0);
+    const pad = 34, w = lit.width + pad * 2, h = lit.height + pad * 2, sm = cv(Math.round(w / 9), Math.round(h / 9)), smg = sm.getContext('2d'); smg.drawImage(lit, pad / 9, pad / 9, lit.width / 9, lit.height / 9);
+    const glow = cv(w, h), gg = glow.getContext('2d'); gg.imageSmoothingQuality = 'high'; gg.drawImage(sm, 0, 0, w, h); gg.drawImage(sm, -5, -5, w + 10, h + 10);
+    // on and off at random: on for 0.3–2.5 s, off for 0.4–3 s (a fixed random run, so a preview and the made video agree)
+    let sd = 7, t = 0; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647, seq = [];
+    for (let k = 0; t < 600; k++) { const len = k % 2 ? 0.4 + rnd() * 2.6 : 0.3 + rnd() * 2.2; seq.push([t, t + len, !(k % 2)]); t += len; }
+    fx.push({ type:'bulb', lit, glow, pad, box:bx, seq, total:t });
+  }
   if (hand && hand.heart) {
     const red = new Uint8Array(N * N); for (let y = 520; y < N; y++) for (let x = 0; x < N; x++) { const i = y * N + x, r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2]; if (A(i) > 200 && r > 165 && g < 95 && b < 105 && !(hand.heart.x1 && x > hand.heart.x1)) red[i] = 1; }
     const ps = parts(red, 60).sort((a, b) => b.n - a.n);
@@ -305,6 +321,10 @@ export function drawFx(ctx, fx, t, x, y, size) {
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = 0.55 * on; ctx.drawImage(l.img, l.box[0], l.box[1]);
       ctx.globalAlpha = on; ctx.drawImage(l.glow, l.box[0] - l.pad, l.box[1] - l.pad); ctx.globalAlpha = 0.5 * on; ctx.drawImage(l.glow, l.box[0] - l.pad, l.box[1] - l.pad); ctx.restore();
+    }
+    else if (f.type === 'bulb') {
+      const s = (t / 1000) % f.total; let on = false; for (const q of f.seq) if (s >= q[0] && s < q[1]) { on = q[2]; break; }
+      if (on) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.6; ctx.drawImage(f.glow, f.box[0] - f.pad, f.box[1] - f.pad); ctx.restore(); ctx.drawImage(f.lit, f.box[0], f.box[1]); }   // (the glow round it, the bulb itself on top: yellow, not washed white)
     }
     else if (f.type === 'heart') {   // lub-dub: the heart swells behind the ribs
       const s = 1 + 0.09 * beat(t), [x0, y0] = f.box;

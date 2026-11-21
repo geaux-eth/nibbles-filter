@@ -24,7 +24,9 @@ export async function loadImage(file) {
 }
 
 // ---------- the picture: cut away its flat (or gently shaded) background, flooding in from the top and sides
-export function cutOriginal(img) {
+// (gaps: [x, y] spots inside the outline where the background shows through, a kind's own pose: a gecko's tail and
+// neck leave one. Cut too when the colour there is the background's, nothing otherwise.)
+export function cutOriginal(img, gaps = []) {
   const c = cv(N, N), g = g2(c); g.drawImage(img, 0, 0, N, N);
   const id = g.getImageData(0, 0, N, N), d = id.data;
   const at = (x, y) => { const i = (y * N + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
@@ -36,6 +38,7 @@ export function cutOriginal(img) {
   const push = i => { rem[i] = 1; q[qt++] = i; };
   for (let x = 0; x < N; x++) if (ds(x) < 40) push(x);
   for (let y = 0; y < N; y++) for (const x of [0, N - 1]) { const i = y * N + x; if (!rem[i] && ds(i) < 40) push(i); }
+  for (const [gx, gy] of gaps) for (const [ox, oy] of [[0, 0], [-10, -15], [10, 15], [-5, -5]]) { const i = (gy + oy) * N + gx + ox; if (!rem[i] && ds(i) < 20) push(i); }
   while (qh < qt) {
     const i = q[qh++], x = i % N, y = (i / N) | 0;
     const nb = [x > 0 ? i - 1 : -1, x < N - 1 ? i + 1 : -1, y > 0 ? i - N : -1, y < N - 1 ? i + N : -1];

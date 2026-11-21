@@ -17,8 +17,10 @@ export const server = http.createServer((req, res) => {
   if ((m = u.match(/^\/cdn\/npm\/@vladmandic\/face-api@[^/]+\/(.*)/))) return send(res, `${S}/fa/package/${m[1]}`);
   if (/yamnet\.tflite$/.test(u)) return send(res, '/tmp/yam/package/src/model/yamnet.tflite');
   if (/face_landmarker\.task$/.test(u)) return send(res, `${S}/mp/pk/package/face_landmarker.task`);
+  if ((m = u.match(/^\/cf\/.*?(\d+)\.png$/)) && fs.existsSync(`${S}/research/full/${m[1]}.png`)) return send(res, `${S}/research/full/${m[1]}.png`);
+  if (process.env.PREFIX && !u.startsWith(process.env.PREFIX + '/') && !u.startsWith('/clips/')) { res.writeHead(404); return res.end(); }   // (the site lives in a folder, as on github.io: nothing above it)
   if (u.startsWith('/cdn/') || u.startsWith('/cf/') || u === '/none') { res.writeHead(404); return res.end(); }
   if (u.startsWith('/clips/')) return send(res, S + u.slice(6));
-  send(res, path.join(ROOT, u === '/' ? '/index.html' : u), true);
+  const v = process.env.PREFIX ? u.slice(process.env.PREFIX.length) : u; send(res, path.join(ROOT, v === '/' ? '/index.html' : v), true);
 });
 if (process.argv[1].endsWith('wkserve.mjs')) server.listen(PORT, () => console.log('serving on', PORT));
