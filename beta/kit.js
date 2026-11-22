@@ -125,7 +125,7 @@ function colourMap(R, T, where, okT) {
 
 // T: this Nibble's picture (background cut, 1000 px). ref: { base, mouths[10], eyes[5] } of the kind's reference.
 // Returns { frames[10], eyes[5], mouthBox, eyeBox } in the builder's format.
-export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null } = {}) {
+export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null, gum = false } = {}) {
   const T = data(Timg), T0 = T.slice(), R = data(ref.base), K = ref.mouths.map(data);
   // Gemini's panels have small dark flecks in the fur: a dark spot too small to be part of a line takes the colour around it
   for (let k = 1; k < 10; k++) unfleck(K[k]);
@@ -142,8 +142,10 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
   // face stays this Nibble's own.
   if (donor) { const Dn = data(donor), zone = grow(Zd, 320), dm = new Uint8Array(N * N);
     let ztop = N; for (let p = 0; p < N * N; p++) if (Z[p]) { ztop = (p / N) | 0; break; }
-    for (let p = 0; p < N * N; p++) if (((p / N) | 0) < ztop - 10) zone[p] = 0;   // (the eyes, a hat: this Nibble's own, never the donor's)
-    if (ref.eyes) for (const e of [ref.eyes[3], ref.eyes[4]]) if (e) { const E = data(e), ez = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) if (E[p * 4 + 3] > 20) ez[p] = 1;
+    // (a gum bubble swells up over the snout, well above the mouth: all of it goes, GEAUX 21 Nov. The eyes stay this Nibble's own)
+    for (let p = 0; p < N * N; p++) if (((p / N) | 0) < ztop - (gum ? 260 : 10)) zone[p] = 0;   // (the eyes, a hat: this Nibble's own, never the donor's)
+    // (with a gum bubble, only where the blink actually changes the picture: the beaver's blink layer reaches down over its whole snout)
+    if (ref.eyes) for (const e of [ref.eyes[3], ref.eyes[4]]) if (e) { const E = data(e), ez = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) if (E[p * 4 + 3] > 20 && (!gum || dist(E, p * 4, R, p * 4) > 40)) ez[p] = 1;
       const eg = grow(ez, 24); for (let p = 0; p < N * N; p++) if (eg[p]) zone[p] = 0; }
     for (let p = 0; p < N * N; p++) { if (!zone[p]) continue; const i = p * 4; if (Math.abs(T[i + 3] - Dn[i + 3]) > 60 || dist(T, i, Dn, i) > 50) dm[p] = 1; }
     // only the pieces that reach into the mouth area (the mouth itself, its drool or tongue); not eyes or anything else
@@ -152,8 +154,17 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       while (h < t) { const p = q[h++], x = p % N; if (Zd[p]) inZ++; for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && dm[j] && !lab[j]) { lab[j] = id; q[t++] = j; } }
       // (mostly in the mouth area: a hood, a scarf or a cape that the donor doesn't wear is this Nibble's own, never swapped)
       if (inZ >= 20) {
-        if (inZ >= t * 0.3) for (let k = 0; k < t; k++) use[q[k]] = 1; } }
+        if (inZ >= t * (gum ? 0.08 : 0.3)) for (let k = 0; k < t; k++) use[q[k]] = 1; } }
+    // the gum bubble itself, whole: its pink (and the outline and shine inside it), joined to the mouth area
+    let gm = null;
+    if (gum) { const pink = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) { const i = p * 4; if (T[i + 3] > 200 && T[i] > 170 && T[i] - T[i + 1] > 50 && T[i + 2] > T[i + 1] + 20) pink[p] = 1; }
+      const lb = new Int32Array(N * N), q2 = new Int32Array(N * N), keep = new Uint8Array(N * N); let n2 = 0;
+      for (let s0 = 0; s0 < N * N; s0++) { if (!pink[s0] || lb[s0]) continue; n2++; let h = 0, t = 0, inZ = 0; q2[t++] = s0; lb[s0] = n2;
+        while (h < t) { const p = q2[h++], x = p % N; if (Zd[p]) inZ++; for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && pink[j] && !lb[j]) { lb[j] = n2; q2[t++] = j; } }
+        if (inZ >= 20 && t >= 400) for (let k = 0; k < t; k++) keep[q2[k]] = 1; }
+      gm = grow(fillHoles(grow(keep, 4)), 6); }
     const g = grow(fillHoles(use), 3); donor.box = [N, N, 0, 0];
+    if (gm) for (let p = 0; p < N * N; p++) if (gm[p]) { g[p] = 1; zone[p] = 1; }
     for (let p = 0; p < N * N; p++) if (g[p] && zone[p]) { const i = p * 4, x = p % N, y = (p / N) | 0; const b = donor.box; if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; T[i] = Dn[i]; T[i + 1] = Dn[i + 1]; T[i + 2] = Dn[i + 2]; T[i + 3] = Dn[i + 3]; } }
   for (let p = 0; p < N * N; p++) if (Zd[p]) ring[p] = 0;
   // and around the eyes (the blink layers): the fur there can differ from the snout's
