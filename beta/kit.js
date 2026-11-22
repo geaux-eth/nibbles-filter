@@ -424,6 +424,9 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       // below the mouth, outside the mouth itself, unchanged by this mouth: this Nibble's own clothes and their lines stay
       // (a naked reference's neck fur was painted over a tank top's neckline)
       if (sameDR(i) && ((p / N) | 0) > zy && T[i + 3] > 200 && (tCloth[p] || (lum(T, i) < 100 && tClothNear[p]))) { keepT[p] = 1; continue; }   // this Nibble has nothing here (the reference's backpack edge isn't its)
+      // a line of the reference's own that this mouth leaves where it was, over something of this Nibble's that isn't a
+      // line (the beaver reference's suspender edge across a beaver's bow, GEAUX 21 Nov): this Nibble's own
+      if (sameDR(i) && lum(D, i) < 150 && T[i + 3] > 200 && lum(T, i) >= 150) { keepT[p] = 1; continue; }
       if (sameDR(i) && (!ownG[p] || (R[i + 3] > 200 && lum(R, i) >= 260 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2])))) { keepT[p] = 1; continue; }   // (a grey line edge isn't clothes)
       // skin: drawn in this Nibble's matching colour; a skin colour with no match here (a chin its hoodie hides) is filled from its own picture
       if (mouthy || isSkin(D, i)) { if (mouthy) continue; const mm = lum(D, i) >= 75 ? map(D[i], D[i + 1], D[i + 2]) : 1, m = mapped(D, i);
@@ -466,6 +469,9 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     const a = soft(useG), c = cv(), g = c.getContext('2d'), id = g.createImageData(N, N), o = id.data;
     for (let p = 0; p < N * N; p++) { const i = p * 4, w = a[p];
       if (w <= 0) { o[i] = T[i]; o[i + 1] = T[i + 1]; o[i + 2] = T[i + 2]; o[i + 3] = T[i + 3]; continue; }
+      // (the soft rim just outside the mouth's area: blended only where the mouth changes something. Where it doesn't, the
+      // reference's own picture there (its suspender lines) was half drawn over this Nibble's own (scribbles on a bow))
+      if (!useG[p] && sameDR(i)) { o[i] = T[i]; o[i + 1] = T[i + 1]; o[i + 2] = T[i + 2]; o[i + 3] = T[i + 3]; continue; }
       // with a donor, whatever this mouth leaves open is simply what the donor shows there (no guessing from around it)
       const f = donor && (hole[p] || fill.has(p)) ? [T[i], T[i + 1], T[i + 2]] : fill.get(p);
       // teeth stay white: a white the mouth draws where the reference had no white there is teeth, never recoloured as skin
@@ -533,6 +539,9 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
         if (inZ < t * 0.25 && cy < zy - 20) { for (let k = 0; k < t; k++) acc[q[k]] = 1; continue; } }
       if (donor || rig) continue;   // (the donor already shows the face there; a drawn mouth leaves the rest of the face alone)
       if (inZ < t * 0.25 || t > 30000) continue;   // mostly outside the mouth: clothes, a collar, not the mouth
+      // (and a mouth has a mouth's colours: a bow or a collar under the chin with none isn't one; the reference's suspender
+      // lines were painted over a beaver's bow as its 'face', GEAUX 21 Nov)
+      { let mc = 0; for (let k = 0; k < t; k++) { const i = q[k] * 4; if (T0[i + 3] > 200 && isMouthC(T0[i], T0[i + 1], T0[i + 2])) mc++; } if (mc < t * 0.08) continue; }
       for (let k = 0; k < t; k++) { const p = q[k], i = p * 4; if (Zd[p] || R[i + 3] < 200 || T[i + 3] < 100) continue;
         if (tBotP && inPal(tBotP, T[i], T[i + 1], T[i + 2]) && !inPal(tFaceP, T[i], T[i + 1], T[i + 2])) continue;   // (this Nibble's clothes: not its mouth; a plaid shirt's edge was painted cream)
         if (isSkin(R, i) || lum(R, i) < 160) bh[p] = 1; } }
@@ -542,6 +551,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
         for (let k = 1; k < frames.length; k++) { const g = frames[k].getContext('2d', { willReadFrequently:true }), id2 = g.getImageData(0, 0, N, N), o = id2.data;
           for (let p = 0; p < N * N; p++) { if (!(aw[p] > 0)) continue; const i = p * 4, w = aw[p]; for (let ch = 0; ch < 4; ch++) o[i + ch] = Math.round(o[i + ch] * (1 - w) + T0[i + ch] * w); }
           g.putImageData(id2, 0, 0); } } }
+    if (dbg) Object.assign(dbg, { bh, fr, acc });
     let any = false; for (let p = 0; p < N * N && !any; p++) if (fr[p] || bh[p]) any = true;
     if (any) {
       const frm = front && front !== 'stick' ? fillHoles(fr) : fr, fa = front ? soft(grow(frm, 1), 1) : null;

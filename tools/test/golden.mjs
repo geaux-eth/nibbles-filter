@@ -1,12 +1,5 @@
 // node ch/golden.mjs [name ...]   the test clips: read each (from its saved first look and face readings when there are
 // any: seconds), compare with what it should find, save the readings the first time. PAGE=beta/index.html by default.
-// Voice prints are saved too (<clip>.voice.json) and reused; NOVOICEIN=1 makes them again, NOVOICE=1 leaves voices out.
-// Run one browser at a time (POOL=1) on a small machine: two software-drawn browsers starve each other and the voice
-// step gives up (the page then carries on without voices, as before). LOG=1 prints the page's messages; TMO=ms wait.
-// Mouth checks read the mouth track itself (window.__nf.voicedTrack, every moment counted as inside a line); MOUTHOFF=1
-// runs them without the laugh rule (they must fail then). SND=1 dumps the sound readings, PROG=1 prints the bar's steps.
-// RENDER=1 also makes the video and checks its mouths: none open with no voice near, the wide AH under 30% when talking.
-// HIDE=ms hides the page (as if Safari went to the background) once the bar passes 15%.
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 import fs from 'fs';
 import { serve } from '../serve2.mjs';
@@ -57,11 +50,18 @@ const CLIPS = {
     ['4 people: Kramer, George, Jerry and Elaine', real(r).length === 4],
     ['Kramer\'s close-ups are his lines (2–5.8, 12–14, 24–27 s)', K >= 0 && at(13) === K && at(25) === K],
     ['George\'s close-ups are his (8–11.9, 28–30, 43–45 s)', G >= 0 && G !== K && at(29) === G && at(44) === G],
-    ['Jerry/Elaine two-shots go to Jerry or Elaine', [15, 19.5, 22].every(t => at(t) >= 0 && at(t) !== K && at(t) !== G)],
+    ['Jerry/Elaine two-shots go to Jerry or Elaine', [15, 22].every(t => at(t) >= 0 && at(t) !== K && at(t) !== G)],   // (19.5 s is Kramer off camera: GEAUX's edit)
     ['the laugh at 6.6–8.2 s is nobody\'s line', at(6.8) === -1 && at(7.6) === -1],
     ['the laugh at 6.6–8.2 s doesn\'t move a mouth, even if a line is stretched over it', mv(r, 6.6, 8.2) <= 0.15],
     ['GEAUX\'s own edit (21 Nov): Kramer 4, 12.5, 25, 38.3 s (and 35.2 s no one else); George 10, 30, 37, 44 s; Elaine 16, 41 s; Jerry 21.5 s',
-      (() => { const E = at(16), J = at(21.5); return [4, 12.5, 25, 38.3].every(t => at(t) === K) && [K, -1].includes(at(35.2)) && [10, 30, 37, 44].every(t => at(t) === G) && at(41) === E && new Set([K, G, E, J]).size === 4 && ![E, J].includes(-1); })()]]; } },
+      (() => { const E = at(16), J = at(21.5); return [4, 12.5, 25, 38.3].every(t => at(t) === K) && [K, -1].includes(at(35.2)) && [10, 30, 37, 44].every(t => at(t) === G) && at(41) === E && new Set([K, G, E, J]).size === 4 && ![E, J].includes(-1); })()],
+    // the audience's laugh at 26–27.7 s after Kramer's line: nobody's line (Jerry, laughing along, 'said' it: a cut to him)
+    ['the laugh at 26–27.7 s is nobody\'s line (no cut to someone laughing)', !r.lines.some(l => l[0] >= 25.9 && l[1] <= 27.8)],
+    // the whole of GEAUX's edit, every quarter second, as it's seen: who's on screen (their line, a pause under a second still
+    // on whoever just spoke, else the main one). A quarter second either side of each change not counted
+    (() => { const E = at(16), J = at(21.5), who = { K, G, E, J }, seen = t => { const w = at(t); if (w >= 0) return w; const l = r.lines.filter(l => l[1] <= t).pop(); return l && t - l[1] < 1 ? l[2] : 0; }, T = [[0, 9.1, 'K'], [9.1, 11.3, 'G'], [11.3, 14.5, 'K'], [14.5, 18.3, 'E'], [18.3, 20, 'K'], [20, 23.4, 'J'], [23.4, 27.7, 'K'], [27.7, 34.4, 'G'], [34.4, 36, 'K'], [36, 38.2, 'G'], [38.2, 39.7, 'K'], [39.7, 42.7, 'E'], [42.7, 45.6, 'G']];
+      let n = 0, ok = 0; const miss = []; for (const [a, b, w] of T) for (let t = a + 0.25; t < b - 0.25; t += 0.25) { n++; if (seen(t) === who[w] && who[w] >= 0) ok++; else if (!miss.length || t - miss[miss.length - 1][1] > 0.3) miss.push([+t.toFixed(2), +t.toFixed(2), w]); else miss[miss.length - 1][1] = +t.toFixed(2); }
+      const pc = Math.round(ok / n * 100); return ['GEAUX\'s edit, all of it: ' + pc + '% of the time the right person (85%+ to pass); wrong at ' + miss.map(m => m[0] + '–' + m[1] + ' ' + m[2]).join(', '), pc >= 85]; })()]; } },
   panel90:{ file:'n1/panel90.webm', checks:r => { const at = t => { const l = r.lines.find(l => l[0] <= t && t < l[1]); return l ? l[2] : -1; };
     const H = at(5), Ho = at(15), Gl = at(18.5), W = at(26), D = at(31);
     return [
