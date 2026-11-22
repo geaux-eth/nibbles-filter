@@ -499,7 +499,7 @@ const codeURL = f => new URL(CODE + f + '?v=' + ART_V, document.baseURI).href;
 // (and when one won't load, the tracking device notes the address and what the server said, so a phone's failure can be told
 // apart: not found, a network drop, or the script itself)
 const codeImport = f => import(codeURL(f)).catch(async e => { try { const r = await fetch(codeURL(f), { cache:'no-store' }); trk('importFailed', [codeURL(f), r.status, (r.headers.get('content-type') || '').slice(0, 40), String(e && e.message || e).slice(0, 120)]); } catch (e2) { trk('importFailed', [codeURL(f), 'no answer', String(e2).slice(0, 80)]); } throw e; });   // (the beta copy keeps its own code in beta/; art and data are shared)
-const ART_V = '20261121-2130';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261121-2330';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1062,12 +1062,16 @@ async function kitPrepare(id) {
       let rig = null; if (RIG_KINDS.has(kind) && (a.Mouth === 'Smile' || donor) && !groupOf(a)) { const RG = await codeImport('rig.js'); if (RG.RIGS[kind]) rig = { def:RG.RIGS[kind], draw:RG.rigFrames }; }
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop),
         donor, rig, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : /match/i.test(String(a.Mouth || '')) ? 'match' : FRONT_MOUTH.test(String(a.Mouth || '')) });
+      // (a beaver's wide-open jaw drops over the reference's suspenders; on any other outfit it left scraps over the collar
+      // or bow (GEAUX's sitcom, 21 Nov): its open mouth instead, for the wide AH and the L too)
+      if (kind === 'Beaver' && a.Outfit !== 'Beaver Handrywoman Blue' && res.frames && res.frames[2]) { res.frames[3] = res.frames[2]; res.frames[8] = res.frames[2]; }
       res.face = FACE_AT[ref];
       res.traits = B.findTraits(cut.canvas, res, kind, cut.bg, { halo:/halo/i.test(String(a.Accessory || '')), fire:/fire/i.test(String(a.Eyes || '')), laser:/laser/i.test(String(a.Eyes || '')) });
       const exp = await B.exportFiles(res, cut.canvas), files = {};
       const drop = () => { for (const c of [cut.canvas, ...(res.frames || []), ...(res.eyes || [])]) if (c && c.getContext) c.width = c.height = 0; };
       for (const k in exp.files) files[k] = URL.createObjectURL(exp.files[k]);
       NIBBLES[id] = { bg:cut.bg, fullFace:true, files, layout:exp.layout, jiggle:exp.layout.jig, kit:ref };
+      if (donor && !rig) NIBBLES[id].twinRest = a.Mouth === 'Frown' ? 9 : 1;
       const grp = groupOf(a);
       if (grp && grp.loop) { files.hole = URL.createObjectURL(await new Promise(r => res.faceMask.toBlob(r, 'image/png')));
         NIBBLES[id].trait = { frames:grp.frames, fps:grp.fps, from:grp.loop, hole:true, skinThrough:!!grp.skinThrough, drawnBlink:!!grp.drawnBlink }; }
@@ -2164,20 +2168,25 @@ function loopBlink(A) {
     return o; };
   return A._lb = { 3:make(true), 4:make(false) };
 }
+// the mouth frame drawn for mouth k. A Nibble with a big mouth of its own (drooling, a tongue out, a frown) talks with its
+// plain-mouthed twin's face under the talking mouths: in a made video its rest face is that twin's too (its shut mouth; a
+// frown its frown), so its own drool and tongue don't flash in and out between the words (GEAUX's sitcom, 21 Nov: the
+// drooling wolf and beaver). Everywhere else (the camera, a still) the rest face is its own.
+const shownMouth = k => k === 0 && (VM.rendering || VM.previewing) && NIBBLES[S.id] && NIBBLES[S.id].twinRest ? NIBBLES[S.id].twinRest : k;
 function drawLoopBody(t, x, y, size) {
   const tr = S.trait, fr = tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length], [lc, fc] = LOOP_C, lg = lc.getContext('2d'), fg = fc.getContext('2d');
   // the body whole, then the face faded onto it through the mask (cutting a hole and filling it would let the background show at the soft edge)
   lg.globalCompositeOperation = 'source-over'; lg.clearRect(0, 0, 1000, 1000); lg.drawImage(fr, 0, 0, 1000, 1000);
   if (tr.skinThrough) {   // slime: just the face's drawing, on the body's own skin
     const L = loopFace(S.art, tr), [bx, by] = L.box, e = S.eye.cur;
-    fg.globalCompositeOperation = 'source-over'; fg.clearRect(0, 0, 1000, 1000); fg.drawImage(L.mouths[S.mouth.cur], bx, by);
+    fg.globalCompositeOperation = 'source-over'; fg.clearRect(0, 0, 1000, 1000); fg.drawImage(L.mouths[shownMouth(S.mouth.cur)], bx, by);
     if (e > 0 && L.eyes[e]) { fg.globalCompositeOperation = 'destination-out'; fg.drawImage(S.art.eyes[e], 0, 0, 1000, 1000); fg.globalCompositeOperation = 'source-over';
       fg.drawImage(L.eyes[e], bx, by); if (L.brows) fg.drawImage(L.brows, bx, by); }
     ctx.drawImage(lc, x, y, size, size); ctx.drawImage(fc, x, y, size, size);
-    const tg = S.mouth.cur === 0 && tongueOf(S.art.mouths[0], tr.holeImg); if (tg) { const k = size / 1000; ctx.drawImage(tg.c, x + tg.x * k, y + tg.y * k, tg.c.width * k, tg.c.height * k); }
+    const tg = shownMouth(S.mouth.cur) === 0 && tongueOf(S.art.mouths[0], tr.holeImg); if (tg) { const k = size / 1000; ctx.drawImage(tg.c, x + tg.x * k, y + tg.y * k, tg.c.width * k, tg.c.height * k); }
     return;
   }
-  fg.globalCompositeOperation = 'source-over'; fg.clearRect(0, 0, 1000, 1000); fg.drawImage(S.art.mouths[S.mouth.cur], 0, 0, 1000, 1000);
+  fg.globalCompositeOperation = 'source-over'; fg.clearRect(0, 0, 1000, 1000); fg.drawImage(S.art.mouths[shownMouth(S.mouth.cur)], 0, 0, 1000, 1000);
   const lb = tr.drawnBlink && (S.eye.cur === 3 || S.eye.cur === 4) && loopBlink(S.art);
   if (lb) fg.drawImage(lb[S.eye.cur], 0, 0, 1000, 1000);
   else if (S.eye.cur > 0 && S.art.eyes[S.eye.cur]) fg.drawImage(S.art.eyes[S.eye.cur], 0, 0, 1000, 1000);   // the blink goes in the same masked face, so it never spills past the flames
@@ -2185,7 +2194,7 @@ function drawLoopBody(t, x, y, size) {
   ctx.drawImage(lc, x, y, size, size); ctx.drawImage(fc, x, y, size, size);
   // a tongue hanging out past the face reaches over the moving body (the face's outline would cut it off)
   // the resting face's tongue only (the other mouths keep just a stray end of it)
-  const tg = S.mouth.cur === 0 && tongueOf(S.art.mouths[0], tr.holeImg); if (tg) { const k = size / 1000; ctx.drawImage(tg.c, x + tg.x * k, y + tg.y * k, tg.c.width * k, tg.c.height * k); }
+  const tg = shownMouth(S.mouth.cur) === 0 && tongueOf(S.art.mouths[0], tr.holeImg); if (tg) { const k = size / 1000; ctx.drawImage(tg.c, x + tg.x * k, y + tg.y * k, tg.c.width * k, tg.c.height * k); }
 }
 const TONGUES = new WeakMap();
 // the tongue's own pixels (pink, with its ink outline), cut to its box: { c, x, y } in the 1000px art, or null.
@@ -2271,7 +2280,7 @@ function drawNibble(t) {
   S.charAt = { x, y, size, W, H, b:A.bounds, o:A.outline, id:S.id };
   if (S.trait && S.trait.holeImg) drawLoopBody(t, x, y, size);   // a moving body (fire, slime) with the talking face set into it
   else if (NIBBLES[S.id].fullFace) {
-    ctx.drawImage(A.mouths[S.mouth.cur], x, y, size, size);   // hard cut between drawn faces, like hand-drawn animation
+    ctx.drawImage(A.mouths[shownMouth(S.mouth.cur)], x, y, size, size);   // hard cut between drawn faces, like hand-drawn animation
   } else ctx.drawImage(A.base, x, y, size, size);
   // the body continues below the frame edge (and past a cut-off side): stretched from the picture's own last rows. A moving body
   // (fire, slime) stretches its current frame, so the part below never stands still while the flames above it move
@@ -2291,7 +2300,7 @@ function drawNibble(t) {
   else if (cfg.eyesAlways) ctx.drawImage(A.eyes[cfg.noBlink ? 0 : S.eye.cur], x, y, size, size);   // eyes made of fire don't blink
   else if (S.eye.cur === 2 && !hasLook(A, 2)) {}   // no drawn surprised eyes: its own eyes stay as they are (they used to be blown up, which looked swollen and smeared)
   else drawLayer(A.eyes, S.eye, t, FADE.eye, x, y, size);
-  if (A.over) ctx.drawImage(A.over[S.mouth.cur], x, y, size, size);
+  if (A.over) ctx.drawImage(A.over[shownMouth(S.mouth.cur)], x, y, size, size);
   if (!under && !looped) drawTrait(t, x, y, size, live ? f : null);
   drawFire(t, x, y, size);
   drawLaser(t, x, y, size);
@@ -3907,6 +3916,10 @@ function vmTimeline() {
   // gaps where the mouth stayed shut and many small blocks to fix)
   for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 2.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
   for (let i = lines.length - 1; i >= 0; i--) if (lines[i].t1 - lines[i].t0 < 0.2) lines.splice(i, 1);
+  // a short line that's mostly a laugh track (loud, almost no voice's pitch) is someone on screen laughing along, not
+  // talking: nobody's line (GEAUX's sitcom, 21 Nov: Jerry 'said' the audience's laugh after Kramer's joke)
+  for (let i = lines.length - 1; i >= 0; i--) { const l = lines[i]; if (l.t1 - l.t0 >= 1.2) continue; let n = 0, la = 0;
+    for (let t = l.t0; t < l.t1; t += dt) { n++; if (laughy(t)) la++; } if (n && la / n >= 0.6) lines.splice(i, 1); }
   vmVoices(lines, raw, dt);
   VM.lines = lines;
   // someone it found, given no lines (their lips couldn't be read, the voice went to the speaker before): the parts where
@@ -4056,7 +4069,7 @@ const HAT = /cap|beanie|hat|toque|bonnet|crown|hood|nightcap|nighcap|helmet/i, G
 // and geckos too). A woman gets a girl, a man doesn't; one robot at most in a video. (Needs the trait index loaded.)
 const nibKind = id => { const M = TRAITS_M, row = M && M.t[id - 1]; if (!row) return {};
   const v = n => { const c = M.k.indexOf(n); return c >= 0 && row[c] >= 0 ? String(M.v[c][row[c]]) : ''; }, eyes = v('Eyes');
-  return { robot:eyes === 'Robot' || v('Skin') === 'Metal', girl:v('Character') === 'Beaver' || /Eyelashes/.test(eyes) }; };
+  return { robot:eyes === 'Robot' || v('Skin') === 'Metal', girl:v('Character') === 'Beaver' || /Eyelashes/.test(eyes), kind:v('Character'), mouth:v('Mouth') }; };
 const fitsPerson = (id, p) => { const f = p && p.feat && p.feat.fem; if (f == null) return true; const g = !!nibKind(id).girl; return f > 0.55 ? g : f < 0.35 ? !g : true; };   // (the sitcom, read fresh: Elaine 0.63, the three men 0.13–0.19)
 async function vmLookalikes(all, prog) {
   VM.like = all ? {} : (VM.like || {});
@@ -4066,10 +4079,15 @@ async function vmLookalikes(all, prog) {
   for (let i = 0; i < VM.people.length; i++) { if (prog) prog(i / VM.people.length);
     const p = VM.people[i]; if (p.off || VM.like[i] || (VM.mine && i === VM.main) || vmRoot(i) !== i) continue;
     const f = p.feat, tone = !f ? null : f.skin > 0.5 ? 'light' : f.skin > 0.3 ? 'mid' : 'dark';
-    const robot = [...taken].some(id => nibKind(id).robot);
+    const robot = [...taken].some(id => nibKind(id).robot), kinds = new Set([...taken].map(id => nibKind(id).kind));
     const score = id => { if (taken.has(id) || !readyId(M, id)) return -1; const sk = val(id, 'Skin'); if (/gold/i.test(sk)) return -1;
       if (!fitsPerson(id, p) || (robot && nibKind(id).robot)) return -1;
       let s = Math.random() * 2;
+      // (GEAUX's sitcom, 21 Nov: two wolves for Kramer and George were hard to tell apart, and a drooling one flashed its
+      // drool between words: each person a different kind where there's one to give, and a plain mouth (a smile, a frown)
+      // talks best)
+      if (kinds.has(val(id, 'Character'))) s -= 6;
+      const mo = val(id, 'Mouth'); s += mo === 'Smile' ? 3 : mo === 'Frown' ? 2 : 0;
       if (tone && LIKE_SKIN[tone].test(sk)) s += 3;
       const acc = val(id, 'Accessory'), eyes = val(id, 'Eyes'), g = GLASS.test(eyes) || GLASS.test(acc), h = HAT.test(acc);
       if (f) { if (f.glass === g) s += g ? 4 : 1; if (f.hat === h) s += h ? 3 : 1; }
@@ -4088,8 +4106,8 @@ function vmRandom(keepMain) {
   // (each one different; a woman gets a girl Nibble and a man doesn't, when there's one to give; one robot at most)
   const used = new Set(); let robot = false; const take = id => { used.add(id); if (nibKind(id).robot) robot = true; return id; };
   P.forEach((p, i) => { const id = mine != null && i === VM.main ? mine : VM.like && VM.like[i]; VM.cast[i] = id ? take(id) : null; });
-  const ok = id => !used.has(id) && !(robot && nibKind(id).robot);
-  P.forEach((p, i) => { if (VM.cast[i] == null) VM.cast[i] = take(plain.find(id => ok(id) && fitsPerson(id, p)) ?? plain.find(ok) ?? plain[i % plain.length]); }); vmLink();
+  const ok = id => !used.has(id) && !(robot && nibKind(id).robot), newKind = id => ![...used].some(u => nibKind(u).kind && nibKind(u).kind === nibKind(id).kind);
+  P.forEach((p, i) => { if (VM.cast[i] == null) VM.cast[i] = take(plain.find(id => ok(id) && fitsPerson(id, p) && newKind(id)) ?? plain.find(id => ok(id) && fitsPerson(id, p)) ?? plain.find(ok) ?? plain[i % plain.length]); }); vmLink();
   const crowd = plain.filter(id => ok(id) && !nibKind(id).robot); for (let k = 0; k < 6; k++) VM.cast[CROWD0 + k] = (crowd.length ? crowd : plain)[k % 3 % Math.max(1, (crowd.length ? crowd : plain).length)];
   const bgs = bgList().filter(n => bgCat(n) !== 'user'); VM.bg = bgs[Math.floor(Math.random() * bgs.length)];
 }
