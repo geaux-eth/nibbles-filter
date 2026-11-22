@@ -1,0 +1,52 @@
+# Problem list
+
+Every problem GEAUX has found, written as a kind of mistake rather than one case of it. Each kind has a check that runs
+on every test clip (and, for art, on a sample of every Nibble kind and mouth trait), so the same mistake is caught
+wherever it shows up next, before GEAUX sees it.
+
+How to use it:
+- When GEAUX reports something, add it here first: what he saw, why it happened (the cause, not the symptom), the general
+  rule, and a check that fails on the code he used.
+- Before anything goes to him: `tools/test/review.sh` (every clip through every check, the made videos as contact sheets
+  to look through) and `tools/test/sweep.mjs` (the art sample). Nothing ships with a failing check or an unreviewed sheet.
+- Never tune a number on a held-out clip (office1, office2, sunny). They only measure.
+
+## Who's on screen / who's talking
+| # | GEAUX saw | Cause | Rule | Check |
+|---|---|---|---|---|
+| P1 | A Nibble talking during the audience's laugh (Jerry at 26.5 s) | A listener laughing along read as talking | A short line that's mostly laugh track is nobody's | golden sitcom "laugh at 26–27.7 s" |
+| P2 | Elaine's lines start under George (14.5, 39.7 s) | Talking with no lips moving was guessed by pitch, among everyone, even people not in the shot | In a conversation, unseen talking carries on with whoever was talking, or goes where the voice clearly says | golden sitcom "Elaine's lines start with her" |
+| P3 | The wrong person on screen generally | Thresholds tuned on one clip | Score every quarter second against an edit of the whole clip, on clips never tuned on | sitcom "GEAUX's edit, all of it"; held-out clips' score |
+| P4 | Off-camera voice confused (turtle reporter, narrator) | Lips misread (face paint) | The voice decides when lips and voice disagree | golden turtle, latarian |
+| P5 | People found in the background ("Everyone else") | Bystanders cast | Only people with shots of their own; everyone else only in songs | golden sitcom, panels |
+| P6 | (found by the review, 21 Nov) A cut to the main person for a moment between two others' lines | A pause over 1 s went back to the main person even when the next line started right after | No one is on screen for a flash: a pause under 2 s before the next line stays on whoever spoke | every clip: "no one on screen for a flash" |
+| P7 | (held-out clips, 21 Nov) Talkers never cast (Office meeting: Oscar, Jim, Michael; Sunny's waitress) | Casting was by faces alone; people with only short or shared shots weren't featured | Voices first: every distinct voice gets a person; a voice with no Nibble is matched to the face seen talking while it's heard | held-out scores (office1 62% → 95%) |
+| P8 | Who talks when was lips first, voices as a fix-up | Lips mislead (listeners' lips, close voices); the voice step only patched | Group the voices first (no faces), then name each voice by the lips; lips overrule only a rough voice match | sitcom talking 98%, held-out 95 / 86 / 100% |
+
+## Mouths
+| # | GEAUX saw | Cause | Rule | Check |
+|---|---|---|---|---|
+| M1 | Mouths moving to music, horns, laughter | Loudness alone opened the mouth | Only a voice opens a mouth; a show's theme music isn't a voice; a laugh track isn't | made video: open with no voice near (<3%); opening music; laughs (laughmouth.py) |
+| M2 | Too much full-teeth mouth | Lip sync's long B mapped to teeth, and long B is mostly non-speech | No shape is shown far more than speech has it; teeth only where speech says EE | made video: teeth under 8% |
+| M3 | Drool and tongue flashing between words | The rest face was the Nibble's own big mouth, the talking faces its plain twin's | In a made video, rest and talk come from the same face | sweep: rest vs talk outside the mouth; twinRest set for every big mouth |
+| M4 | Gum bubble hides every mouth | The bubble was kept in front | Nothing covers the talking mouth; a big own-mouth trait comes off on the twin's face | sweep (bubble-gum Nibbles) |
+| M5 | Fangs and teeth stay in O and OO | Image edits kept them | O and OO never show fangs or teeth | art review of every kit's O/OO |
+| M6 | Scribbles, ticks, smudges on clothes or chin around a talking mouth | The reference's own lines (suspenders, a redrawn chin) were carried onto every Nibble | Outside its face, a talking frame is the Nibble's own pixels | sweep: ink changed outside the face |
+| M7 | Wooden-puppet drawn mouths | Mouths drawn by code | Mouths come from drawn art (kits), never code-drawn shapes | — (rig.js unused) |
+| M8 | Lip sync not matching the words | Mouth shapes from loudness | Shapes from the speech sounds (Rhubarb) | made video checks |
+
+## Picks and art
+| # | GEAUX saw | Cause | Rule | Check |
+|---|---|---|---|---|
+| A1 | Two robots; two wolves for two people | Random picks with no variety rule | Each person a different kind; one robot at most | castmix.mjs |
+| A2 | Boy Nibbles for women | No reading of man/woman | Women get girl Nibbles, men don't | castmix.mjs |
+| A3 | Bubble-gum Nibble picked | Not excluded | Never picked automatically; plain mouths first | castmix.mjs |
+| A6 | (review, 21 Nov) A drooling built-in and a fan-covered mouth picked from the built-in list; picks ignored mouths | The built-in list picked before the trait list had loaded | The trait list loads before any pick; a covered mouth is never picked; a big own mouth with no twin rests shut | review sheets |
+| A4 | Old background inside outlines (gecko tail gap) | Background cut by flood fill from the edge | Every closed gap of background colour is cut | M15 scan |
+| A5 | Robot bear not animated, missing from thumbnail | Lights not loaded; thumbnail framing | Every special trait animates and shows in its thumbnail | fxshot, thumbt |
+
+## Process
+| # | GEAUX saw | Cause | Rule |
+|---|---|---|---|
+| X1 | The same kinds of problems coming back | Checks were written only for what he'd reported, on one clip, and art was looked at for a handful of Nibbles | This list; held-out clips; the art sweep; review of every made video before he sees it |
+| X2 | Instructions unclear | — | Tell him exactly what to do, in steps, once |

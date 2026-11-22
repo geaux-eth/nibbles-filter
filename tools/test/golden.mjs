@@ -91,7 +91,23 @@ CLIPS.latarian = { file:'n2/b.h264.mp4', checks:r => { const at = t => { const l
     ['the narrator over shots with nobody in them is a voice off camera (10, 40, 50 s)', off >= 0 && at(10) === off && at(40) === off && at(50) === off],
     ['grandma 21 s, the kid 26 s, the officer 45 s: three different people, none the narrator', new Set([K, Gm, O, off]).size === 4 && ![K, Gm, O].includes(-1)],
     ['the kid\'s later lines are his (34, 58 s)', at(34) === K && at(58) === K]]; } };
+// GEAUX's held-out clips (21 Nov): never tuned on. Their expected results are written from the clips themselves
+// (ho/truth.json), scored every quarter second as seen
+CLIPS.office1 = { file:'ho/h1.mp4', checks:r => hoChecks('office1', r) };
+CLIPS.office2 = { file:'ho/h2.mp4', checks:r => hoChecks('office2', r) };
+CLIPS.sunny = { file:'ho/h3.mp4', checks:r => hoChecks('sunny', r) };
 for (const n of ['podcast26', 'podcast23', 'turtle', 'macho', 'podcast10mp4', 'latarian']) { const f = CLIPS[n].checks; CLIPS[n].checks = r => [...f(r), keepsTalk(r)]; }
+function hoChecks(name, r) {
+  const f = S + '/ho/truth.json'; if (!fs.existsSync(f)) return [];
+  const T = JSON.parse(fs.readFileSync(f))[name]; if (!T) return [];
+  // (who's who: each truth name is the person the app found nearest that face; written in truth.json by hand from the
+  // faces' positions. Scored every quarter second of talking, a quarter second either side of each change not counted)
+  const at = t => { const l = r.lines.find(l => l[0] <= t && t < l[1]); return l ? l[2] : -1; };
+  let n = 0, ok = 0; const miss = [];
+  for (const [a, b, w] of T.lines) for (let t = a + 0.25; t < b - 0.25; t += 0.25) { n++; if (at(t) === T.map[w]) ok++; else miss.push(+t.toFixed(2) + w); }
+  const pc = Math.round(100 * ok / Math.max(1, n));
+  return [['held out: ' + pc + '% of the talking with the right person (85%+); wrong at ' + miss.join(' '), pc >= 85]];
+}
 const routes = async pg => {
   await serve(pg);
   await pg.route(/cdn\.jsdelivr\.net\/npm\/@mediapipe\/tasks-vision@[^/]+\/(.*)/, r => { const p = r.request().url().split(/tasks-vision@[^/]+\//)[1]; r.fulfill({ body:fs.readFileSync(`${mp}/package/${p}`), contentType:p.endsWith('.wasm') ? 'application/wasm' : 'text/javascript' }); });
@@ -110,7 +126,7 @@ async function run(name) {
   const b = await chromium.launch({ args:['--autoplay-policy=no-user-gesture-required', '--js-flags=--max-old-space-size=4096'] }); const pg = await b.newPage({ viewport:{ width:390, height:844 } });
   const errs = []; pg.on('pageerror', e => errs.push(String(e).slice(0, 200))); pg.on('console', m => { if (m.type() === 'warning' && /faceres/.test(m.text())) errs.push(m.text().slice(0, 300)); });
   await routes(pg); await pg.goto('http://127.0.0.1:8765/' + PAGE); await pg.waitForFunction(() => window.__nf);
-  const T = { noLike:true, noAV:!!process.env.NOAV, part:'whole', noFR:!!process.env.NOFR, frJoin:+process.env.FRJOIN || 0, frDoubt:+process.env.FRDOUBT || 0, seek:!!process.env.SEEK }; if (!FRESH && fs.existsSync(sf)) T.scanIn = JSON.parse(fs.readFileSync(sf)); if (!FRESH && fs.existsSync(ff)) T.followIn = JSON.parse(fs.readFileSync(ff)); { const vf = `${process.env.VOICES || G}/${name}.voice.json`; if (!process.env.NOVOICEIN && fs.existsSync(vf)) T.voiceIn = JSON.parse(fs.readFileSync(vf)); } if (process.env.NOVOICE) T.noVoice = true; { const cf = `${G}/${name}.cues.json`; if (fs.existsSync(cf) && !process.env.FRESHCUES) T.cuesIn = JSON.parse(fs.readFileSync(cf)); else if (!process.env.RENDER || process.env.NOLIPSYNC) T.noLipSync = true; }   // (lip sync: saved once, only made for a made video)
+  const T = { noLike:true, noAV:!!process.env.NOAV, part:'whole', noFR:!!process.env.NOFR, frJoin:+process.env.FRJOIN || 0, frDoubt:+process.env.FRDOUBT || 0, seek:!!process.env.SEEK, noDiar:!!process.env.NODIAR }; if (!FRESH && fs.existsSync(sf)) T.scanIn = JSON.parse(fs.readFileSync(sf)); if (!FRESH && fs.existsSync(ff)) T.followIn = JSON.parse(fs.readFileSync(ff)); { const vf = `${process.env.VOICES || G}/${name}.voice.json`; if (!process.env.NOVOICEIN && fs.existsSync(vf)) T.voiceIn = JSON.parse(fs.readFileSync(vf)); } if (process.env.NOVOICE) T.noVoice = true; { const cf = `${G}/${name}.cues.json`; if (fs.existsSync(cf) && !process.env.FRESHCUES) T.cuesIn = JSON.parse(fs.readFileSync(cf)); else if (!process.env.RENDER || process.env.NOLIPSYNC) T.noLipSync = true; }   // (lip sync: saved once, only made for a made video)
   await pg.evaluate(T => { window.__T = T; }, T);
   if (process.env.DBGT) await pg.evaluate(() => { window.__vm.dbgT = []; });
   if (process.env.SND) await pg.evaluate(() => { window.__soundDbg = []; });
@@ -134,12 +150,16 @@ async function run(name) {
     await pg.click('.vm-tabs button[data-tab="timing"]'); await sh('timing');
     const hs = await pg.$$('.ed-head'); if (hs[1]) { await hs[1].click(); await sh('timing_pick'); } }
   if (process.env.RENDER) { await pg.waitForTimeout(2500); await pg.evaluate(() => { window.__mlog = []; }); await pg.click('#edMake'); await pg.waitForFunction(() => window.__vm.rendering, null, { timeout:120000 });
-    await pg.waitForFunction(() => !window.__vm.rendering, null, { timeout:1200000 }); fs.writeFileSync(`${G}/${name}.mlog.json`, JSON.stringify(await pg.evaluate(() => ({ log:window.__mlog, cast:window.__vm.cast, lines:window.__vm.lines.map(l => [l.t0, l.t1, l.who]) })))); }
+    await pg.waitForFunction(() => !window.__vm.rendering, null, { timeout:1200000 });
+    // (the made video itself, saved as GEAUX gets it, for the review: tools/test/review.sh makes contact sheets of it)
+    try { await pg.waitForSelector('video.vm-out', { timeout:20000 }); const b64 = await pg.evaluate(async () => { const v = document.querySelector('video.vm-out'), bl = await (await fetch(v.src)).blob(); return await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result.split(',')[1]); fr.readAsDataURL(bl); }); });
+      fs.writeFileSync(`${G}/${name}.made.webm`, Buffer.from(b64, 'base64')); } catch (e) { console.log('made video not saved', String(e).slice(0, 120)); }
+    fs.writeFileSync(`${G}/${name}.mlog.json`, JSON.stringify(await pg.evaluate(() => ({ log:window.__mlog, cast:window.__vm.cast, lines:window.__vm.lines.map(l => [l.t0, l.t1, l.who]) })))); }
   const mouth = await pg.evaluate(() => window.__nf.voicedTrack ? { now:window.__nf.voicedTrack(false, true), off:window.__nf.voicedTrack(true, true) } : null).catch(() => null);
   if (process.env.PROG) { const pr = await pg.evaluate(() => window.__prog); const seq = []; for (const [w, m] of pr) { if (!seq.length || seq[seq.length - 1][0] !== w || seq[seq.length - 1][1] !== m) seq.push([w, m]); } console.log(JSON.stringify(seq.filter((x, i) => i % Math.max(1, Math.floor(seq.length / 40)) === 0 || i === seq.length - 1))); }
   if (process.env.SND) { const d = await pg.evaluate(() => { const E = window.__vm.env, T = E.vt; return { snd:window.__soundDbg, e:Array.from(T.e, x => +x.toFixed(5)), thr:T.thr, loud:T.loud, pitch:E.pitch ? Array.from(E.pitch) : null, nov:E.nov ? Array.from(E.nov) : null }; }); fs.writeFileSync(`${G}/${name}.env.json`, JSON.stringify(d)); }
   const r = await pg.evaluate(() => { const V = window.__vm; return { people:V.people.map(p => ({ fem:p.feat ? p.feat.fem : null, cast:V.cast[V.people.indexOf(p)], t0:+p.t0.toFixed(1), t1:+p.t1.toFixed(1), n:p.n, lipOk:p.lipOk, off:!!p.off, pts:(p.smp || []).filter((x, i, a) => i % Math.max(1, Math.floor(a.length / 5)) === 0).slice(0, 6).map(x => [+x.t.toFixed(2), +x.cx.toFixed(2)]) })),
-    lines:V.lines.map(l => [+l.t0.toFixed(1), +l.t1.toFixed(1), l.who, l.show || 'solo']), back:(V.back || []).map(x => [x.t0, x.t1]), crowd:V.crowd && V.crowd.n, sing:V.sing, group:V.group, who:V.whoDbg, av:V.avDbg, err:V.err || null, found:(V.found || []).length, fr:!!V.frUsed, voice:V.voiceDbg || null, still:V.stillDbg || null, vmem:V.voiceMem, diag:V.diag ? { looks:V.diag.looks, same:V.diag.same, miss:V.diag.miss, mode:V.diag.mode, fill:V.diag.fill, rates:V.diag.rates, p:V.diag.p } : null }; });
+    lines:V.lines.map(l => [+l.t0.toFixed(1), +l.t1.toFixed(1), l.who, l.show || 'solo']), back:(V.back || []).map(x => [x.t0, x.t1]), crowd:V.crowd && V.crowd.n, sing:V.sing, group:V.group, who:V.whoDbg, av:V.avDbg, err:V.err || null, found:(V.found || []).length, fr:!!V.frUsed, voice:V.voiceDbg || null, diar:V.diarDbg || null, tl:(() => { const T = V.timeline || [], R = []; T.forEach((w, k) => { const r = R[R.length - 1]; if (r && r[2] === w) r[1] = +((k + 1) * 0.05).toFixed(2); else R.push([+(k * 0.05).toFixed(2), +((k + 1) * 0.05).toFixed(2), w]); }); return R; })(), still:V.stillDbg || null, vmem:V.voiceMem, diag:V.diag ? { looks:V.diag.looks, same:V.diag.same, miss:V.diag.miss, mode:V.diag.mode, fill:V.diag.fill, rates:V.diag.rates, p:V.diag.p } : null }; });
   if (process.env.DBGT) { const [a, z] = process.env.DBGT.split(',').map(Number); r.dbgT = await pg.evaluate(([a, z]) => (window.__vm.dbgT || []).filter(x => x[0] >= a && x[0] <= z), [a, z]); }
   { const vo = await pg.evaluate(() => window.__T.voiceOut ? JSON.stringify(window.__T.voiceOut) : null); if (vo) fs.writeFileSync(`${G}/${name}.voice.json`, vo); }
   { const co = await pg.evaluate(() => window.__T.cuesOut && !window.__T.cuesIn ? JSON.stringify(window.__T.cuesOut) : null); if (co) fs.writeFileSync(`${G}/${name}.cues.json`, co); }
@@ -151,6 +171,9 @@ async function run(name) {
     ml.forEach((x, i) => { if ([0, 1, 9].includes(x[2])) return; op++; if (x[2] === 3) ah++; let near = false; for (let j = Math.max(0, i - 6); j < Math.min(n, i + 7); j++) if (ml[j][6]) near = true; if (!near) bad++; });
     const teeth = ml.filter(x => x[2] === 4).length, early = ml.filter(x => x[0] < 1.3 && ![0, 1, 9].includes(x[2])).length;
     r.render = { open:op, noVoice:bad, ah, teeth, early }; }
+  // (every clip: nobody is on screen for a flash, under 0.4 s, between two others: problems.md P6)
+  const flash = (r.tl || []).filter((x, i, a) => i > 0 && i < a.length - 1 && x[1] - x[0] < 0.4);
+  c.checks0 = c.checks0 || c.checks; c.checks = rr => [...c.checks0(rr), ['no one on screen for a flash (under 0.4 s)' + (flash.length ? ': ' + JSON.stringify(flash) : ''), !flash.length]];
   const res0 = c.checks(r), res = process.env.RENDER ? [...res0,
     ...(name === 'sitcom' ? [['made video: the full-teeth grin under 8% of open frames (' + r.render.teeth + '/' + r.render.open + ')', r.render.teeth <= 0.08 * r.render.open],
       ['made video: the opening music (0–1.3 s) moves no mouth (' + r.render.early + ' open frames)', r.render.early <= 3]] : []), ['made video: a mouth open with no voice near it: under 3% of open frames (' + r.render.noVoice + '/' + r.render.open + ')', r.render.noVoice <= 0.03 * r.render.open],
@@ -159,7 +182,8 @@ async function run(name) {
   fs.writeFileSync(`${G}/${name}${process.env.NOAV ? ".noav" : ""}.result.json`, JSON.stringify(r));
   return { name, secs, res, r, cached:!!T.scanIn, refollowed:!!saved.follow && !!T.followIn, errs };
 }
-const names = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(CLIPS), out = [];
+const HELD = ['office1', 'office2', 'sunny'];   // (the held-out clips run only when named: they have their own reading set)
+const names = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(CLIPS).filter(n => !HELD.includes(n)), out = [];
 const pool = +(process.env.POOL || 3); let k = 0;
 await Promise.all(Array.from({ length:pool }, async () => { while (k < names.length) { const n = names[k++]; try { out.push(await run(n)); } catch (e) { out.push({ name:n, err:String(e).slice(0, 300) }); } } }));
 let pass = 0, all = 0;

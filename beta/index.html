@@ -499,7 +499,7 @@ const codeURL = f => new URL(CODE + f + '?v=' + ART_V, document.baseURI).href;
 // (and when one won't load, the tracking device notes the address and what the server said, so a phone's failure can be told
 // apart: not found, a network drop, or the script itself)
 const codeImport = f => import(codeURL(f)).catch(async e => { try { const r = await fetch(codeURL(f), { cache:'no-store' }); trk('importFailed', [codeURL(f), r.status, (r.headers.get('content-type') || '').slice(0, 40), String(e && e.message || e).slice(0, 120)]); } catch (e2) { trk('importFailed', [codeURL(f), 'no answer', String(e2).slice(0, 80)]); } throw e; });   // (the beta copy keeps its own code in beta/; art and data are shared)
-const ART_V = '20261122-0400';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261122-0130';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1014,6 +1014,7 @@ const blinks = a => !NO_BLINK.test(String(a.Eyes || '')) && !/glasses|goggles|vi
 // A plain-mouthed Nibble of the same kind, skin and outfit (and accessory if one exists): what this Nibble looks like under
 // its own big mouth, for the talking mouths (kit.js). null when this Nibble's mouth is plain already or there's none.
 const PLAIN_MOUTH = ['Smile', 'Frown'];
+const COVERED_MOUTH = new Set([2471, 4635]);   // built-ins never picked automatically: #2471 holds a fan over its mouth; #4635's talking mouths are smeared (the art sweep, 22 Nov: to redraw)
 // (a frown too: every kit's reference smiles, and a frowning Nibble's own beak or muzzle line left a ghost next to the
 // talking mouth (GEAUX's sitcom cock). Its smiling twin stands in under the talking mouths; the rest face stays a frown.)
 async function donorFor(id, a, B) {
@@ -1074,7 +1075,9 @@ async function kitPrepare(id) {
       const drop = () => { for (const c of [cut.canvas, ...(res.frames || []), ...(res.eyes || [])]) if (c && c.getContext) c.width = c.height = 0; };
       for (const k in exp.files) files[k] = URL.createObjectURL(exp.files[k]);
       NIBBLES[id] = { bg:cut.bg, fullFace:true, files, layout:exp.layout, jiggle:exp.layout.jig, kit:ref };
-      if (donor && !rig) NIBBLES[id].twinRest = a.Mouth === 'Frown' ? 9 : 1;
+      // (and with no twin on hand: the talking mouths are made without its own big mouth anyway (painted over as the
+      // reference's face), so its resting face is the shut one too, or its drool flashed between words: GEAUX's Office clip)
+      if (!rig && (donor || !PLAIN_MOUTH.includes(a.Mouth))) NIBBLES[id].twinRest = a.Mouth === 'Frown' ? 9 : 1;
       const grp = groupOf(a);
       if (grp && grp.loop) { files.hole = URL.createObjectURL(await new Promise(r => res.faceMask.toBlob(r, 'image/png')));
         NIBBLES[id].trait = { frames:grp.frames, fps:grp.fps, from:grp.loop, hole:true, skinThrough:!!grp.skinThrough, drawnBlink:!!grp.drawnBlink }; }
@@ -2175,7 +2178,10 @@ function loopBlink(A) {
 // plain-mouthed twin's face under the talking mouths: in a made video its rest face is that twin's too (its shut mouth; a
 // frown its frown), so its own drool and tongue don't flash in and out between the words (GEAUX's sitcom, 21 Nov: the
 // drooling wolf and beaver). Everywhere else (the camera, a still) the rest face is its own.
-const shownMouth = k => k === 0 && (VM.rendering || VM.previewing) && NIBBLES[S.id] && NIBBLES[S.id].twinRest ? NIBBLES[S.id].twinRest : k;
+// (the built-in Nibbles with a big mouth of their own: their drawn talking mouths leave it out, so they rest on their shut
+// M/B/P mouth in a made video too. Found by the art sweep, 22 Nov: a tongue or drool flashing between words)
+const BUILTIN_SHUT_REST = new Set([1791, 7996, 5502, 8212, 3154, 4369, 1486]);
+const shownMouth = k => { if (k !== 0 || !(VM.rendering || VM.previewing)) return k; const N = NIBBLES[S.id]; return N && N.twinRest ? N.twinRest : BUILTIN_SHUT_REST.has(+S.id) ? 1 : k; };
 function drawLoopBody(t, x, y, size) {
   const tr = S.trait, fr = tr.frames[Math.floor(t / (1000 / tr.fps)) % tr.frames.length], [lc, fc] = LOOP_C, lg = lc.getContext('2d'), fg = fc.getContext('2d');
   // the body whole, then the face faded onto it through the mask (cutting a hole and filling it would let the background show at the soft edge)
@@ -3265,6 +3271,7 @@ async function vmAnalyse(file, grab, want) {
     // (the bar's last tenth: Nibbles that look like them, each made ready from its kit, its news under the bar too)
     mark('voices'); if (!(T && T.noLike)) { vmMsg('Picking Nibbles that look like them…'); VM.looking = true; try { await Promise.race([vmLookalikes(true, p => vmProg(90 + p * 10)), new Promise(r => setTimeout(r, 25000))]); } catch (e) {} VM.looking = false; }
     vmProg(100); mark('like');
+    try { await Promise.race([traitIndex(), new Promise(r => setTimeout(r, 8000))]); } catch (e) {}   // (the picks need every Nibble's mouth and kind: smiles first, never bubble gum)
     vmDefaults();
     vmStudio(); if (VM.times) VM.times.all = Math.round((performance.now() - T00) / 100) / 10; trkSend('read');
   } catch (e) {
@@ -3451,7 +3458,7 @@ function vmWho(scan, music) {
   const cutaway = p => { if (p.faces.some(f => castN.has(f.n))) return false; const m = p.faces.map(f => f.mo || 0).sort((a, b) => a - b); return m[Math.floor(m.length * 0.9)] - m[Math.floor(m.length * 0.1)] < 0.02; };   // (lips that don't move: open or shut)
   const crowd = others.filter(p => !featured.includes(p) && p.faces.length >= 3 && p.faces.length * step >= 1.5 && !cutaway(p));
   // everyone else seen a while: offered on the People tab ('＋ Someone on screen'), with where their face was
-  const extra = others.filter(p => !featured.includes(p) && p.faces.length >= 3 && p.thumb).slice(0, 8);
+  const extra = others.filter(p => !featured.includes(p) && p.faces.length >= 3 && (p.thumb || (window.__T && window.__T.scanIn))).slice(0, 8);   // (tests reading a saved first look have no pictures of the faces)
   [main, ...featured].forEach(p => keepT.add(p.thumb)); crowd.slice(0, 8).forEach(p => keepT.add(p.thumb)); extra.forEach(p => keepT.add(p.thumb)); done();
   VM.found = extra.map(p => ({ feat:p.feat, thumb:p.thumb, t0:p.t0, t1:p.t1, faces:p.faces.map(f => ({ t:f.t, cx:f.cx, s:f.s, mo:f.mo || 0 })) }));
   // the crowd's mouths at each look: each face's lip gap against its own shut and its own widest, averaged over the
@@ -3825,6 +3832,102 @@ function vmVoices(lines, raw, dt) {
   }
   for (let i = lines.length - 1; i > 0; i--) if (lines[i].who === lines[i - 1].who && lines[i].t0 - lines[i - 1].t1 < 2.5) { lines[i - 1].t1 = lines[i].t1; lines.splice(i, 1); }
 }
+// Who's talking, voices first (21 Nov). GEAUX's sitcom kept giving lines to the wrong person, and a test grouping the voices
+// with no faces at all put 97% of its talking with the right person. So: every voiced quarter second's voice print is
+// grouped (average link, stopping where the closest two groups are more than 0.7 apart: different people are 0.75 and
+// more, one person 0.2 to 0.6), groups under a second go to their nearest bigger one, laughs are left out. Each voice is
+// then named by the faces: the person whose lips move most while it's heard. Two voices on one person stay theirs when
+// they sound alike (one person, calm and shouting) or nobody else's lips go with the weaker; otherwise it's someone else. A voice nobody's
+// lips go with, heard 1.5 s or more: a face seen while it's heard that wasn't given a Nibble (someone with only short
+// shots or shots shared with others: GEAUX's Office clip missed Oscar, Jim and Michael; the waitress in his Sunny clip) is
+// given one now; else it's a voice off camera. Returns false when it can't run (no voice prints, fewer than two people, too
+// little talking): the lips-first way then, as before.
+function vmFoundPerson(F) {
+  const m = F.faces.map(f => f.mo).sort((a, b) => a - b), lo = m[Math.floor(m.length * 0.1)] || 0, hi = Math.max(lo + 0.02, m[Math.floor(m.length * 0.9)] || 0.05);
+  const smp = F.faces.map(f => ({ t:f.t, open:clamp((f.mo - lo) / (hi - lo), 0, 1), jaw:clamp((f.mo - lo) / (hi - lo), 0, 1), wide:0, round:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0, blink:0, bu:0, brow:0, browUp:0, eyeWide:0, roll:0, yaw:0, pitch:0, mo:f.mo, cx:f.cx, s:f.s, edge:false }));
+  // (seen only every few tenths of a second: each reading stands for the moment around it)
+  const step = VM.whoStep || 0.5, fill = []; for (const x of smp) for (let d = -step / 2; d < step / 2; d += 0.1) fill.push({ ...x, t:+(x.t + d).toFixed(2) });
+  F.used = true;
+  return { feat:F.feat, smp:fill.sort((a, b) => a.t - b.t), thumb:F.thumb, t0:F.t0, t1:F.t1, n:F.faces.length, lipOk:false, added:true };
+}
+function vmDiarize(raw, dt, activity, laughy) {
+  const V = VM.voice, P = VM.people; VM.diarFace = []; if (!V || !V.e || V.e.length < 8) return false;
+  const real = P.map((p, i) => i).filter(i => !P[i].off); if (real.length < 2) return false;
+  if (V.gate == null) { const r = V.rms.slice().sort((a, b) => a - b); V.gate = Math.max(0.003, Math.min(r[Math.floor(r.length * 0.15)] * 2.5, r[Math.floor(r.length * 0.9)] * 0.05)); }
+  const pts = []; for (let k = 0; k < V.t.length; k++) { const t = V.t[k]; if (V.rms[k] < V.gate || vmVoiced(t) < 0.2 || laughy(t)) continue;
+    const j = Math.min(raw.length - 1, Math.round(t / dt)); if (!raw[j] || !raw[j].speech) continue; pts.push(k); }
+  const n = pts.length; if (n < 8) return false;
+  const dot = (a, b) => { let s = 0; for (let q = 0; q < a.length; q++) s += a[q] * b[q]; return s; };
+  // average link, until the closest two groups are more than 0.7 apart
+  const G = pts.map((_, a) => [a]), GD = []; for (let a = 0; a < n; a++) { GD.push(new Float32Array(n)); for (let b = 0; b < n; b++) GD[a][b] = a === b ? 0 : 1 - dot(V.e[pts[a]], V.e[pts[b]]); }
+  const alive = new Array(n).fill(true); let groups = n;
+  while (groups > 1) { let ba = -1, bb = -1, bd = 9;
+    for (let a = 0; a < n; a++) { if (!alive[a]) continue; for (let b = a + 1; b < n; b++) if (alive[b] && GD[a][b] < bd) { bd = GD[a][b]; ba = a; bb = b; } }
+    if (bd > 0.7) break;
+    const na = G[ba].length, nb = G[bb].length;
+    for (let c = 0; c < n; c++) if (alive[c] && c !== ba && c !== bb) { GD[ba][c] = GD[c][ba] = (GD[ba][c] * na + GD[bb][c] * nb) / (na + nb); }
+    G[ba] = G[ba].concat(G[bb]); G[bb] = null; alive[bb] = false; groups--; }
+  // groups of a second or more are voices; the rest go to their nearest voice
+  const voices = []; for (let a = 0; a < n; a++) if (alive[a] && G[a].length >= 4) voices.push(G[a]);
+  if (!voices.length) return false;
+  let K = voices.length, lab = new Int16Array(n).fill(-1); voices.forEach((g, c) => { for (const m of g) lab[m] = c; });
+  const cent = () => { const C = []; for (let c = 0; c < K; c++) { const m = new Float32Array(V.e[0].length); for (let a = 0; a < n; a++) if (lab[a] === c) { const e = V.e[pts[a]]; for (let q = 0; q < m.length; q++) m[q] += e[q]; }
+    let nn = 0; for (const x of m) nn += x * x; nn = Math.sqrt(nn) || 1; for (let q = 0; q < m.length; q++) m[q] /= nn; C.push(m); } return C; };
+  let C = cent(); const dist = new Float32Array(n);
+  for (let it = 0; it < 5; it++) { for (let a = 0; a < n; a++) { let b = 0, bd = 9; for (let c = 0; c < K; c++) { const d = 1 - dot(V.e[pts[a]], C[c]); if (d < bd) { bd = d; b = c; } } lab[a] = b; dist[a] = bd; } C = cent(); }
+  // (a short line in another voice inside someone's talking, a 'For real?': three or more voiced quarter seconds in a row,
+  // each 0.65 or more from its group's voice, are a voice of their own)
+  { let made = false; for (let a = 0; a < n; ) { if (dist[a] < 0.65) { a++; continue; } let z = a; while (z + 1 < n && dist[z + 1] >= 0.65 && pts[z + 1] - pts[z] <= 2) z++;
+      if (z - a + 1 >= 3) { for (let q = a; q <= z; q++) lab[q] = K; K++; made = true; } a = z + 1; }
+    if (made) { C = cent(); for (let a = 0; a < n; a++) { let b = 0, bd = 9; for (let c = 0; c < K; c++) { const d = 1 - dot(V.e[pts[a]], C[c]); if (d < bd) { bd = d; b = c; } } dist[a] = bd; if (bd < 1 - dot(V.e[pts[a]], C[lab[a]]) - 0.05) lab[a] = b; } C = cent(); } }
+  const cd = (a, b) => 1 - dot(C[a], C[b]);
+  // each voice and each person: how much their lips move while it's heard (relative to their own busiest; unseen counts 0)
+  const S = []; for (let c = 0; c < K; c++) { const row = P.map(() => 0); let m = 0;
+    for (let a = 0; a < n; a++) { if (lab[a] !== c || dist[a] > 0.75) continue; m++; const t = V.t[pts[a]]; real.forEach(i => { const ac = activity(P[i], t); if (ac >= 0) row[i] += ac / P[i].busy; }); }
+    S.push({ row:row.map(x => m ? x / m : 0), m }); }
+  const name = new Array(K).fill(-1), ban = Array.from({ length:K }, () => new Set());
+  for (let round = 0; round < 3; round++) {
+    for (let c = 0; c < K; c++) { if (name[c] >= 0) continue; let bi = -1, bs = 0.15; for (const i of real) if (!ban[c].has(i) && S[c].row[i] >= bs) { bs = S[c].row[i]; bi = i; } name[c] = bi; }
+    // two voices on one person that sound nothing alike: the weaker match is someone else
+    let moved = false;
+    for (let a = 0; a < K; a++) for (let b = a + 1; b < K; b++) { if (name[a] < 0 || name[a] !== name[b] || cd(a, b) < 0.75) continue;
+      const i = name[a], w = S[a].row[i] < S[b].row[i] ? a : b; if (!real.some(j => j !== i && !ban[w].has(j) && S[w].row[j] >= 0.12)) continue;   // (nobody else's lips go with it: still theirs)
+      ban[w].add(i); name[w] = -1; moved = true; }
+    if (!moved) break; }
+  // a voice left over (1.5 s or more): a face seen while it's heard that has no Nibble yet, else a voice off camera
+  // (a voice that sounds like one already named, under 0.75 apart: one person in a different mood or room)
+  const near = c => { let bc = -1, bd = 0.75; for (let o = 0; o < K; o++) if (o !== c && name[o] >= 0 && !P[name[o]].off && !ban[c].has(name[o]) && cd(c, o) < bd) { bd = cd(c, o); bc = o; } return bc >= 0 ? name[bc] : -1; };
+  let off = P.findIndex(q => q.off); const F = (VM.found || []), step = VM.whoStep || 0.5, added = [];
+  for (let c = 0; c < K; c++) { if (name[c] >= 0 || S[c].m * 0.25 < 1.5) continue;
+    // (on screen for half of it or more; of those, the one whose lips move most while it's heard, closer faces first: in a
+    // shot of several, the one talking. Its lips are read only every half second or so here, so roughly)
+    let bf = -1, bp = 0; F.forEach((f, fi) => { if (f.used) return; let on = 0, m = 0; const ts = [];
+      for (let a = 0; a < n; a++) { if (lab[a] !== c || dist[a] > 0.75) continue; m++; const t = V.t[pts[a]]; ts.push(t); if (f.faces.some(x => Math.abs(x.t - t) <= step * 0.75 && x.s >= 0.06)) on++; }
+      if (!m || on / m < 0.5) return;
+      const mo = f.faces.map(x => x.mo).sort((x, y) => x - y), rng = Math.max(0.02, (mo[Math.floor(mo.length * 0.9)] || 0) - (mo[Math.floor(mo.length * 0.1)] || 0));
+      const L = f.faces.filter(x => x.t >= ts[0] - 0.4 && x.t <= ts[ts.length - 1] + 0.4); let mv = 0; for (let q = 1; q < L.length; q++) mv += Math.abs(L[q].mo - L[q - 1].mo); mv = L.length > 1 ? mv / (L.length - 1) / rng : 0;
+      const sz = L.length ? L.reduce((x, y) => x + y.s, 0) / L.length : 0, sc = (on / m) * (0.3 + Math.min(1, mv)) * Math.min(1.5, sz / 0.2);
+      (VM.diarFace = VM.diarFace || []).push([c, fi, +(on / m).toFixed(2), +mv.toFixed(2), +sz.toFixed(2), +sc.toFixed(2)]);
+      if (sc > bp) { bp = sc; bf = fi; } });
+    if (bf >= 0 && bp >= 0.5) { const p = vmFoundPerson(F[bf]); p.busy = 0.6; P.push(p); name[c] = P.length - 1; added.push([c, bf, +bp.toFixed(2)]); continue; }
+    if (near(c) >= 0) { name[c] = near(c); continue; }
+    if (off < 0) { P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 }); off = P.length - 1; } name[c] = off; }
+  for (let c = 0; c < K; c++) if (name[c] < 0) name[c] = near(c);
+  VM.diarDbg = { K, n, name, added, faces:VM.diarFace || [], pd:Array.from({ length:n }, (_, a) => [V.t[pts[a]], +dist[a].toFixed(2), lab[a]]), S:S.map(s => [s.m, s.row.map(x => +x.toFixed(2))]), F:F.map(f => [+f.t0.toFixed(1), +f.t1.toFixed(1), f.faces.length, +Math.max(...f.faces.map(x => x.s)).toFixed(2), !!f.used, +(f.faces.reduce((a, x) => a + x.cx, 0) / f.faces.length).toFixed(2)]), V:Array.from({ length:K }, (_, c) => { const ts = []; for (let a = 0; a < n; a++) if (lab[a] === c) ts.push(V.t[pts[a]]); return [ts[0], ts[ts.length - 1]]; }) };
+  // every moment of talking: the voice heard there (the nearest voiced quarter second within 0.3 s), where it's known
+  const lk = new Int16Array(V.t.length).fill(-1); for (let a = 0; a < n; a++) if (dist[a] <= 0.75 && name[lab[a]] >= 0) lk[pts[a]] = name[lab[a]];
+  // (where the voice only roughly matches its voice (0.5 or more off: a voice print covers a whole second, and two people
+  // speaking within it match neither well) and someone else's lips are clearly talking while the named one's are still:
+  // theirs. A 'For real?' too short to be a voice of its own, a voice imitating another)
+  let lipped = 0; for (let a = 0; a < n; a++) { if (dist[a] < 0.5) continue; const t = V.t[pts[a]], w = lk[pts[a]], rw = w >= 0 && !P[w].off ? Math.max(0, activity(P[w], t)) / P[w].busy : 0;
+    let bo = -1, br = 0.5; for (const i of real) { if (i === w) continue; const ac = activity(P[i], t); if (ac >= 0 && ac / P[i].busy >= br) { br = ac / P[i].busy; bo = i; } }
+    if (bo >= 0 && rw < 0.25) { lk[pts[a]] = bo; lipped++; } }
+  let changed = 0; raw.forEach((r, j) => { if (!r.speech) return; const t = j * dt; let best = -1, bd = 0.3;
+    for (let k = Math.max(0, Math.floor((t - 0.8) / 0.25)); k < Math.min(V.t.length, Math.ceil((t + 0.3) / 0.25) + 1); k++) { if (lk[k] < 0) continue; const d = Math.abs(V.t[k] - t); if (d < bd) { bd = d; best = lk[k]; } }
+    if (best >= 0) { if (r.who !== best) changed++; r.who = best; r.off = false; } });
+  VM.diarDbg.changed = changed; VM.diarDbg.lipped = lipped;
+  return true;
+}
 function vmTimeline() {
   const P = VM.people, dt = 0.05, n = Math.ceil(VM.dur / dt), env = VM.env;
   if (!P.length) { VM.timeline = []; return; }
@@ -3881,6 +3984,10 @@ function vmTimeline() {
   if (song) offN = raw.filter(r => r.off && r.who < 0).length;
   // (three or more people found: it's a conversation among them (a sitcom, a panel). Talking with no mouth seen moving
   // is one of them whose lips were turned away, not someone off camera: no voice is made up; '＋ Add someone' can add one)
+  // the voices first (vmDiarize): where it can run, it says who's talking at every moment there's a voice; the lips only
+  // name the voices. Then no off-camera voice is made up here (it makes its own when a voice has no face)
+  const diar = !song && !(window.__T && window.__T.noDiar) && vmDiarize(raw, dt, activity, laughy);
+  if (diar) offN = 0;
   const OFF = offN * dt >= 1.5 && !song && P.filter(q => !q.off).length < 3 ? P.length : -1;
   if (OFF >= 0) P.push({ smp:[], thumb:null, off:true, t0:0, t1:VM.dur, n:0 });
   // fill: talking but no moving mouth seen -> the last speaker; silence longer than 1 s -> the main character
@@ -3933,7 +4040,7 @@ function vmTimeline() {
   // talking: nobody's line (GEAUX's sitcom, 21 Nov: Jerry 'said' the audience's laugh after Kramer's joke)
   for (let i = lines.length - 1; i >= 0; i--) { const l = lines[i]; if (l.t1 - l.t0 >= 1.2) continue; let n = 0, la = 0;
     for (let t = l.t0; t < l.t1; t += dt) { n++; if (laughy(t)) la++; } if (n && la / n >= 0.6) lines.splice(i, 1); }
-  vmVoices(lines, raw, dt);
+  if (!diar) vmVoices(lines, raw, dt);
   VM.lines = lines;
   // someone it found, given no lines (their lips couldn't be read, the voice went to the speaker before): the parts where
   // they're on screen and the speaker isn't are theirs (a podcast cuts to whoever is talking)
@@ -4005,7 +4112,10 @@ function vmLinesToTimeline() {
   for (let k = 0; k < n; k++) {
     const t = k * dt; let on = null;
     for (const l of L) { if (l.t0 > t) break; if (t < l.t1) on = l; else if (l.t1 > lastEnd) { lastEnd = l.t1; last = l.who; lastBg = l.bg || null; lastShow = l; } }
-    const hold = !on && t - lastEnd < 1 && last >= 0;   // a pause under a second stays on whoever just spoke
+    // a pause under a second stays on whoever just spoke, and so does any pause under two seconds before the next line (a cut
+    // to the main person for a moment between two others' lines flashed one frame of them, GEAUX's Office clip at 6 s)
+    const nx = !on && last >= 0 ? L.find(l => l.t0 > t) : null;
+    const hold = !on && last >= 0 && (t - lastEnd < 1 || (nx && nx.t0 - lastEnd < 2));
     tl[k] = on ? on.who : hold ? last : VM.main; bgs[k] = on ? on.bg || null : hold ? lastBg : null;
     const sl = on || (hold ? lastShow : null); shows[k] = sl && sl.show ? { show:sl.show, with:sl.with, face:sl.face, together:!!sl.together } : VM.crowd && VM.group === 'all' ? { show:'all' } : null;
   }
@@ -4080,7 +4190,8 @@ const LIKE_SKIN = { light:/^(Light|Albino|White|Pale|Yellow|Mime|Pink)$/, mid:/^
 const HAT = /cap|beanie|hat|toque|bonnet|crown|hood|nightcap|nighcap|helmet/i, GLASS = /glasses|goggles|visor|shades/i;
 // what a Nibble is, for picking: a robot (metal skin, robot eyes), a girl (GEAUX: every beaver; and eyelashes, on wolves
 // and geckos too). A woman gets a girl, a man doesn't; one robot at most in a video. (Needs the trait index loaded.)
-const nibKind = id => { const M = TRAITS_M, row = M && M.t[id - 1]; if (!row) return {};
+const nibKind = id => { const M = TRAITS_M, row = M && M.t[id - 1];
+  if (!row) { const o = NIB_NAMES().find(x => x[0] === +id), kind = o ? o[1].split(' #')[0] : ''; return kind ? { kind, girl:kind === 'Beaver' } : {}; }   // (the trait list not loaded yet: the kind from its name)
   const v = n => { const c = M.k.indexOf(n); return c >= 0 && row[c] >= 0 ? String(M.v[c][row[c]]) : ''; }, eyes = v('Eyes');
   return { robot:eyes === 'Robot' || v('Skin') === 'Metal', girl:v('Character') === 'Beaver' || /Eyelashes/.test(eyes), kind:v('Character'), mouth:v('Mouth') }; };
 const fitsPerson = (id, p) => { const f = p && p.feat && p.feat.fem; if (f == null) return true; const g = !!nibKind(id).girl; return f > 0.55 ? g : f < 0.35 ? !g : true; };   // (the sitcom, read fresh: Elaine 0.63, the three men 0.13–0.19)
@@ -4093,7 +4204,7 @@ async function vmLookalikes(all, prog) {
     const p = VM.people[i]; if (p.off || VM.like[i] || (VM.mine && i === VM.main) || vmRoot(i) !== i) continue;
     const f = p.feat, tone = !f ? null : f.skin > 0.5 ? 'light' : f.skin > 0.3 ? 'mid' : 'dark';
     const robot = [...taken].some(id => nibKind(id).robot), kinds = new Set([...taken].map(id => nibKind(id).kind));
-    const score = id => { if (taken.has(id) || !readyId(M, id)) return -1; const sk = val(id, 'Skin'); if (/gold/i.test(sk) || /bubble/i.test(val(id, 'Mouth'))) return -1;
+    const score = id => { if (taken.has(id) || !readyId(M, id)) return -1; const sk = val(id, 'Skin'); if (/gold/i.test(sk) || /bubble/i.test(val(id, 'Mouth')) || COVERED_MOUTH.has(id)) return -1;
       if (!fitsPerson(id, p) || (robot && nibKind(id).robot)) return -1;
       let s = Math.random() * 2;
       // (GEAUX's sitcom, 21 Nov: two wolves for Kramer and George were hard to tell apart, and a drooling one flashed its
@@ -4115,7 +4226,10 @@ function vmRandom(keepMain) {
   VM.mine = mine;
   const ids = NIB_NAMES().map(x => x[0]).filter(id => id !== mine).sort(() => Math.random() - 0.5), P = VM.people;
   // the rest: look-alikes when they're ready, else built-in ones (the specials, dissections and robots, only now and then)
-  const plain = ids.filter(id => (!/^(546|2775|3113|3159|3295|3543|5900|8482|794|1998|3538|5807|7192|7813|8617|8637)$/.test(String(id)) || Math.random() < 0.15) && !/bubble/i.test(nibKind(id).mouth || ''));   // (never a bubble-gum Nibble)
+  // (never a bubble-gum Nibble, nor one whose mouth is hidden (#2471 holds a fan over it: GEAUX's Office clip got a
+  // Dwight who never seemed to talk); smiles and frowns first, as for the look-alikes)
+  const plain = ids.filter(id => (!/^(546|2775|3113|3159|3295|3543|5900|8482|794|1998|3538|5807|7192|7813|8617|8637)$/.test(String(id)) || Math.random() < 0.15) && !/bubble/i.test(nibKind(id).mouth || '') && !COVERED_MOUTH.has(+id))
+    .sort((x, y) => (PLAIN_MOUTH.includes(nibKind(x).mouth) ? 0 : 1) - (PLAIN_MOUTH.includes(nibKind(y).mouth) ? 0 : 1));
   // (each one different; a woman gets a girl Nibble and a man doesn't, when there's one to give; one robot at most)
   const used = new Set(); let robot = false; const take = id => { used.add(id); if (nibKind(id).robot) robot = true; return id; };
   P.forEach((p, i) => { const id = mine != null && i === VM.main ? mine : VM.like && VM.like[i]; VM.cast[i] = id ? take(id) : null; });
@@ -4167,14 +4281,7 @@ function vmRemovePerson(i) {
 function vmAddOnScreen(fi) {
   const P = VM.people, F = fi != null && VM.found ? VM.found[fi] : null;
   let person = { smp:[], thumb:null, t0:0, t1:VM.dur, n:0, noface:true, added:true };
-  if (F) {
-    const m = F.faces.map(f => f.mo).sort((a, b) => a - b), lo = m[Math.floor(m.length * 0.1)] || 0, hi = Math.max(lo + 0.02, m[Math.floor(m.length * 0.9)] || 0.05);
-    const smp = F.faces.map(f => ({ t:f.t, open:clamp((f.mo - lo) / (hi - lo), 0, 1), jaw:clamp((f.mo - lo) / (hi - lo), 0, 1), wide:0, round:0, smile:0, press:0, frown:0, fv:0, lowIn:0, upIn:0, blink:0, bu:0, brow:0, browUp:0, eyeWide:0, roll:0, yaw:0, pitch:0, mo:f.mo, cx:f.cx, s:f.s, edge:false }));
-    // (seen only every few tenths of a second: each reading stands for the moment around it)
-    const step = VM.whoStep || 0.5, fill = []; for (const x of smp) for (let d = -step / 2; d < step / 2; d += 0.1) fill.push({ ...x, t:+(x.t + d).toFixed(2) });
-    person = { feat:F.feat, smp:fill.sort((a, b) => a.t - b.t), thumb:F.thumb, t0:F.t0, t1:F.t1, n:F.faces.length, lipOk:false, added:true };
-    F.used = true;
-  }
+  if (F) person = vmFoundPerson(F);
   P.push(person); const i = P.length - 1;
   const used = new Set(Object.values(VM.cast).map(Number)), free = NIB_NAMES().map(x => x[0]).filter(id => !used.has(id));
   VM.cast[i] = free.length ? free[Math.floor(Math.random() * free.length)] : NIB_NAMES()[0][0]; ED.lane = i;
