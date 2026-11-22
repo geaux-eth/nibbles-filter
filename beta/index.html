@@ -499,7 +499,7 @@ const codeURL = f => new URL(CODE + f + '?v=' + ART_V, document.baseURI).href;
 // (and when one won't load, the tracking device notes the address and what the server said, so a phone's failure can be told
 // apart: not found, a network drop, or the script itself)
 const codeImport = f => import(codeURL(f)).catch(async e => { try { const r = await fetch(codeURL(f), { cache:'no-store' }); trk('importFailed', [codeURL(f), r.status, (r.headers.get('content-type') || '').slice(0, 40), String(e && e.message || e).slice(0, 120)]); } catch (e2) { trk('importFailed', [codeURL(f), 'no answer', String(e2).slice(0, 80)]); } throw e; });   // (the beta copy keeps its own code in beta/; art and data are shared)
-const ART_V = '20261121-2330';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261122-0400';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1029,7 +1029,10 @@ async function donorFor(id, a, B) {
   try { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(best); await im.decode(); return B.cutOriginal(im, KIT_GAPS[a.Character]).canvas; } catch (e) { return null; }
 }
 // things in front of the mouth, kept whole on top of every talking mouth (kit.js)
-const FRONT_MOUTH = /mustache|straw|match|bubbles/i;   // (dark magic isn't: its still wisps are replaced by the moving ones)
+const FRONT_MOUTH = /mustache|straw|match/i;   // (dark magic isn't: its still wisps are replaced by the moving ones)
+// (a gum bubble isn't kept over the talking mouths any more: it hid every mouth, only its edges moved (GEAUX, 21 Nov: 'bubblegum
+// Nibbles' mouths all suck'). A bubble-gum Nibble talks with the gum out, on its plain-mouthed twin's face, and in a made video
+// rests on that face too (M17). Never picked at random either)
 const KIT_BUSY = {};
 window.__nf = { voicedTrack:(noLaugh, allIn) => { VM.noLaugh = !!noLaugh; const tk = VM.talk; if (allIn) VM.talk = null; const o = []; for (let t = 0; t < VM.dur; t += 0.05) { vmVoice(performance.now(), t); o.push(V.voiced ? 1 : 0); } VM.noLaugh = false; VM.talk = tk; return o; }, lookalikes:(feats, all) => { VM.people = feats.map(f => ({ feat:f, smp:[] })); VM.same = {}; VM.main = 0; VM.mine = null; return vmLookalikes(all !== false).then(() => VM.like); }, setEye:k => { S.forceEye = k; }, setMouth:k => { S.forceMouth = k; }, setPose:p => { S.forcePose = p; }, faceAt:id => FACE_AT[id], setShape:n => setShape(n),
   groupShot:async (ids, shape, gl, slots) => {   // (tests) one frame of a group layout
@@ -1061,7 +1064,7 @@ async function kitPrepare(id) {
       // drawn mouths for the kinds that have them (rig.js), when the face under the mouth is a plain one (its own, or its twin's)
       let rig = null; if (RIG_KINDS.has(kind) && (a.Mouth === 'Smile' || donor) && !groupOf(a)) { const RG = await codeImport('rig.js'); if (RG.RIGS[kind]) rig = { def:RG.RIGS[kind], draw:RG.rigFrames }; }
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop),
-        donor, rig, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : /match/i.test(String(a.Mouth || '')) ? 'match' : FRONT_MOUTH.test(String(a.Mouth || '')) });
+        donor, rig, gum:/bubble/i.test(String(a.Mouth || '')) && !!donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : /match/i.test(String(a.Mouth || '')) ? 'match' : FRONT_MOUTH.test(String(a.Mouth || '')) || (/bubble/i.test(String(a.Mouth || '')) && !donor) });   // (a gum bubble with no twin on hand: kept in front, as before)
       // (a beaver's wide-open jaw drops over the reference's suspenders; on any other outfit it left scraps over the collar
       // or bow (GEAUX's sitcom, 21 Nov): its open mouth instead, for the wide AH and the L too)
       if (kind === 'Beaver' && a.Outfit !== 'Beaver Handrywoman Blue' && res.frames && res.frames[2]) { res.frames[3] = res.frames[2]; res.frames[8] = res.frames[2]; }
@@ -3029,12 +3032,16 @@ async function vmSoundKinds(b) {
       let top = 0, musical = false; for (const c of cats) { const nm = c.categoryName || c.displayName || ''; if (VOX.speech.test(nm) || VOX.sing.test(nm)) continue; if (c.score > top) { top = c.score; musical = /music|guitar|drum|piano|keyboard|bass|synth|instrument|orchestra|strum|bell|hip hop|rock|pop|jazz|soul|gospel|electronic|scratch/i.test(nm); } }
       const t0 = r.timestampMs != null ? r.timestampMs / 1000 : k * 0.975;
       const voice = v >= 0.3 || v >= top || (musical && v >= 0.011);
-      win.push({ t0, none:!voice, hard:!voice && !musical, ch:cats.reduce((m, c) => /^(Choir|A capella|Chant)$/.test(c.categoryName || c.displayName || '') ? Math.max(m, c.score) : m, 0) });   // (a voice weaker than a horn or traffic: the horn; ch: how much it sounds like a choir)
+      win.push({ t0, v, top, musical, none:!voice, hard:!voice && !musical, ch:cats.reduce((m, c) => /^(Choir|A capella|Chant)$/.test(c.categoryName || c.displayName || '') ? Math.max(m, c.score) : m, 0) });   // (a voice weaker than a horn or traffic: the horn; ch: how much it sounds like a choir)
       if (window.__soundDbg) window.__soundDbg.push([+t0.toFixed(2), +v.toFixed(3), cats.slice(0, 4).map(c => (c.categoryName || '').slice(0, 14) + ':' + c.score.toFixed(2)).join(' ')]);
     });
     win.forEach((w, k) => { w.t1 = k + 1 < win.length ? win[k + 1].t0 : w.t0 + 0.975; });
+    // (not a song: music with only a trace of voice under it is the show's theme, not someone singing or talking. A sitcom's
+    // opening music moved Kramer's mouth, GEAUX 21 Nov. In a song a faint voice under the band is the singer, as before)
+    if (sung / res.length < 0.3) win.forEach(w => { if (w.musical && w.v < 0.3 && w.v < w.top) { w.none = true; w.hard = false; } });
     // no voice: a stretch that's clearly something else (a car, a horn), or a second or more of music with no voice in it
-    win.forEach((w, k) => { if (w.none && (w.hard || (win[k - 1] && win[k - 1].none) || (win[k + 1] && win[k + 1].none))) for (let j = Math.floor(w.t0 * 50); j < Math.min(n, Math.ceil(w.t1 * 50)); j++) out[j] = 1; });
+    // (the last 0.4 s before a window with a voice stays open: the windows are a second long, and the first word can start inside)
+    win.forEach((w, k) => { if (w.none && (w.hard || (win[k - 1] && win[k - 1].none) || (win[k + 1] && win[k + 1].none))) { const end = win[k + 1] && !win[k + 1].none ? w.t1 - 0.4 : w.t1; for (let j = Math.floor(w.t0 * 50); j < Math.min(n, Math.ceil(end * 50)); j++) out[j] = 1; } });
     out.music = res.length ? sung / res.length : 0;   // how much of the clip is singing or music (a song: the crowd sings along)
     win.forEach(w => { for (let j = Math.floor(w.t0 * 50); j < Math.min(n, Math.ceil(w.t1 * 50)); j++) choir[j] = w.ch; }); out.choir = choir;
     return out;
@@ -3654,7 +3661,9 @@ function vmLipSync(b) {
 function vmCueAt(t) { const C = VM.cues; if (!C || !C.length) return null; let lo = 0, hi = C.length - 1;
   while (lo < hi) { const m = (lo + hi + 1) >> 1; if (C[m][0] <= t) lo = m; else hi = m - 1; }
   const c = C[lo]; if (!(c[0] <= t && t < c[1])) return 0;
-  if (c[2] === 'B' && c[1] - c[0] >= 0.45) return 4;   // a held EE: teeth (B lasts 0.2–0.4 s often: at 0.2 s the teeth showed 41% of the time)
+  // (a B held 0.45 s or more was the teeth: in GEAUX's sitcom nearly every one was the laugh track, the opening music or a
+  // quiet stretch, and it showed as a full-teeth grin, 22% of the open mouths ('too much full teeth', 21 Nov). Now the
+  // small open mouth like any B: the laugh and music gates shut it where nobody talks)
   if (c[2] === 'C' && V.level > 0.7) return 3;   // a loud open vowel: the wide AH
   return RHU_MOUTH[c[2]] ?? 0; }
 async function vmVoicePrints(b, tf, prog) {
@@ -3801,7 +3810,7 @@ function vmVoices(lines, raw, dt) {
       let best = null;
       for (let k = a; k < z; k++) { const w = lab[k]; if (w < 0 || w === l.who) continue; let e = k, n = 0, gap = 0;
         for (let j = k; j < z; j++) { if (lab[j] === w) { e = j; n++; gap = 0; } else if (lab[j] >= 0 || ++gap * dt > 0.5) break; }
-        if (n * dt >= 0.75 && (!best || n > best.n)) best = { w, s:k, e, n }; k = e; }
+        if (n * dt >= 0.4 && (!best || n > best.n)) best = { w, s:k, e, n }; k = e; }
       if (!best) continue;
       const s0 = best.s * dt, s1 = (best.e + 1) * dt;
       // (the stretch as a whole, heard together: clearly theirs, and clearly not the line's own speaker; where the line's own
@@ -3810,7 +3819,7 @@ function vmVoices(lines, raw, dt) {
         if (c < 2) return null; let nn = 0; for (const q of m) nn += q * q; nn = Math.sqrt(nn) || 1; for (let q = 0; q < m.length; q++) m[q] /= nn; return m; })();
       const dT = v ? vmVoiceD(v, refs[best.w]) : 9, dO = v && refs[l.who] ? vmVoiceD(v, refs[l.who]) : null;
       D.who.push([+s0.toFixed(2), +s1.toFixed(2), l.who, best.w, +dT.toFixed(2), dO == null ? null : +dO.toFixed(2)]);
-      if (dO == null ? dT > 0.6 : (dT > 0.7 || dO - dT < 0.2)) { for (let k = best.s; k <= best.e; k++) if (lab[k] === best.w) lab[k] = -1; i--; continue; }
+      if (dO == null ? dT > 0.6 : (dT > 0.75 || dO - dT < 0.2)) { for (let k = best.s; k <= best.e; k++) if (lab[k] === best.w) lab[k] = -1; i--; continue; }
       const parts = []; if (s0 - l.t0 >= 0.4) parts.push({ ...l, t1:s0 }); parts.push({ ...l, t0:parts.length ? s0 : l.t0, t1:l.t1 - s1 >= 0.4 ? s1 : l.t1, who:best.w }); if (l.t1 - s1 >= 0.4) parts.push({ ...l, t0:s1 });
       lines.splice(i, 1, ...parts); i--; }
   }
@@ -3886,6 +3895,10 @@ function vmTimeline() {
     // the median pitch of the moment around it, matched to the nearest known voice (if it's clearly closer to one)
     const v = []; for (let j = Math.max(0, k - 6); j < Math.min(raw.length, k + 7); j++) if (raw[j].speech && pt(j) > 0) v.push(pt(j));
     if (v.length < 4) return; v.sort((a, b) => a - b); const m = v[v.length >> 1];
+    // (not in a conversation among three or more while faces are on screen: there the talking with no lips seen moving is
+    // whoever was talking carrying on off camera (the fill below), or the voice prints' to give. The pitch is too rough to
+    // tell three men apart: George, nowhere in Jerry and Elaine's two-shot, got Elaine's first words, GEAUX's sitcom 21 Nov)
+    if (P.filter(q => !q.off).length >= 3 && P.some(q => activity(q, k * dt) >= 0)) return;
     const ds = voice.map((f, i) => f && near(i, k * dt) ? Math.abs(Math.log(m / f)) : 9), best = ds.indexOf(Math.min(...ds)), second = Math.min(...ds.filter((_, i) => i !== best));
     if (ds[best] < 0.25 && second - ds[best] > 0.08) r.who = best;
   });
@@ -4080,7 +4093,7 @@ async function vmLookalikes(all, prog) {
     const p = VM.people[i]; if (p.off || VM.like[i] || (VM.mine && i === VM.main) || vmRoot(i) !== i) continue;
     const f = p.feat, tone = !f ? null : f.skin > 0.5 ? 'light' : f.skin > 0.3 ? 'mid' : 'dark';
     const robot = [...taken].some(id => nibKind(id).robot), kinds = new Set([...taken].map(id => nibKind(id).kind));
-    const score = id => { if (taken.has(id) || !readyId(M, id)) return -1; const sk = val(id, 'Skin'); if (/gold/i.test(sk)) return -1;
+    const score = id => { if (taken.has(id) || !readyId(M, id)) return -1; const sk = val(id, 'Skin'); if (/gold/i.test(sk) || /bubble/i.test(val(id, 'Mouth'))) return -1;
       if (!fitsPerson(id, p) || (robot && nibKind(id).robot)) return -1;
       let s = Math.random() * 2;
       // (GEAUX's sitcom, 21 Nov: two wolves for Kramer and George were hard to tell apart, and a drooling one flashed its
@@ -4102,7 +4115,7 @@ function vmRandom(keepMain) {
   VM.mine = mine;
   const ids = NIB_NAMES().map(x => x[0]).filter(id => id !== mine).sort(() => Math.random() - 0.5), P = VM.people;
   // the rest: look-alikes when they're ready, else built-in ones (the specials, dissections and robots, only now and then)
-  const plain = ids.filter(id => !/^(546|2775|3113|3159|3295|3543|5900|8482|794|1998|3538|5807|7192|7813|8617|8637)$/.test(String(id)) || Math.random() < 0.15);
+  const plain = ids.filter(id => (!/^(546|2775|3113|3159|3295|3543|5900|8482|794|1998|3538|5807|7192|7813|8617|8637)$/.test(String(id)) || Math.random() < 0.15) && !/bubble/i.test(nibKind(id).mouth || ''));   // (never a bubble-gum Nibble)
   // (each one different; a woman gets a girl Nibble and a man doesn't, when there's one to give; one robot at most)
   const used = new Set(); let robot = false; const take = id => { used.add(id); if (nibKind(id).robot) robot = true; return id; };
   P.forEach((p, i) => { const id = mine != null && i === VM.main ? mine : VM.like && VM.like[i]; VM.cast[i] = id ? take(id) : null; });

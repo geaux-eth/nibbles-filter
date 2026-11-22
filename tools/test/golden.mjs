@@ -55,6 +55,9 @@ const CLIPS = {
     ['the laugh at 6.6–8.2 s doesn\'t move a mouth, even if a line is stretched over it', mv(r, 6.6, 8.2) <= 0.15],
     ['GEAUX\'s own edit (21 Nov): Kramer 4, 12.5, 25, 38.3 s (and 35.2 s no one else); George 10, 30, 37, 44 s; Elaine 16, 41 s; Jerry 21.5 s',
       (() => { const E = at(16), J = at(21.5); return [4, 12.5, 25, 38.3].every(t => at(t) === K) && [K, -1].includes(at(35.2)) && [10, 30, 37, 44].every(t => at(t) === G) && at(41) === E && new Set([K, G, E, J]).size === 4 && ![E, J].includes(-1); })()],
+    // Elaine's lines start with her (GEAUX, 21 Nov: 'you really struggle to transition to Elaine's lines'): her two-shot at
+    // 14–15 s isn't George's (he's not in it), and she's on by 15.1 s and by 40 s
+    (() => { const E = at(16); return ['Elaine\'s lines start with her: not George at 14–15 s, Elaine on by 15.1 and 40 s', E >= 0 && [14.25, 14.5, 14.75].every(t => at(t) !== G) && at(15.1) === E && at(40) === E]; })(),
     // the audience's laugh at 26–27.7 s after Kramer's line: nobody's line (Jerry, laughing along, 'said' it: a cut to him)
     ['the laugh at 26–27.7 s is nobody\'s line (no cut to someone laughing)', !r.lines.some(l => l[0] >= 25.9 && l[1] <= 27.8)],
     // the whole of GEAUX's edit, every quarter second, as it's seen: who's on screen (their line, a pause under a second still
@@ -146,8 +149,11 @@ async function run(name) {
   r.mouth = mouth ? (process.env.MOUTHOFF ? mouth.off : mouth.now) : null; r.mouthOff = mouth ? mouth.off : null;
   if (process.env.RENDER) { const ml = JSON.parse(fs.readFileSync(`${G}/${name}.mlog.json`)).log, n = ml.length; let op = 0, bad = 0, ah = 0;
     ml.forEach((x, i) => { if ([0, 1, 9].includes(x[2])) return; op++; if (x[2] === 3) ah++; let near = false; for (let j = Math.max(0, i - 6); j < Math.min(n, i + 7); j++) if (ml[j][6]) near = true; if (!near) bad++; });
-    r.render = { open:op, noVoice:bad, ah }; }
-  const res0 = c.checks(r), res = process.env.RENDER ? [...res0, ['made video: a mouth open with no voice near it: under 3% of open frames (' + r.render.noVoice + '/' + r.render.open + ')', r.render.noVoice <= 0.03 * r.render.open],
+    const teeth = ml.filter(x => x[2] === 4).length, early = ml.filter(x => x[0] < 1.3 && ![0, 1, 9].includes(x[2])).length;
+    r.render = { open:op, noVoice:bad, ah, teeth, early }; }
+  const res0 = c.checks(r), res = process.env.RENDER ? [...res0,
+    ...(name === 'sitcom' ? [['made video: the full-teeth grin under 8% of open frames (' + r.render.teeth + '/' + r.render.open + ')', r.render.teeth <= 0.08 * r.render.open],
+      ['made video: the opening music (0–1.3 s) moves no mouth (' + r.render.early + ' open frames)', r.render.early <= 3]] : []), ['made video: a mouth open with no voice near it: under 3% of open frames (' + r.render.noVoice + '/' + r.render.open + ')', r.render.noVoice <= 0.03 * r.render.open],
     ...(r.sing ? [] : [['made video: the wide AH is under 30% of open frames when talking, not shouting all the time (' + r.render.ah + ')', r.render.ah <= 0.3 * r.render.open]])] : res0;
   const secs = Math.round((Date.now() - t0) / 1000);
   fs.writeFileSync(`${G}/${name}${process.env.NOAV ? ".noav" : ""}.result.json`, JSON.stringify(r));
