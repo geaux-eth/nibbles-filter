@@ -24,7 +24,7 @@ for ref in KITS:
         if ref in BEAVER:   # the buck teeth: as many tooth pixels as the picture has, in every frame
             box = np.zeros(a.shape[:2], bool); box[515:616, 560:666] = True
             short = int((white(base) & box).sum()) - int((white(a) & box).sum())
-            if short > 800: n += short
+            if short > (1300 if ref == 'k929b' else 800): n += short   # (the broken tooth is shorter by its chip)
         if n > 150: bad += 1; print('✗', ref, 'm%d' % k, n, 'tooth pixels not white or missing')
 print('teeth check:', 'all kits pass' if not bad else f'{bad} frames fail')
 sys.exit(1 if bad else 0)
