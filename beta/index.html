@@ -499,7 +499,7 @@ const codeURL = f => new URL(CODE + f + '?v=' + ART_V, document.baseURI).href;
 // (and when one won't load, the tracking device notes the address and what the server said, so a phone's failure can be told
 // apart: not found, a network drop, or the script itself)
 const codeImport = f => import(codeURL(f)).catch(async e => { try { const r = await fetch(codeURL(f), { cache:'no-store' }); trk('importFailed', [codeURL(f), r.status, (r.headers.get('content-type') || '').slice(0, 40), String(e && e.message || e).slice(0, 120)]); } catch (e2) { trk('importFailed', [codeURL(f), 'no answer', String(e2).slice(0, 80)]); } throw e; });   // (the beta copy keeps its own code in beta/; art and data are shared)
-const ART_V = '20261122-1900';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261122-2130';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -4209,7 +4209,9 @@ async function vmLookalikes(all, prog) {
   const col = name => M.k.indexOf(name), val = (id, name) => { const j = col(name), row = M.t[id - 1]; return row && row[j] >= 0 ? String(M.v[j][row[j]]) : ''; };
   const taken = new Set(Object.values(VM.like).map(Number)); if (VM.mine) taken.add(VM.mine);
   for (let i = 0; i < VM.people.length; i++) { if (prog) prog(i / VM.people.length);
-    const p = VM.people[i]; if (p.off || VM.like[i] || (VM.mine && i === VM.main) || vmRoot(i) !== i) continue;
+    // (someone with no lines is never on screen: no look-alike made ready for them. GEAUX, 22 Nov: 'I saw you prepping a
+    // gecko but there's clearly no gecko'. They keep a ready built-in in case they're given a part in the editor)
+    const p = VM.people[i]; if (p.off || VM.like[i] || (VM.mine && i === VM.main) || vmRoot(i) !== i || (VM.lines && VM.lines.length && !VM.lines.some(l => l.who === i))) continue;
     const f = p.feat, tone = !f ? null : f.skin > 0.5 ? 'light' : f.skin > 0.3 ? 'mid' : 'dark';
     const robot = [...taken].some(id => nibKind(id).robot), kinds = new Set([...taken].map(id => nibKind(id).kind));
     const score = id => { if (taken.has(id) || !readyId(M, id)) return -1; const sk = val(id, 'Skin'); if (/gold/i.test(sk) || /bubble/i.test(val(id, 'Mouth')) || COVERED_MOUTH.has(id)) return -1;
