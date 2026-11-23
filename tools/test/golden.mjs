@@ -96,6 +96,8 @@ CLIPS.latarian = { file:'n2/b.h264.mp4', checks:r => { const at = t => { const l
 CLIPS.office1 = { file:'ho/h1.mp4', checks:r => hoChecks('office1', r) };
 CLIPS.office2 = { file:'ho/h2.mp4', checks:r => hoChecks('office2', r) };
 CLIPS.sunny = { file:'ho/h3.mp4', checks:r => hoChecks('sunny', r) };
+CLIPS.final = { file:'ho/final.mp4', checks:r => hoChecks('final', r) };
+CLIPS.frank = { file:'ho/frank.mp4', checks:r => hoChecks('frank', r) };
 for (const n of ['podcast26', 'podcast23', 'turtle', 'macho', 'podcast10mp4', 'latarian']) { const f = CLIPS[n].checks; CLIPS[n].checks = r => [...f(r), keepsTalk(r)]; }
 function hoChecks(name, r) {
   const f = S + '/ho/truth.json'; if (!fs.existsSync(f)) return [];
@@ -182,7 +184,7 @@ async function run(name) {
   fs.writeFileSync(`${G}/${name}${process.env.NOAV ? ".noav" : ""}.result.json`, JSON.stringify(r));
   return { name, secs, res, r, cached:!!T.scanIn, refollowed:!!saved.follow && !!T.followIn, errs };
 }
-const HELD = ['office1', 'office2', 'sunny'];   // (the held-out clips run only when named: they have their own reading set)
+const HELD = ['office1', 'office2', 'sunny', 'final', 'frank'];   // (the held-out clips run only when named: they have their own reading set)
 const names = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(CLIPS).filter(n => !HELD.includes(n)), out = [];
 const pool = +(process.env.POOL || 3); let k = 0;
 await Promise.all(Array.from({ length:pool }, async () => { while (k < names.length) { const n = names[k++]; try { out.push(await run(n)); } catch (e) { out.push({ name:n, err:String(e).slice(0, 300) }); } } }));

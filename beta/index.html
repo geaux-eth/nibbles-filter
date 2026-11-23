@@ -499,7 +499,7 @@ const codeURL = f => new URL(CODE + f + '?v=' + ART_V, document.baseURI).href;
 // (and when one won't load, the tracking device notes the address and what the server said, so a phone's failure can be told
 // apart: not found, a network drop, or the script itself)
 const codeImport = f => import(codeURL(f)).catch(async e => { try { const r = await fetch(codeURL(f), { cache:'no-store' }); trk('importFailed', [codeURL(f), r.status, (r.headers.get('content-type') || '').slice(0, 40), String(e && e.message || e).slice(0, 120)]); } catch (e2) { trk('importFailed', [codeURL(f), 'no answer', String(e2).slice(0, 80)]); } throw e; });   // (the beta copy keeps its own code in beta/; art and data are shared)
-const ART_V = '20261122-0130';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261122-1900';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -3851,7 +3851,7 @@ function vmFoundPerson(F) {
   return { feat:F.feat, smp:fill.sort((a, b) => a.t - b.t), thumb:F.thumb, t0:F.t0, t1:F.t1, n:F.faces.length, lipOk:false, added:true };
 }
 function vmDiarize(raw, dt, activity, laughy) {
-  const V = VM.voice, P = VM.people; VM.diarFace = []; if (!V || !V.e || V.e.length < 8) return false;
+  const V = VM.voice, P = VM.people; VM.diarFace = []; VM.diarClear = null; if (!V || !V.e || V.e.length < 8) return false;
   const real = P.map((p, i) => i).filter(i => !P[i].off); if (real.length < 2) return false;
   if (V.gate == null) { const r = V.rms.slice().sort((a, b) => a - b); V.gate = Math.max(0.003, Math.min(r[Math.floor(r.length * 0.15)] * 2.5, r[Math.floor(r.length * 0.9)] * 0.05)); }
   const pts = []; for (let k = 0; k < V.t.length; k++) { const t = V.t[k]; if (V.rms[k] < V.gate || vmVoiced(t) < 0.2 || laughy(t)) continue;
@@ -3891,7 +3891,10 @@ function vmDiarize(raw, dt, activity, laughy) {
     // two voices on one person that sound nothing alike: the weaker match is someone else
     let moved = false;
     for (let a = 0; a < K; a++) for (let b = a + 1; b < K; b++) { if (name[a] < 0 || name[a] !== name[b] || cd(a, b) < 0.75) continue;
-      const i = name[a], w = S[a].row[i] < S[b].row[i] ? a : b; if (!real.some(j => j !== i && !ban[w].has(j) && S[w].row[j] >= 0.12)) continue;   // (nobody else's lips go with it: still theirs)
+      // (the weaker is the one with less behind it: how well the lips go with it times how much of it there is. A short
+      // stretch where the next person starts over the cut beat the speaker's whole voice on lips alone and took it: GEAUX's
+      // Frank clip, 22 Nov, gave Frank's lines to Dee)
+      const i = name[a], w = S[a].row[i] * S[a].m < S[b].row[i] * S[b].m ? a : b; if (!real.some(j => j !== i && !ban[w].has(j) && S[w].row[j] >= Math.max(0.12, 0.6 * S[w].row[i]))) continue;   // (nobody else's lips go with it nearly as well: still theirs)
       ban[w].add(i); name[w] = -1; moved = true; }
     if (!moved) break; }
   // a voice left over (1.5 s or more): a face seen while it's heard that has no Nibble yet, else a voice off camera
@@ -3926,6 +3929,7 @@ function vmDiarize(raw, dt, activity, laughy) {
     for (let k = Math.max(0, Math.floor((t - 0.8) / 0.25)); k < Math.min(V.t.length, Math.ceil((t + 0.3) / 0.25) + 1); k++) { if (lk[k] < 0) continue; const d = Math.abs(V.t[k] - t); if (d < bd) { bd = d; best = lk[k]; } }
     if (best >= 0) { if (r.who !== best) changed++; r.who = best; r.off = false; } });
   VM.diarDbg.changed = changed; VM.diarDbg.lipped = lipped;
+  VM.diarClear = []; for (let a = 0; a < n; a++) if (dist[a] < 0.5 && name[lab[a]] >= 0) VM.diarClear.push(V.t[pts[a]]);
   return true;
 }
 function vmTimeline() {
@@ -4044,8 +4048,12 @@ function vmTimeline() {
   VM.lines = lines;
   // someone it found, given no lines (their lips couldn't be read, the voice went to the speaker before): the parts where
   // they're on screen and the speaker isn't are theirs (a podcast cuts to whoever is talking)
+  // (not where the voices clearly say who talks: there someone with no voice of their own is a listener, and the line on
+  // screen is the speaker's, off camera or not. Dee, silent, took Frank's off-camera lines in GEAUX's Frank clip, 22 Nov.
+  // Where the voice is unsure (a 'For real?' too short for a voice print), as before)
+  const clear = t => diar && VM.diarClear && VM.diarClear.some(c => Math.abs(c - t) <= 0.3);
   P.forEach((p, i) => { if (p.off || i === VM.main || lines.some(l => l.who === i) || !p.smp.length) return;
-    vmSeenParts(i, p.smp.filter((x, k) => k % 2 === 0).map(x => x.t), 0.2); });
+    vmSeenParts(i, p.smp.filter((x, k) => k % 2 === 0 && !clear(x.t)).map(x => x.t), 0.2); });
   vmShowDefaults(); vmLinesToTimeline();
 }
 // Who's on screen in each part, from the video itself: two of the cast in the picture together for most of a line -> both
@@ -4297,6 +4305,7 @@ function vmSeenParts(i, times, step) {
       let seen = 0, n = 0; for (let t = Math.max(a, l.t0); t < Math.min(b, l.t1); t += 0.1) { n++; if (vmSample(l.who, t)) seen++; }
       if (seen > n * 0.3) continue;   // the speaker's own face is there: still theirs
       const x0 = Math.max(a, l.t0), x1 = Math.min(b, l.t1), rest = { ...l };
+      if (x1 - x0 < 0.45) continue;   // (a sliver of a line isn't a part of its own: it flashed on screen)
       if (x0 > l.t0 + 0.2) { l.t1 = x0; VM.lines.push({ ...rest, t0:x0, t1:x1, who:i }); } else { l.t0 = x0; l.t1 = x1; l.who = i; }
       if (x1 < rest.t1 - 0.2) VM.lines.push({ ...rest, t0:x1, t1:rest.t1 });
     } }
