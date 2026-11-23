@@ -2,7 +2,8 @@
 # in every frame. Compares each frame with the kit as first made (before any clean-up): a tooth pixel there that's no
 # longer near-white now fails (the clean-up once turned the bear's fangs muzzle-tan). The O and OO of kits whose fangs go
 # away on purpose aren't checked for that; the beavers' are (their buck teeth stay).
-import subprocess, io, sys, numpy as np
+import subprocess, io, sys, os, numpy as np
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))   # (the history; the art read is the folder it runs in)
 from PIL import Image
 from scipy import ndimage
 ORIG = '6bdb1fb'
@@ -14,7 +15,7 @@ for ref in KITS:
     base = np.array(Image.open(f'faces/{ref}/base.webp').convert('RGBA')).astype(int)
     for k in range(1, 10):
         a = np.array(Image.open(f'faces/{ref}/m{k}.webp').convert('RGBA')).astype(int)
-        try: o = np.array(Image.open(io.BytesIO(subprocess.check_output(['git', 'show', f'{ORIG}:faces/{ref}/m{k}.webp'], stderr=subprocess.DEVNULL))).convert('RGBA')).astype(int)
+        try: o = np.array(Image.open(io.BytesIO(subprocess.check_output(['git', '-C', REPO, 'show', f'{ORIG}:faces/{ref}/m{k}.webp'], stderr=subprocess.DEVNULL))).convert('RGBA')).astype(int)
         except Exception: continue
         if o.shape != a.shape: continue
         n = 0

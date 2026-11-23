@@ -2,7 +2,7 @@
 // any: seconds), compare with what it should find, save the readings the first time. PAGE=beta/index.html by default.
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 import fs from 'fs';
-import { serve } from '../serve2.mjs';
+import { serve } from './serve2.mjs';
 const S = '/tmp/claude-0/-home-claude/983647b0-485b-5cec-a0d0-3276a7c1b795/scratchpad', mp = S + '/mp', G = process.env.GDIR || S + '/golden';
 const PAGE = process.env.PAGE || 'beta/index.html', FRESH = !!process.env.FRESH;
 const ov = (l, a, b) => Math.min(l[1], b) - Math.max(l[0], a);

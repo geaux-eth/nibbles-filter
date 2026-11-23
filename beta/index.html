@@ -499,7 +499,7 @@ const codeURL = f => new URL(CODE + f + '?v=' + ART_V, document.baseURI).href;
 // (and when one won't load, the tracking device notes the address and what the server said, so a phone's failure can be told
 // apart: not found, a network drop, or the script itself)
 const codeImport = f => import(codeURL(f)).catch(async e => { try { const r = await fetch(codeURL(f), { cache:'no-store' }); trk('importFailed', [codeURL(f), r.status, (r.headers.get('content-type') || '').slice(0, 40), String(e && e.message || e).slice(0, 120)]); } catch (e2) { trk('importFailed', [codeURL(f), 'no answer', String(e2).slice(0, 80)]); } throw e; });   // (the beta copy keeps its own code in beta/; art and data are shared)
-const ART_V = '20261123-1330';   // bump when art changes, so phones never show old cached frames
+const ART_V = '20261123-1800';   // bump when art changes, so phones never show old cached frames
 const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Each Nibble: eye layers e0–e4 and ten whole-face mouth frames m0–m9, all lined up at 1000×1000.
@@ -1024,6 +1024,7 @@ async function donorFor(id, a, B) {
   const col = n => m.k.indexOf(n), val = (row, n) => { const j = col(n); return row[j] >= 0 ? m.v[j][row[j]] : undefined; };
   let best = 0, bs = -1;
   m.t.forEach((row, k) => { const did = k + 1; if (did === id || val(row, 'Character') !== a.Character || val(row, 'Skin') !== a.Skin || val(row, 'Outfit') !== a.Outfit) return;
+    if (/mask|goggle/i.test(String(val(row, 'Accessory') || '')) && val(row, 'Accessory') !== a.Accessory) return;   // (a twin in a mask or goggles that reach the cheeks: its mask was pasted on this Nibble's cheek (the nibble check, 23 Nov: an opera mask on a blue ghost))
     const mo = val(row, 'Mouth'); if (!want.includes(mo)) return;
     const sc = (mo === 'Smile' ? 2 : 1) + (val(row, 'Accessory') === a.Accessory ? 4 : 0) + (val(row, 'Eyes') === a.Eyes ? 1 : 0); if (sc > bs) { bs = sc; best = did; } });
   if (!best) return null;
@@ -1066,15 +1067,16 @@ async function kitPrepare(id) {
       let rig = null; if (RIG_KINDS.has(kind) && (a.Mouth === 'Smile' || donor) && !groupOf(a)) { const RG = await codeImport('rig.js'); if (RG.RIGS[kind]) rig = { def:RG.RIGS[kind], draw:RG.rigFrames }; }
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop),
         donor, rig, gum:/bubble/i.test(String(a.Mouth || '')) && !!donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : /match/i.test(String(a.Mouth || '')) ? 'match' : FRONT_MOUTH.test(String(a.Mouth || '')) || (/bubble/i.test(String(a.Mouth || '')) && !donor) });   // (a gum bubble with no twin on hand: kept in front, as before)
-      // (a beaver's wide-open jaw drops over the reference's suspenders; on any other outfit it left scraps over the collar
-      // or bow (GEAUX's sitcom, 21 Nov): its open mouth instead, for the wide AH and the L too)
-      if (kind === 'Beaver' && a.Outfit !== 'Beaver Handrywoman Blue' && res.frames && res.frames[2]) { res.frames[3] = res.frames[2]; res.frames[8] = res.frames[2]; }
+      // (a beaver's wide AH and L used to be swapped for its small open mouth on any outfit but the reference's, for scraps
+      // over collars and bows in GEAUX's sitcom (21 Nov). The kit engine keeps a Nibble's own clothes now: the all-Nibbles
+      // check on a beaver of every outfit found no scraps with them, and with the swap a beaver's mouth barely opened
+      // (its small open mouth is 1/7 of the AH: 'mumbling', 23 Nov). So every beaver opens wide)
       res.face = FACE_AT[ref];
       res.traits = B.findTraits(cut.canvas, res, kind, cut.bg, { halo:/halo/i.test(String(a.Accessory || '')), fire:/fire/i.test(String(a.Eyes || '')), laser:/laser/i.test(String(a.Eyes || '')) });
       const exp = await B.exportFiles(res, cut.canvas), files = {};
       const drop = () => { for (const c of [cut.canvas, ...(res.frames || []), ...(res.eyes || [])]) if (c && c.getContext) c.width = c.height = 0; };
       for (const k in exp.files) files[k] = URL.createObjectURL(exp.files[k]);
-      NIBBLES[id] = { bg:cut.bg, fullFace:true, files, layout:exp.layout, jiggle:exp.layout.jig, kit:ref };
+      NIBBLES[id] = { bg:cut.bg, fullFace:true, files, layout:exp.layout, jiggle:exp.layout.jig, kit:ref, twin:!!donor };
       // (and with no twin on hand: the talking mouths are made without its own big mouth anyway (painted over as the
       // reference's face), so its resting face is the shut one too, or its drool flashed between words: GEAUX's Office clip)
       if (!rig && (donor || !PLAIN_MOUTH.includes(a.Mouth))) NIBBLES[id].twinRest = a.Mouth === 'Frown' ? 9 : 1;
@@ -3610,6 +3612,7 @@ function vmCut(v) {
 // The voice prints: the WeSpeaker ResNet34-LM model (trained on VoxCeleb; CC BY 4.0; see models/voice/README.md),
 // its weights in 8 bits (6.7 MB), run here with TensorFlow.js (already in the page for faces). The sound is read once,
 // whole, and each second (every quarter second) gets its own 256 numbers from it.
+window.__nf.restOf = id => { const N = NIBBLES[id]; return N && N.twinRest ? N.twinRest : BUILTIN_SHUT_REST.has(+id) ? 1 : 0; };   // (tests: the face a made video rests on)
 window.__nf.prepare = id => kitPrepare(id); window.__nf.thumb = (el, id) => nibThumb(el, id); window.__nf.artOf = (id, n) => artURL(id, n); window.__nf.layout = id => NIBBLES[id] && NIBBLES[id].layout; window.__nf.voiceNet = async () => { try { return !!(await vmVoiceNetLoad()); } catch (e) { return String(e && e.message || e); } };   // (tests: a kit Nibble and the voice net load as on a phone)
 const VOICE_URL = 'models/voice/';   // (fetch goes by <base>: the site's own folder on live and on the debug site alike)
 let VOICE_NET = null;
@@ -3671,7 +3674,15 @@ function vmCueAt(t) { const C = VM.cues; if (!C || !C.length) return null; let l
   // (a B held 0.45 s or more was the teeth: in GEAUX's sitcom nearly every one was the laugh track, the opening music or a
   // quiet stretch, and it showed as a full-teeth grin, 22% of the open mouths ('too much full teeth', 21 Nov). Now the
   // small open mouth like any B: the laugh and music gates shut it where nobody talks)
-  if (c[2] === 'C' && V.level > 0.7) return 3;   // a loud open vowel: the wide AH
+  // (the speech's own rhythm (23 Nov, the made-video score: mouths sat on the small open one for 60-77% of the talking and
+  // changed 4 times a second, the 'mumbling'; drawn speech changes 6-8): the dip between two syllables shuts the mouth, and
+  // a syllable's peak, against this speaker's own last half second, opens it wide, so a quiet voice moves as much as a loud one)
+  if ((c[2] === 'B' || c[2] === 'C') && V.dip) return 1;
+  const E = VM.env && VM.env.vt; let rel = 0;
+  if (E && V.level > 0) { const k = Math.round(t * 100), lv = j => Math.max(0, Math.min(1, ((E.e[j] || 0) - E.thr) / (E.loud - E.thr))); let pk = 0;
+    for (let j = Math.max(0, k - 50); j <= Math.min(E.e.length - 1, k + 50); j++) pk = Math.max(pk, lv(j)); rel = pk > 0 ? V.level / pk : 0; }
+  if (c[2] === 'C' && (V.level > 0.7 || rel >= 0.85)) return 3;   // a loud open vowel, or this speaker's syllable peak: the wide AH
+  if (c[2] === 'B' && c[1] - c[0] > 0.2 && rel >= 0.95) return 3;   // (a long B over a syllable's peak: lip sync unsure of a vowel)
   return RHU_MOUTH[c[2]] ?? 0; }
 async function vmVoicePrints(b, tf, prog) {
   const net = await vmVoiceNetLoad(); if (!net || !tf) return null;
