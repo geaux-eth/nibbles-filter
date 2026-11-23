@@ -34,6 +34,8 @@ How to use it:
 | M5 | Fangs and teeth stay in O and OO | Image edits kept them | O and OO never show fangs or teeth | art review of every kit's O/OO |
 | M6 | Scribbles, ticks, smudges on clothes or chin around a talking mouth | The reference's own lines (suspenders, a redrawn chin) were carried onto every Nibble | Outside its face, a talking frame is the Nibble's own pixels | sweep: ink changed outside the face |
 | M7 | Wooden-puppet drawn mouths | Mouths drawn by code | Mouths come from drawn art (kits), never code-drawn shapes | — (rig.js unused) |
+| M9 | (22 Nov) Brown teeth on bears (and other kits); beaver teeth gone in some mouths | My clean-up snapped near-face colours to the face colour, turning cream fangs muzzle-tan; and the 'teeth go in O/OO' rule (GEAUX's, for the wolf's fangs) was applied to the beaver, whose buck teeth are the beaver | Clean-ups never touch tooth-white; a rule GEAUX gives for one kind is checked against what each kind is before it's applied to all | tools/test/teeth_check.py (fails on the art he had: 20 frames) |
+| M10 | (22 Nov) 'Getting Gecko ready' for someone never on screen | Look-alikes made ready for every person found, even those with no lines | Nothing is made ready for someone with no lines | — |
 | M8 | Lip sync not matching the words | Mouth shapes from loudness | Shapes from the speech sounds (Rhubarb) | made video checks |
 
 ## Picks and art
