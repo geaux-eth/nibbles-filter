@@ -92,6 +92,7 @@ for (const id of ids) {
     // straight cut edges: where a talking frame's change from the shut mouth stops along a straight line, with a colour
     // step across it and no outline, that the Nibble's own picture doesn't have there (a pasted box: the beaver's dark
     // rectangles, the chip's white box)
+    let kitNear = null;
     const edgeRun = A0 => { let best = 0, A = A0;
       // an edge: a hard colour step (> 45) with one side flat for 2 px across it (a pasted region's own edge; the other side
       // may be anything). One with dark within 5 px on the other side, or dark on the flat side, is an outline's edge: a run made mostly of those is a
@@ -107,7 +108,7 @@ for (const id of ids) {
       const scan = (dx, dy) => { const L1 = dx ? W : H, L2 = dx ? H : W;
         for (let u = 1; u < L1; u++) { let run = 0, ink = 0;
           for (let v = 0; v < L2; v++) { const x = dx ? u : v, y = dx ? v : u; A = A0; const e = step(x, y, dx, dy); A = F[0]; const e0 = e && step(x, y, dx, dy); A = A0;
-            if (e && !e0) { run++; if (e === 2) ink++; if (run > best && ink < 0.7 * run) { best = run; m.edgeAt = [x + x0, y + y0, dx ? 'v' : 'h']; } } else { run = 0; ink = 0; } } } };
+            if (e && !e0 && (!kitNear || kitNear[y * W + x])) { run++; if (e === 2) ink++; if (run > best && ink < 0.7 * run) { best = run; m.edgeAt = [x + x0, y + y0, dx ? 'v' : 'h']; } } else { run = 0; ink = 0; } } } };
       scan(1, 0); scan(0, 1);
       return best; };
     for (let k = 1; k < 10; k++) { const A = F[k]; let tt = 0, sc = 0, se = 0, fo = 0;
@@ -119,6 +120,9 @@ for (const id of ids) {
           const edge = x <= mb[0] + 1 || y <= mb[1] + 1 || x >= mb[2] - 1 || y >= mb[3] - 1;
           if (edge && dif(A, baseP, i) > 80 && dif(K[k], K[0], i) <= 30) se++; }
         if (!dark(A, i) && !mouthy(A, i) && !white(A, i) && !ownNear(A, i) && dif(A, F[rest], i) > 60) fo++; }
+            // (only near where the kit's mouths change something: a pasted edge is where the mouth was pasted; a twin's tail
+            //  shading far from the mouth is the same in every frame a made video shows)
+            if (K && !kitNear) { const kc = new Uint8Array(W * H); for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = (y * N + x) * 4; for (let j = 1; j < 10; j++) if (dif(K[j], K[0], i) > 60) { kc[at(x, y)] = 1; break; } } kitNear = grow(kc, 40); }
             const ea = m.edgeAt, be = k === 1 ? 0 : edgeRun(A); if (be < m.boxEdge || k === 1) m.edgeAt = ea; else m.edgeAt = [...(m.edgeAt || []), k];
       per[k] = [tt, sc, se, fo, be]; m.teethTan = Math.max(m.teethTan, tt); m.scraps = Math.max(m.scraps, sc); m.seam = Math.max(m.seam, se); m.foreign = Math.max(m.foreign, fo); m.boxEdge = Math.max(m.boxEdge, be); }
     // the mouth opens: the new mouth-inside in the small open and the wide AH, against the kit's own; and the face a made
