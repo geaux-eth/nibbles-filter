@@ -282,7 +282,8 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
   const faceFix = (r, g, b, m) => { if (!faceOwn || Math.abs(r - faceOwn.ref[0]) + Math.abs(g - faceOwn.ref[1]) + Math.abs(b - faceOwn.ref[2]) > 60) return m;
     const sc = Math.max(0.55, Math.min(1.04, (r + g + b) / faceOwn.lum)), c = faceOwn.c.map(v => Math.max(0, Math.min(255, Math.round(v * sc))));
     return !m || Math.abs(m[0] - c[0]) + Math.abs(m[1] - c[1]) + Math.abs(m[2] - c[2]) > 80 ? c : m; };
-  const mapped = (S, i) => { if (S[i + 3] < 8) return null; if (lum(S, i) >= 160 && !isSkinC(S[i], S[i + 1], S[i + 2]) && inPal(mouthP, S[i], S[i + 1], S[i + 2]) && mouthHue(S[i], S[i + 1], S[i + 2])) return [S[i], S[i + 1], S[i + 2]]; const m = faceFix(S[i], S[i + 1], S[i + 2], jawFix(S[i], S[i + 1], S[i + 2], isSkinC(S[i], S[i + 1], S[i + 2]) || lum(S, i) < 260 ? map(S[i], S[i + 1], S[i + 2]) : null));
+  let sharedP = null;   // (set below: colours this Nibble and the reference both have round the mouth, kept as they are)
+  const mapped = (S, i) => { if (S[i + 3] < 8) return null; if (sharedP && inPal(sharedP, S[i], S[i + 1], S[i + 2])) return [S[i], S[i + 1], S[i + 2]]; if (lum(S, i) >= 160 && !isSkinC(S[i], S[i + 1], S[i + 2]) && inPal(mouthP, S[i], S[i + 1], S[i + 2]) && mouthHue(S[i], S[i + 1], S[i + 2])) return [S[i], S[i + 1], S[i + 2]]; const m = faceFix(S[i], S[i + 1], S[i + 2], jawFix(S[i], S[i + 1], S[i + 2], isSkinC(S[i], S[i + 1], S[i + 2]) || lum(S, i) < 260 ? map(S[i], S[i + 1], S[i + 2]) : null));
     // ink and the dark inside of the mouth stay dark: a reference with dark fur (a navy wolf) teaches 'dark becomes light'
     // for a white Nibble, which turned outlines into pale gaps and the inside of a pucker white
     if (m && m[0] + m[1] + m[2] - lum(S, i) > 200 && !isSkinC(S[i], S[i + 1], S[i + 2]) && ((lum(S, i) < 100 && Math.max(S[i], S[i + 1], S[i + 2]) - Math.min(S[i], S[i + 1], S[i + 2]) < 22) || lum(S, i) < 80 || (isMouthC(S[i], S[i + 1], S[i + 2]) && mouthHue(S[i], S[i + 1], S[i + 2]) && lum(S, i) >= 100))) return [S[i], S[i + 1], S[i + 2]];   // (grey-black ink only: a brown reference's dark fur shading still turns white on a white Nibble)
@@ -310,6 +311,11 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
   const tClothNear = grow(tCloth, 8);
   // where this Nibble's own mouth area differs from the reference (its own mouth trait): talking replaces it.
   // Only on the face: a different outfit or collar near the jaw stays this Nibble's own.
+  // a colour both pictures have round the mouth, in good amounts, is one they share
+  // (a cock's yellow beak): it stays that colour. Learned through the skin map it came out olive on a white cock (24 Nov)
+  { const rf = new Uint32Array(32768), tf = new Uint32Array(32768); for (let p = 0; p < N * N; p++) { if (!ring[p] && !Zd[p]) continue; const i = p * 4; if (T[i + 3] > 200) tf[bin(T[i], T[i + 1], T[i + 2])]++; } for (let p = 0; p < N * N; p++) { if (!ring[p] && !Zd[p]) continue; const i = p * 4; if (R[i + 3] > 200 && lum(R, i) >= 160) rf[bin(R[i], R[i + 1], R[i + 2])]++; }
+    const sh = new Uint32Array(32768); let any = false; for (let k = 0; k < 32768; k++) if (rf[k] > 400 && tf[k] > 400) { const r = (k >> 10) << 3, g = ((k >> 5) & 31) << 3, b = (k & 31) << 3; sh[k] = Math.min(rf[k], tf[k]); any = true; }
+    if (any) sharedP = palette(sh, 400, 1); }
   const own = new Uint8Array(N * N);
   // (with a donor standing in, only the mouth zone itself: below it the difference is this Nibble's outfit, not its mouth)
   for (let p = 0; p < N * N; p++) { if (!Zd[p] || !face[p] || (donor && !Z[p])) continue; const i = p * 4, m = mapped(R, i);
@@ -460,7 +466,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       if (sameDR(i) && lum(D, i) < 150 && T[i + 3] > 200 && lum(T, i) >= 150) { keepT[p] = 1; continue; }
       if (sameDR(i) && (!ownG[p] || (R[i + 3] > 200 && lum(R, i) >= 260 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2])))) { keepT[p] = 1; continue; }   // (a grey line edge isn't clothes)
       // skin: drawn in this Nibble's matching colour; a skin colour with no match here (a chin its hoodie hides) is filled from its own picture
-      if (mouthy || isSkin(D, i)) { if (mouthy) continue; const mm = lum(D, i) >= 75 ? map(D[i], D[i + 1], D[i + 2]) : 1, m = mapped(D, i);
+      if (mouthy || isSkin(D, i)) { if (mouthy) continue; const mm = lum(D, i) < 75 || (sharedP && inPal(sharedP, D[i], D[i + 1], D[i + 2])) ? 1 : map(D[i], D[i + 1], D[i + 2]), m = mapped(D, i);
         const onJaw = onJawR(i);
         if (chinT && (!mm || (onJaw && !inPal(faceP, m[0], m[1], m[2])))) { const sc = Math.min(1.0, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); continue; }
         if (!mm || !inPal(ownP, m[0], m[1], m[2])) foreign[p] = 1; continue; }
