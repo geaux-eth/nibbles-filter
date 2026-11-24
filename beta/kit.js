@@ -423,7 +423,9 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       const mouthy = isMouthC(D[i], D[i + 1], D[i + 2]);
       // this Nibble's own mouth (a frown line, a grin) where the kit's mouth shows plain face: filled from this Nibble's own
       // face around it, not the reference's face colour mapped over (on a yellow ghost that left a pale streak)
-      if (!donor && own[p] && sameDR(i) && R[i + 3] > 200 && isSkin(R, i)) { hole[p] = 1; continue; }
+      // (a twin's own mouth too: its frown or smile line, a few pixels off the kit's, doubled the kit's line into scribbles on
+      //  twin-faced ghosts (the nibble check, 23 Nov))
+      if (own[p] && sameDR(i) && R[i + 3] > 200 && isSkin(R, i)) { hole[p] = 1; continue; }
       // the reference's own clothes (not skin, not ink), only redrawn a shade off by the image tool: never part of a
       // talking mouth, this Nibble's own stays (a grey suspender came through as cream scraps on a plaid shirt)
       if (!mouthy && R[i + 3] > 200 && lum(R, i) >= 150 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2]) && dist(D, i, R, i) < 100 && !isSkin(D, i)) { keepT[p] = 1; continue; }
@@ -462,6 +464,14 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       if ((onJawR(i) || (R[i + 3] > 200 && isSkin(R, i) && ((p / N) | 0) > zy)) && D[i + 3] > 200 && lum(D, i) >= 300 && !inPal(botP, D[i], D[i + 1], D[i + 2])) {
         hole[p] = 0; const sc = Math.min(1.1, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); } }
     const fill = inpaint(T, grow(hole, 1), useG);
+    // (a twin's own mouth line: each of its pixels the colour of the nearest light pixel of the twin's face beside it, so the
+    //  face's own shading carries on through; a fill from further around left a flat band with straight edges)
+    const unline = new Map(); if (donor) { const q = [], seen = new Int32Array(N * N).fill(-1);
+      for (let p = 0; p < N * N; p++) { const i = p * 4; if (T[i + 3] > 200 && lum(T, i) >= 450 && ownG[p]) { seen[p] = p; q.push(p); } }
+      for (let h = 0, d = 0; h < q.length && d < 40000000; h++, d++) { const p = q[h], x = p % N, src = seen[p], sx = src % N, sy = (src / N) | 0;
+        for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) { if (j < 0 || j >= N * N || seen[j] >= 0 || !ownG[j]) continue; const jx = j % N, jy = (j / N) | 0;
+          if (Math.abs(jx - sx) + Math.abs(jy - sy) > 14) continue; seen[j] = src; q.push(j); } }
+      for (let p = 0; p < N * N; p++) { const i = p * 4; if (ownG[p] && T[i + 3] > 200 && lum(T, i) < 450 && seen[p] >= 0 && seen[p] !== p) { const s0 = seen[p] * 4; unline.set(p, [T[s0], T[s0 + 1], T[s0 + 2]]); } } }
     // something the kit's mouth takes away (the wolf's fangs, gone in the O and OO): what's behind it on this Nibble. Where
     // the reference shows background around it and this Nibble shows background there too, background; where this Nibble
     // has something there (a hood behind the fangs), that, in its own colour
@@ -484,7 +494,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       // reference's own picture there (its suspender lines) was half drawn over this Nibble's own (scribbles on a bow))
       if (!useG[p] && sameDR(i)) { o[i] = T[i]; o[i + 1] = T[i + 1]; o[i + 2] = T[i + 2]; o[i + 3] = T[i + 3]; continue; }
       // with a donor, whatever this mouth leaves open is simply what the donor shows there (no guessing from around it)
-      const f = donor && (hole[p] || fill.has(p)) ? [T[i], T[i + 1], T[i + 2]] : fill.get(p);
+      const f = donor && (hole[p] || fill.has(p)) ? (unline.get(p) || (ownG[p] && T[i] + T[i + 1] + T[i + 2] < 450 ? fill.get(p) : [T[i], T[i + 1], T[i + 2]])) : fill.get(p);   // (but not the twin's own mouth line: it showed through as a second line beside the kit's, 23 Nov)
       // teeth stay white: a white the mouth draws where the reference had no white there is teeth, never recoloured as skin
       const teeth = !f && !keepT[p] && wt[p] && teethM[p];
       // the reference's dark neck fur under its chin, drawn where this Nibble wears clothes (a tank top's neckline): this

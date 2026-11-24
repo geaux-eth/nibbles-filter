@@ -5,7 +5,7 @@
 //   env: ROOT=<site folder> (default the repo: point it at an old copy to see a check fail on old art/code)
 //        LIMIT=n (first n), SHARD=i/n (every n-th, from i), STRIPS=all (a strip for every Nibble)
 // The measures (all in the mouth's box, on 1000 px pictures; a kit Nibble is compared with its kit, frame by frame):
-//   teethTan   teeth the kit draws white that aren't white on the Nibble (the bear's tan fangs)           fail > 150 px
+//   teethTan   teeth the kit draws white that aren't white on the Nibble: measured, not failed (teeth_check.py checks the kits)
 //   scraps     new dark marks: dark on the Nibble's talking frame, dark on neither the kit's frame nor the
 //              Nibble's own face (scribbles over a bow, leftover outline bits)                              fail > 250 px
 //   seam       the box's edge cutting through the picture: at the edge, the frame unlike the picture where
@@ -155,7 +155,9 @@ for (const id of ids) {
   const rec = { id, kind, mouth, ms:Date.now() - t0 };
   if (r.err) { rec.fail = [r.err]; if (/page:|Target|crash/.test(r.err)) await open(); }
   else { const m = r.m, f = [];
-    if (m.teethTan > 150) f.push('teethTan ' + m.teethTan); if (m.scraps > 250) f.push('scraps ' + m.scraps); if (m.seam > 60) f.push('seam ' + m.seam);
+    // (teethTan is measured but doesn't fail a Nibble: it missed the brown bear fangs, which were in the kit itself, and flags the
+    //  gecko grin's tinted ends; the kit's teeth are checked by tools/test/teeth_check.py, which caught the fangs)
+    if (m.scraps > 250) f.push('scraps ' + m.scraps); if (m.seam > 60) f.push('seam ' + m.seam);
     if (m.restFlash > 2500) f.push('restFlash ' + m.restFlash); if (m.foreign > 400) f.push('foreign ' + m.foreign);
     if (m.boxEdge >= 18) f.push('boxEdge ' + m.boxEdge); if (m.noTwin) f.push('noTwin');
     const ah = m.open.find(o => o[0] === 3); if (m.restOpen > 0.35 * ah[1]) f.push('restOpen ' + m.restOpen + '/' + ah[1]); if (r.kit ? ah[1] < 0.5 * ah[2] : ah[1] < 3000) f.push('noOpen ' + ah[1] + (r.kit ? '/' + ah[2] : ''));
