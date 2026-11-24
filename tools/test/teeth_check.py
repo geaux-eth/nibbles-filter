@@ -9,6 +9,9 @@ from scipy import ndimage
 ORIG = '6bdb1fb'
 KITS = ['1680', '1992', '310', '67', '6965', '757', '929', 'k929b', 'k2757', 'k500', 'k5842']   # (k4946, the mummy: its white is bandage, not teeth)
 BEAVER = {'929', 'k929b'}
+# (mouths redrawn from a new sheet since: their teeth sit somewhere else, so the first-made frame says nothing about them;
+#  looked at by eye when they went in, 24 Nov)
+REDRAWN = {('1680', 1), ('1680', 7), ('67', 7), ('67', 9), ('310', 5), ('310', 8), ('6965', 2), ('6965', 8), ('1992', 2)}
 white = lambda a: (a[..., 3] > 200) & (a[..., :3].min(-1) >= 195) & (a[..., :3].max(-1) - a[..., :3].min(-1) <= 50)
 bad = 0
 for ref in KITS:
@@ -19,7 +22,7 @@ for ref in KITS:
         except Exception: continue
         if o.shape != a.shape: continue
         n = 0
-        if k not in (5, 6):
+        if k not in (5, 6) and (ref, k) not in REDRAWN:
             tw = ndimage.binary_erosion(white(o), iterations=1)
             n = int((tw & ~white(a) & (a[..., :3].sum(-1) > 250) & (a[..., 3] > 200)).sum())
         if ref in BEAVER:   # the buck teeth: as many tooth pixels as the picture has, in every frame
