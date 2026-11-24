@@ -129,6 +129,7 @@ for (const id of ids) {
     // every talking mouth (a tongue hanging over every word). A frown is filled from its own face; a mustache, straw or match
     // is kept on purpose
     m.noTwin = !!(K && NB.twin === false && !/^(Smile|Frown|Mustache|Straw|Match)$/.test(mouthT));
+    if (K && NB.twinLoose && /Tongue|Drool|AWOOGA/.test(mouthT)) m.noTwin = true;   // (a twin in other clothes gives the face only: a hanging tongue or drool stays)
 
     // the rest face against the talking ones: what it shows that no talking frame has anywhere near (drool, a hanging tongue,
     // a gum bubble; a smile resting between words is a mouth like the talking ones, and isn't counted)

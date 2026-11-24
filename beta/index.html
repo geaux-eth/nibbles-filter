@@ -1027,8 +1027,16 @@ async function donorFor(id, a, B) {
     if (/mask|goggle/i.test(String(val(row, 'Accessory') || '')) && val(row, 'Accessory') !== a.Accessory) return;   // (a twin in a mask or goggles that reach the cheeks: its mask was pasted on this Nibble's cheek (the nibble check, 23 Nov: an opera mask on a blue ghost))
     const mo = val(row, 'Mouth'); if (!want.includes(mo)) return;
     const sc = (mo === 'Smile' ? 2 : 1) + (val(row, 'Accessory') === a.Accessory ? 4 : 0) + (val(row, 'Eyes') === a.Eyes ? 1 : 0); if (sc > bs) { bs = sc; best = did; } });
+  // (no twin in the same outfit (about 90 Nibbles): one of the same kind and skin in another outfit, its face only (the kit
+  //  engine takes nothing of it outside the mouth area). With none, the Nibble's own grin or open mouth stayed in front of
+  //  every talking mouth: the nibble check, 24 Nov)
+  let loose = false;
+  if (!best) m.t.forEach((row, k) => { const did = k + 1; if (did === id || val(row, 'Character') !== a.Character || val(row, 'Skin') !== a.Skin) return;
+    if (/mask|goggle/i.test(String(val(row, 'Accessory') || '')) && val(row, 'Accessory') !== a.Accessory) return;
+    const mo = val(row, 'Mouth'); if (!want.includes(mo)) return;
+    const sc = (mo === 'Smile' ? 2 : 1) + (val(row, 'Accessory') === a.Accessory ? 4 : 0) + (val(row, 'Eyes') === a.Eyes ? 1 : 0); if (sc > bs) { bs = sc; best = did; loose = true; } });
   if (!best) return null;
-  try { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(best); await im.decode(); return B.cutOriginal(im, KIT_GAPS[a.Character]).canvas; } catch (e) { return null; }
+  try { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(best); await im.decode(); const c = B.cutOriginal(im, KIT_GAPS[a.Character]).canvas; c.loose = loose; return c; } catch (e) { return null; }
 }
 // things in front of the mouth, kept whole on top of every talking mouth (kit.js)
 const FRONT_MOUTH = /mustache|straw|match/i;   // (dark magic isn't: its still wisps are replaced by the moving ones)
@@ -1076,7 +1084,7 @@ async function kitPrepare(id) {
       const exp = await B.exportFiles(res, cut.canvas), files = {};
       const drop = () => { for (const c of [cut.canvas, ...(res.frames || []), ...(res.eyes || [])]) if (c && c.getContext) c.width = c.height = 0; };
       for (const k in exp.files) files[k] = URL.createObjectURL(exp.files[k]);
-      NIBBLES[id] = { bg:cut.bg, fullFace:true, files, layout:exp.layout, jiggle:exp.layout.jig, kit:ref, twin:!!donor };
+      NIBBLES[id] = { bg:cut.bg, fullFace:true, files, layout:exp.layout, jiggle:exp.layout.jig, kit:ref, twin:!!donor, twinLoose:!!(donor && donor.loose) };
       // (and with no twin on hand: the talking mouths are made without its own big mouth anyway (painted over as the
       // reference's face), so its resting face is the shut one too, or its drool flashed between words: GEAUX's Office clip)
       if (!rig && (donor || !PLAIN_MOUTH.includes(a.Mouth))) NIBBLES[id].twinRest = a.Mouth === 'Frown' ? 9 : 1;

@@ -11,7 +11,7 @@ KITS = ['1680', '1992', '310', '67', '6965', '757', '929', 'k929b', 'k2757', 'k5
 BEAVER = {'929', 'k929b'}
 # (mouths redrawn from a new sheet since: their teeth sit somewhere else, so the first-made frame says nothing about them;
 #  looked at by eye when they went in, 24 Nov)
-REDRAWN = {('1680', 1), ('1680', 7), ('67', 7), ('67', 9), ('310', 5), ('310', 8), ('6965', 2), ('6965', 8), ('1992', 2)}
+REDRAWN = {('310', 1), ('310', 2), ('310', 3), ('310', 4), ('310', 6), ('310', 7), ('310', 9), ('1680', 1), ('1680', 7), ('67', 7), ('67', 9), ('310', 5), ('310', 8), ('6965', 2), ('6965', 8), ('1992', 2)}
 white = lambda a: (a[..., 3] > 200) & (a[..., :3].min(-1) >= 195) & (a[..., :3].max(-1) - a[..., :3].min(-1) <= 50)
 bad = 0
 for ref in KITS:

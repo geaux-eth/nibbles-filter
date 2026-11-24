@@ -20,7 +20,9 @@ while x < len(col):
         while x < len(col) and col[x]: x += 1
         if x - x0 > 100: runs.append((x0, x))
     x += 1
-assert len(runs) == len(ks), f'{len(runs)} panels found, {len(ks)} frames given'
+if len(runs) != len(ks):   # (panels whose bodies touch at the bottom: the sheet in equal columns instead)
+    W0 = S.shape[1] // len(ks); runs = [(i * W0, (i + 1) * W0) for i in range(len(ks))]
+    print('panels touch: split into', len(ks), 'equal columns')
 bm = (B[..., 3] > 128).astype(np.float32)
 def place(P, a, s, dx, dy):
     M = np.float32([[s, 0, dx], [0, s, dy]])
@@ -35,6 +37,12 @@ zone0 = ndimage.binary_dilation(ndimage.binary_opening(zone0, iterations=2), ite
 # (the fine fit weighs the ink round the mouth: the face there has to line up, not the whole picture (a cock's beak, drawn a
 #  little smaller, came out with two upper edges))
 near0 = ndimage.binary_dilation(zone0, iterations=60) & ~zone0 | zone0
+if os.environ.get('BEAK'):   # (a beak is fitted by the beak: its size has to match the Nibble's own between words)
+    _bk = (B[..., 0] > 180) & (B[..., 1] > 140) & (B[..., 2] < 150); _lb, _nb = ndimage.label(_bk)
+    _b = _lb == 1 + int(np.argmax(ndimage.sum(np.ones_like(_lb), _lb, range(1, _nb + 1))))
+    if os.environ.get('UPPER'):   # (an open beak: fitted by its upper half, which doesn't move)
+        _ys = np.where(_b.any(1))[0]; _b[_ys.min() + int((_ys.max() - _ys.min()) * 0.5):] = False
+    near0 = ndimage.binary_dilation(_b, iterations=25)
 for (x0, x1), k in zip(runs, ks):
     P = S[:, x0:x1].copy(); pa = (~green[:, x0:x1]).astype(np.float32)
     pa = ndimage.binary_opening(pa > 0, iterations=2).astype(np.float32)
@@ -60,9 +68,9 @@ for (x0, x1), k in zip(runs, ks):
     bl = (B[..., :3].sum(-1) < 200) & (B[..., 3] > 200)
     bl = ndimage.gaussian_filter((bl & near0).astype(np.float32), 2)
     fine = (-1, s, dx, dy)
-    for ss in (np.arange(s * 0.96, s * 1.041, 0.005) if not os.environ.get("QUICK") else [s]):
-        for ddx in (range(-16, 17, 2) if not os.environ.get("QUICK") else [0]):
-            for ddy in (range(-16, 17, 2) if not os.environ.get("QUICK") else [0]):
+    for ss in (np.arange(s * 0.92, s * 1.081, 0.01) if os.environ.get("BEAK") else np.arange(s * 0.96, s * 1.041, 0.005) if not os.environ.get("QUICK") else [s]):
+        for ddx in (range(-24, 25, 4) if os.environ.get("BEAK") else range(-16, 17, 2) if not os.environ.get("QUICK") else [0]):
+            for ddy in (range(-24, 25, 4) if os.environ.get("BEAK") else range(-16, 17, 2) if not os.environ.get("QUICK") else [0]):
                 Pw, aw = place(P, pa, ss, dx + ddx, dy + ddy)
                 il = ndimage.gaussian_filter(((Pw.sum(-1) < 200) & (aw > 0.5) & near0).astype(np.float32), 2)
                 sc = (il * bl).sum() / np.sqrt((il * il).sum() * (bl * bl).sum() + 1e-6)
@@ -71,14 +79,19 @@ for (x0, x1), k in zip(runs, ks):
     Pw, aw = place(P, pa, s, dx, dy)
     print(ref, k, 'outline fit %.3f, ink fit %.3f, scale %.3f, shift %d,%d' % (v, sc, s, dx, dy))
     zone = zone0 & (aw > 0.5) & (B[..., 3] > 128)
-    # (UP=<px>: the area reaches that much further up, for a mouth whose upper part (a cock's whole beak) the panel draws
-    #  its own way: cut through, the two beaks showed as two upper edges)
-    import os
-    if os.environ.get('UP'): u = int(os.environ['UP']); zs = np.zeros_like(zone); zs[:-u] = zone[u:]; zone = (zone | (ndimage.binary_dilation(zone, iterations=8) & np.maximum.accumulate(zs[::-1], 0)[::-1] & False) | np.any([np.roll(zone, -d, 0) for d in range(0, u, 4)], 0)) & (aw > 0.5) & (B[..., 3] > 128)
-    # (never the eyes: they're the blink layers' and this Nibble's own)
-    for e in range(1, 5):
-        fe = f'faces/{ref}/e{e}.webp'
-        if os.path.exists(fe): zone &= ~ndimage.binary_dilation(np.array(Image.open(fe).convert('RGBA'))[..., 3] > 20, iterations=8)
+    # (BEAK=1, for a beak: the area is the beak itself, the kit picture's and the panel's, with what's inside the panel's
+    #  open beak; nothing else. Cut through the beak, the two beaks showed as two edges; and the whole area reached the
+    #  wattle and comb, which the panel draws its own way)
+    if os.environ.get('BEAK'):
+        beak = lambda A: (A[..., 0] > 180) & (A[..., 1] > 140) & (A[..., 2] < 150)
+        lb, nb = ndimage.label(beak(B)); big = 1 + int(np.argmax(ndimage.sum(np.ones_like(lb), lb, range(1, nb + 1))))
+        ys0, xs0 = np.where(lb == big); near = np.zeros((N, N), bool); near[max(0, ys0.min() - 60):ys0.max() + 60, max(0, xs0.min() - 60):xs0.max() + 60] = True
+        pb = beak(Pw) & (aw > 0.5) & near; lp, npb = ndimage.label(pb); touch = ndimage.binary_dilation(lb == big, iterations=10)
+        pb = np.isin(lp, [i for i in range(1, npb + 1) if (touch & (lp == i)).any() and (lp == i).sum() > 2000])   # (the beak only: a comb, a strap is beak-coloured too)
+        bb = (lb == big) | pb
+        ys0, xs0 = np.where(bb); box = np.zeros((N, N), bool); box[ys0.min():ys0.max() + 1, xs0.min():xs0.max() + 1] = True
+        inside = box & ndimage.binary_fill_holes(ndimage.binary_dilation(beak(Pw) & (aw > 0.5), iterations=3))
+        zone = ndimage.binary_dilation(bb | inside, iterations=13) & (aw > 0.5) & (B[..., 3] > 128)
     soft = ndimage.gaussian_filter(zone.astype(np.float32), 1.5)[..., None]
     out = B.copy(); new = np.dstack([Pw, np.full((N, N), 255, np.float32)])
     out = B * (1 - soft) + new * soft
