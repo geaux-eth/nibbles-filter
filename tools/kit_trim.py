@@ -4,11 +4,13 @@
 # ten such spots. Here, in those pictures, everything the picture changes outside the mouth itself goes back to the kit
 # picture: the mouth is the changed area that holds the mouth's own colours or ink (pieces of 30+ px, grown 10 px); any
 # other change is put back.
+# Only pieces within 40 px of the biggest change (the mouth) are kept.
 # Usage: python3 tools/kit_trim.py <kit> ...       (frames 1 2 4 6 7 8 9; lossless, in place; back up first)
 import sys, numpy as np
 from PIL import Image
 from scipy import ndimage
-FR = [1, 2, 4, 6, 7, 8, 9]
+import os
+FR = [int(k) for k in os.environ["FR"].split(",")] if os.environ.get("FR") else [1, 2, 4, 6, 7, 8, 9]
 for ref in sys.argv[1:]:
     b = np.array(Image.open(f'faces/{ref}/base.webp').convert('RGBA')).astype(int)
     for k in FR:
@@ -23,6 +25,10 @@ for ref in sys.argv[1:]:
             sz = ndimage.sum(np.ones_like(lab), lab, range(1, n + 1)); mc = ndimage.sum(mouthC & d, lab, range(1, n + 1))
             ids = [i + 1 for i in range(n) if sz[i] >= 30 and mc[i] >= 0.15 * sz[i]]
             keep = np.isin(lab, ids)
+            # (and only near the mouth itself, the biggest change: specks the image tool left along a tail or a hat outline
+            #  aren't the mouth, 24 Nov)
+            if ids:
+                big = max(ids, key=lambda i: sz[i - 1]); keep &= ndimage.binary_dilation(lab == big, iterations=40)
         keep = ndimage.binary_dilation(keep, iterations=10)
         back = d & ~keep
         m[back] = b[back]
