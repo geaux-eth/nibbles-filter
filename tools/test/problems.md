@@ -8,7 +8,11 @@ How to use it:
 - When GEAUX reports something, add it here first: what he saw, why it happened (the cause, not the symptom), the general
   rule, and a check that fails on the code he used.
 - Before anything goes to him: `tools/test/review.sh` (every clip through every check, the made videos as contact sheets
-  to look through) and `tools/test/sweep.mjs` (the art sample). Nothing ships with a failing check or an unreviewed sheet.
+  to look through), `tools/test/vidscore.py` (every made video scored against the pass marks below) and
+  `tools/test/nibcheck.mjs` (every Nibble made the way the app makes it and measured, on `tools/test/nibpick.py`'s
+  covering sample first, then the whole collection). Nothing ships with a failing score or an unreviewed sheet.
+- A check is only trusted once it fails on the version GEAUX complained about: `tools/test/nibvalidate.sh` rebuilds those
+  versions (brown teeth, the chip's white box, bow scribbles, drool flashing) and runs the check on them.
 - Never tune a number on a held-out clip (office1, office2, sunny). They only measure.
 
 ## Who's on screen / who's talking
@@ -36,6 +40,14 @@ How to use it:
 | M7 | Wooden-puppet drawn mouths | Mouths drawn by code | Mouths come from drawn art (kits), never code-drawn shapes | — (rig.js unused) |
 | M9 | (22 Nov) Brown teeth on bears (and other kits); beaver teeth gone in some mouths | My clean-up snapped near-face colours to the face colour, turning cream fangs muzzle-tan; and the 'teeth go in O/OO' rule (GEAUX's, for the wolf's fangs) was applied to the beaver, whose buck teeth are the beaver | Clean-ups never touch tooth-white; a rule GEAUX gives for one kind is checked against what each kind is before it's applied to all | tools/test/teeth_check.py (fails on the art he had: 20 frames) |
 | M10 | (22 Nov) 'Getting Gecko ready' for someone never on screen | Look-alikes made ready for every person found, even those with no lines | Nothing is made ready for someone with no lines | — |
+| M11 | (23 Nov, found by the made-video score) Mouths 'mumbling': the small open mouth 60-77% of the talking, changing 4 times a second | Lip sync's commonest shapes (B and C) both mapped to the small open mouth, and nothing followed the syllables | Mouths move with the speech's rhythm: shut in the dip between syllables, wide on a syllable's peak against the speaker's own loudness | vidscore.py: mumbling 60% or less, moving 5+ a second (fails on the old videos: 7 of 8) |
+| M12 | (23 Nov, found by the nibble check) Beavers barely open their mouths | Every beaver but the reference's outfit had its AH and L swapped for the small open mouth (1/7 of the AH), for collar scraps that the kit engine no longer makes | A fix that hides a shape is re-checked when the cause is fixed; every Nibble's AH opens at least half as wide as its kit's | nibcheck.mjs noOpen |
+| M13 | (23 Nov, found by the nibble check) The broken-tooth beaver: a brown box with black edges under the chip | The chip was cut where the kit picture's tooth is, but each talking picture's tooth sits a few pixels off it, and the clear parts of a talking picture let the whole tooth show through | Art edits are measured on each picture they change, not on the kit picture | nibcheck.mjs boxEdge (fails on the old kit) |
+| M14 | (23 Nov, found by the nibble check) Doubled, scribbly mouth lines on Nibbles that talk from a twin's face (ghosts most) | Where the kit's mouth left a gap, the twin's own pixels showed, so the twin's frown line sat a few pixels from the kit's | A twin's own mouth is removed like the Nibble's own: its line pixels take the twin's skin beside them | nibcheck boxEdge (ghosts 13/33 to 21/33 passing) |
+| M15 | (23 Nov, found by the nibble check) Straight cut edges and smudges at the same spot on every Nibble of a kind | The image tool redrew things outside the mouth in the talking pictures (eyes, chin, collars), and the kit engine copied them | Outside the mouth, a talking picture is its kit picture: tools/kit_trim.py puts back every change not touching the mouth | nibcheck boxEdge, grouped by kit and spot |
+| M16 | (24 Nov, found by the nibble check) Non-brown cocks: lower beak olive, beak outline missing; dark geckos' chin teal | The engine recoloured every kit colour through a map learned from the skin, even colours the Nibble shares with the kit (a cock's yellow beak), and guessed a chin colour from the kit when it had nothing to learn from | A colour both pictures have round the mouth stays as it is; a chin colour comes from the Nibble's own picture | nibcheck on a random 200 of the collection (166 -> 169) |
+| M17 | (24 Nov) A tongue curled over the lip cut flat and left over every talking mouth (geckos) | The twin's face was only pasted below the mouth's top and away from the eyes' blink layer, which reaches the lip | A tongue next to the mouth goes with the twin's face, whatever layer it's under; a red cap far from the mouth is not a tongue | nibcheck boxEdge on tongue-out geckos |
+| M18 | (24 Nov) Redrawn kit mouths: two beak edges, a cut beak tip, the belly line moved | A new sheet's mouth cut into the kit where the kit's old mouth changed things, at the sheet's own scale | A beak is taken whole, lined up by its upper half; nothing below the closed mouth changes (tools/kit_from_panels.py, kit_snap_palette.py) | nibcheck, all cocks |
 | M8 | Lip sync not matching the words | Mouth shapes from loudness | Shapes from the speech sounds (Rhubarb) | made video checks |
 
 ## Picks and art
