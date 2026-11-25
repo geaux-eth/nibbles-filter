@@ -113,22 +113,24 @@ for (const id of ids) {
       return best; };
     for (let k = 1; k < 10; k++) { const A = F[k]; let tt = 0, sc = 0, se = 0, fo = 0;
       const KredNear = K && grow(mask(K[k], red), 8), KdarkNear = K && grow(mask(K[k], dark), 3);
+      const dA = mask(A, dark), solidA = (() => { const er = new Uint8Array(W * H); for (let y = 4; y < H - 4; y++) for (let x = 4; x < W - 4; x++) { let all = 1; for (let d = -4; d <= 4 && all; d += 2) if (!dA[(y + d) * W + x] || !dA[y * W + x + d]) all = 0; er[y * W + x] = all; } return grow(er, 4); })();
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = (y * N + x) * 4, p = at(x, y);
         if (K) {
           if (KredNear[p] && white(K[k], i) && !white(K[1], i) && !white(A, i) && sum(A, i) > 250) tt++;
-          if (dark(A, i) && !KdarkNear[p] && !darkNearR[p] && !darkNear0[p]) sc++;
+          if (dark(A, i) && !KdarkNear[p] && !darkNearR[p] && !darkNear0[p] && !solidA[p]) sc++;   // (lines and specks, not a filled area: a black cock's feathers where the old beak tip was are its own feathers)
           const edge = x <= mb[0] + 1 || y <= mb[1] + 1 || x >= mb[2] - 1 || y >= mb[3] - 1;
           if (edge && dif(A, baseP, i) > 80 && dif(K[k], K[0], i) <= 30) se++; }
         if (!dark(A, i) && !mouthy(A, i) && !white(A, i) && !ownNear(A, i) && dif(A, F[rest], i) > 60) fo++; }
             // (only near where the kit's mouths change something: a pasted edge is where the mouth was pasted; a twin's tail
             //  shading far from the mouth is the same in every frame a made video shows)
-            if (K && !kitNear) { const kc = new Uint8Array(W * H); for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = (y * N + x) * 4; for (let j = 1; j < 10; j++) if (dif(K[j], K[0], i) > 60) { kc[at(x, y)] = 1; break; } } kitNear = grow(kc, 40); }
+            if (!kitNear) { const KK = K || F, j0 = K ? 0 : 1, kc = new Uint8Array(W * H); for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = (y * N + x) * 4; for (let j = j0 + 1; j < 10; j++) if (dif(KK[j], KK[j0], i) > 60) { kc[at(x, y)] = 1; break; } } kitNear = grow(kc, 40); }   // (a built-in has no kit: where its own talking frames change)
             const ea = m.edgeAt, be = k === 1 ? 0 : edgeRun(A); if (be < m.boxEdge || k === 1) m.edgeAt = ea; else m.edgeAt = [...(m.edgeAt || []), k];
       per[k] = [tt, sc, se, fo, be]; m.teethTan = Math.max(m.teethTan, tt); m.scraps = Math.max(m.scraps, sc); m.seam = Math.max(m.seam, se); m.foreign = Math.max(m.foreign, fo); m.boxEdge = Math.max(m.boxEdge, be); }
     // the mouth opens: the new mouth-inside in the small open and the wide AH, against the kit's own; and the face a made
     // video rests on, against the AH (a rest face this open is a mouth hanging open with no voice)
     for (const k of [2, 3, 5, rest]) { let a = 0, ka = 0; const ins = k === rest && k !== 3 ? red : inside; for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = (y * N + x) * 4; if (ins(F[k], i) && !ins(F[1], i)) a++; if (K && inside(K[k], i) && !inside(K[1], i)) ka++; } m.open.push([k, a, ka]); }
     m.restOpen = m.open[3][1]; m.open.length = 3;
+    { let ch = 0; for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = (y * N + x) * 4; if (dif(F[3], F[1], i) > 90) ch++; } m.ahChange = ch; }   // (how much the wide AH changes from the shut mouth: a robot's dark slot isn't red)
     // a big mouth of its own (tongue, drool, open, a grin) with no twin to talk from: the kit engine keeps it in front of
     // every talking mouth (a tongue hanging over every word). A frown is filled from its own face; a mustache, straw or match
     // is kept on purpose
@@ -165,7 +167,7 @@ for (const id of ids) {
     if (m.scraps > 250) f.push('scraps ' + m.scraps); if (m.seam > 60) f.push('seam ' + m.seam);
     if (m.restFlash > 2500) f.push('restFlash ' + m.restFlash); if (m.foreign > 400) f.push('foreign ' + m.foreign);
     if (m.boxEdge >= 18) f.push('boxEdge ' + m.boxEdge); if (m.noTwin) f.push('noTwin');
-    const ah = m.open.find(o => o[0] === 3); if (m.restOpen > 0.35 * ah[1]) f.push('restOpen ' + m.restOpen + '/' + ah[1]); if (r.kit ? ah[1] < 0.5 * ah[2] : ah[1] < 3000) f.push('noOpen ' + ah[1] + (r.kit ? '/' + ah[2] : ''));
+    const ah = m.open.find(o => o[0] === 3); if (m.restOpen > 0.35 * ah[1]) f.push('restOpen ' + m.restOpen + '/' + ah[1]); if (r.kit ? ah[1] < 0.5 * ah[2] : m.ahChange < 2000) f.push('noOpen ' + ah[1] + (r.kit ? '/' + ah[2] : ''));
     Object.assign(rec, { kit:r.kit, rest:r.rest, m, per:r.per, fail:f }); }
   fs.appendFileSync(rf, JSON.stringify(rec) + '\n');
   if (rec.m && rec.m.edgePng) { if (rec.fail.length) fs.writeFileSync(`${out}/strips/${id}.edge.png`, Buffer.from(rec.m.edgePng.split(',')[1], 'base64')); delete rec.m.edgePng; }
