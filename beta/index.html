@@ -1052,8 +1052,10 @@ async function donorFor(id, a, B) {
 // bears (55/60), beavers (38/44), wolves (31/33), geckos (47/49) and gnomes (49/50) it cut more boxes than it fixed
 const TRANSPLANT_KINDS = new Set(['Ghost', 'Cock', 'Raccoon']);
 // kinds whose twin is a smiling one first (index.html, donorFor), measured on the same 424, 25 Nov, smiling first / as before:
-// ghosts 62/60, cocks 37/34; beavers 44/47 and gnomes 50/51 do better as before (a frowning twin in the same hat), the rest even
-const SMILE_FIRST_KINDS = new Set(['Ghost', 'Cock']);
+// ghosts 62/60, cocks 37/34; beavers 44/47 and gnomes 50/51 do better as before (a frowning twin in the same hat), the rest even.
+// Geckos too: even then, but with the ink rule off for geckos (5f266b1) two happy geckos (190, 204) with a frowning twin got a
+// line under the jaw in the tongue frame, which a smiling twin doesn't give (full check 25 Nov)
+const SMILE_FIRST_KINDS = new Set(['Ghost', 'Cock', 'Gecko']);
 // kinds whose talking mouths get the last clean-up of leftover dark bits in the mouth area (kit.js), measured on all 654 with it
 // on / off, 25 Nov: wolves 68/65; ghosts 81/83, cocks 67/68, gnomes 73/74, bears 75/76 do better without, the rest even
 const POST_KINDS = new Set(['Wolf']);
