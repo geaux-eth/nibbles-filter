@@ -549,7 +549,11 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     { const f = blobs(foreign, 12); for (let p = 0; p < N * N; p++) if (f[p]) { const i = p * 4;
       // a shade the kit drew over the reference's own skin (a darker underside, a lighter shine): this Nibble's skin there,
       // shaded the same (filling it from around would leave blocks)
-      if (R[i + 3] > 200 && isSkin(R, i) && lum(D, i) >= 160 && lum(R, i) >= 160) { const mR = mapped(R, i); if (mR) { const sc = Math.max(0.6, Math.min(1.12, lum(D, i) / lum(R, i))); subst.set(p, mR.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); continue; } }
+      if (R[i + 3] > 200 && isSkin(R, i) && lum(D, i) >= 160 && lum(R, i) >= 160) { const mR = mapped(R, i); if (mR) { const sc = Math.max(0.6, Math.min(1.12, lum(D, i) / lum(R, i)));
+        // (the image tool's faint redraw noise, a few % off the kit's skin, isn't a shade: this Nibble's own there, or filled from
+        //  around where that's its old mouth. Shaded, it showed as grey blocks across a two-tone gnome beard, 25 Nov)
+        if (!self.__noShadeDZ && Math.abs(sc - 1) < 0.07) { if (!own[p] && T[i + 3] > 200 && lum(T, i) >= 300) keepT[p] = 1; else hole[p] = 1; continue; }
+        subst.set(p, mR.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); continue; } }
       hole[p] = 1; } }
     // a hole on the reference's jaw skin that isn't its clothes showing (a lip, a chin shade): this Nibble's own chin colour
     // ...unless it lies on this Nibble's clothes: its own tongue or drool hanging over its shirt, with the shirt on most sides
