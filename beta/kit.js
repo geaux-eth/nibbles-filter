@@ -137,7 +137,7 @@ function colourMap(R, T, where, okT) {
 
 // T: this Nibble's picture (background cut, 1000 px). ref: { base, mouths[10], eyes[5] } of the kind's reference.
 // Returns { frames[10], eyes[5], mouthBox, eyeBox } in the builder's format.
-export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null, gum = false, transplant = true, post = true, collar = true, ink = true } = {}) {
+export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null, gum = false, transplant = true, post = true, collar = true, ink = true, hang = false } = {}) {
   const T = data(Timg), T0 = T.slice(), R = data(ref.base), K = ref.mouths.map(data);
   const donorPure = donor ? (() => { const c = cv(); c.getContext('2d').drawImage(donor, 0, 0, N, N); return c; })() : null;   // (the twin as it is, for its own talking frames below)
   // Gemini's panels have small dark flecks in the fur: a dark spot too small to be part of a line takes the colour around it
@@ -221,6 +221,39 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     const inkOver = (p) => { if (Zd[p] || (gm && gm[p]) || self.__noInk || !ink) return false; const i = p * 4; if (Dn[i + 3] < 200 || T[i + 3] < 200) return false;
       if (redish(T, i) || (T[i + 2] > 180 && T[i + 1] > 150 && T[i] < 170 && T[i + 2] - T[i] > 50)) return false; return lum(Dn, i) < lum(T, i) - 60; };
     for (let p = 0; p < N * N; p++) if (g[p] && zone[p] && (!donor.loose || Zd[p] || (lm && lm[p]) || (gm && gm[p])) && !inkOver(p)) { const i = p * 4, x = p % N, y = (p / N) | 0; const b = donor.box; if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; T[i] = Dn[i]; T[i + 1] = Dn[i + 1]; T[i + 2] = Dn[i + 2]; T[i + 3] = Dn[i + 3]; pastedM[p] = 1; } }
+  // a hanging tongue or drool with no twin in its own outfit (hang): below the mouth area nothing takes it away, and it stayed
+  // under every talking mouth (39 Nibbles; the nibble check's noTwin, 25 Nov). Its drool blue and tongue pinks, where they
+  // touch the mouth area, and their outline round them, where no twin's face went, are filled from
+  // this Nibble's own picture around them (its chin, its shirt). The resting face keeps them
+  if (hang && !self.__noHang) { const core = new Uint8Array(N * N), zN = grow(Zd, 30);
+    for (let p = 0; p < N * N; p++) { const i = p * 4; if (T[i + 3] < 200) continue;
+      if ((T[i + 2] > 170 && T[i + 2] - T[i] > 45 && T[i + 1] > 140) || (T[i] > 200 && T[i + 1] > 90 && T[i + 2] > 100 && T[i] - T[i + 1] > 50)) core[p] = 1; }
+    const lab = new Int32Array(N * N), q = new Int32Array(N * N), keep = new Uint8Array(N * N); let nb = 0;
+    for (let s0 = 0; s0 < N * N; s0++) { if (!core[s0] || lab[s0]) continue; nb++; let h = 0, t = 0, near = 0; q[t++] = s0; lab[s0] = nb;
+      while (h < t) { const p = q[h++], x = p % N; if (zN[p]) near++; for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && core[j] && !lab[j]) { lab[j] = nb; q[t++] = j; } }
+      if (near >= 10 && t >= 40) for (let k = 0; k < t; k++) keep[q[k]] = 1; }
+    // (and the drops below it: a drop that fell off the drool's end is drool too)
+    { const kn = grow(keep, 60); lab.fill(0); for (let s0 = 0; s0 < N * N; s0++) { if (!core[s0] || keep[s0] || lab[s0]) continue; let h = 0, t = 0, near = 0; q[t++] = s0; lab[s0] = 1;
+        while (h < t) { const p = q[h++], x = p % N; if (kn[p]) near++; for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && core[j] && !lab[j] && !keep[j]) { lab[j] = 1; q[t++] = j; } }
+        if (near && t >= 8 && t < 6000) for (let k = 0; k < t; k++) keep[q[k]] = 1; } }
+    const band = grow(keep, 11), hm = new Uint8Array(N * N); let n = 0;
+    for (let p = 0; p < N * N; p++) if (band[p] && !pastedM[p]) { hm[p] = 1; n++; }
+    // (filled ring by ring from the plain picture around, each pixel the average of its filled or plain neighbours: a ghost's
+    //  shaded face has no flat colour to copy, and the drool was left as it was)
+    if (n) { const busy = grow(core, 3), st = new Uint8Array(N * N);   // (the twin's face pasted in is a source; the drool and tongue never)
+      for (let p = 0; p < N * N; p++) if (!hm[p] && (pastedM[p] || !busy[p]) && T[p * 4 + 3] > 200) st[p] = 1;
+      // first the nearest plain colour (a shirt, a flat chin); where there's none near (a shaded face), the average around
+      const f = inpaint(T, hm, (() => { const b = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) if (!st[p]) b[p] = 1; return b; })());
+      for (const [p, c] of f) { const i = p * 4; T[i] = c[0]; T[i + 1] = c[1]; T[i + 2] = c[2]; T[i + 3] = 255; st[p] = 1; }
+      let front = []; for (let p = 0; p < N * N; p++) if (hm[p] && !st[p]) front.push(p);
+      for (let pass = 0; pass < 400 && front.length; pass++) { const next = [], add = [];
+        for (const p of front) { const x = p % N; let r = 0, g = 0, b = 0, c = 0;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const xx = x + dx, q = p + dy * N + dx; if ((!dx && !dy) || xx < 0 || xx >= N || q < 0 || q >= N * N || !st[q]) continue; const j = q * 4; r += T[j]; g += T[j + 1]; b += T[j + 2]; c++; }
+          if (c >= 2) add.push(p, r / c, g / c, b / c); else next.push(p); }
+        if (!add.length) break;
+        for (let k = 0; k < add.length; k += 4) { const i = add[k] * 4; T[i] = Math.round(add[k + 1]); T[i + 1] = Math.round(add[k + 2]); T[i + 2] = Math.round(add[k + 3]); T[i + 3] = 255; st[add[k]] = 1; }
+        front = next; } }
+    if (dbg) dbg.hang = n; }
   for (let p = 0; p < N * N; p++) if (Zd[p]) ring[p] = 0;
   // and around the eyes (the blink layers): the fur there can differ from the snout's
   const EZ = new Uint8Array(N * N); let eyeRing = null;

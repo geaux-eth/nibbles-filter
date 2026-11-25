@@ -20,8 +20,9 @@
 //              (the beaver's dark rectangles, the chip's white box)                                          fail >= 18 px
 //   restOpen   the face a made video rests on is an open mouth (mouth open with no voice): its new
 //              mouth-inside over a third of the AH's                                                        fail
-//   noTwin     a big mouth of its own (tongue, drool, open, grin) and no twin to talk from: the kit engine
-//              keeps it in front of every talking mouth                                                     fail
+//   noTwin     a big mouth of its own (open, grin) and no twin to talk from: the kit engine keeps it in
+//              front of every talking mouth; or a hanging tongue or drool still there in the shut talking
+//              mouths (hangLeft, both shut frames)                                                           fail > 300 px
 //   prepare    the Nibble can't be made at all                                                               fail
 import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 import fs from 'fs';
@@ -142,8 +143,16 @@ for (const id of ids) {
     // a big mouth of its own (tongue, drool, open, a grin) with no twin to talk from: the kit engine keeps it in front of
     // every talking mouth (a tongue hanging over every word). A frown is filled from its own face; a mustache, straw or match
     // is kept on purpose
-    m.noTwin = !!(K && NB.twin === false && !/^(Smile|Frown|Mustache|Straw|Match)$/.test(mouthT));
-    if (K && NB.twinLoose && /Tongue|Drool|AWOOGA/.test(mouthT)) m.noTwin = true;   // (a twin in other clothes gives the face only: a hanging tongue or drool stays)
+    // A hanging tongue or drool (no twin, or one in other clothes that gives the face only): measured, the original's drool
+    // blue and tongue pinks still where they were in the shut talking mouths (1 and 9), where the kit's own has none: from the mouth box's middle down, across its width.
+    // Before 25 Nov this was failed outright (the engine kept it); the measure fails that old code (602: 4300 px, 177: 2900)
+    const hangC = (A, i) => (A[i + 2] > 200 && A[i + 2] - A[i] > 60 && A[i + 1] > 150) || (A[i] > 200 && A[i + 1] > 90 && A[i + 2] > 100 && A[i] - A[i + 1] > 50);   // (drool blue, not a ghost's pale blue shading; tongue pinks)
+    { let h = 0; if (K) for (const k of [1, 9]) for (let y = (y0 + y1) >> 1; y < N; y++) for (let x = x0; x <= x1; x++) { const i = (y * N + x) * 4; if (hangC(F[k], i) && hangC(baseP, i) && !hangC(K[k], i)) h++; } m.hangLeft = h; }
+    const hanging = /Tongue|Drool|AWOOGA/.test(mouthT);
+    m.noTwin = !!(K && NB.twin === false && !hanging && !/^(Smile|Frown|Mustache|Straw|Match)$/.test(mouthT));
+    // (measured only where the engine takes it off (NB.hang: drool, on some kinds, index.html HANG_KINDS); the rest still keep it,
+    //  failed as before)
+    if (K && hanging && (NB.twin === false || NB.twinLoose)) m.noTwin = NB.hang ? m.hangLeft > 300 : true;
 
     // the rest face against the talking ones: what it shows that no talking frame has anywhere near (drool, a hanging tongue,
     // a gum bubble; a smile resting between words is a mouth like the talking ones, and isn't counted)
