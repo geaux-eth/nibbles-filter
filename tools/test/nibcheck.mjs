@@ -62,7 +62,7 @@ for (const id of ids) {
       let m = null; try { m = await load(nf.artOf(id, 'm' + k)); } catch (e) {}
       if (!mb) { g.drawImage(m || base, 0, 0, N, N); return c; }
       g.drawImage(base, 0, 0, N, N); if (m) { g.clearRect(mb[0], mb[1], m.width, m.height); g.fillStyle = '#fff'; g.fillRect(mb[0], mb[1], m.width, m.height); g.drawImage(m, mb[0], mb[1]); } return c; };
-    const F = []; for (let k = 0; k < 10; k++) F.push(px(await frame(k)));
+    const F = []; let dump = null; for (let k = 0; k < 10; k++) { const fc = await frame(k); if (window.__dump && k === 1) dump = [fc.toDataURL(), (() => { const c = cv(); c.getContext('2d').drawImage(base, 0, 0, N, N); return c.toDataURL(); })()]; F.push(px(fc)); }
     if (!mb || mb[2] <= mb[0]) { mb = [N, N, 0, 0]; for (let k = 2; k < 10; k++) for (let p = 0; p < N * N; p++) { const i = p * 4; if (Math.abs(F[k][i] - F[1][i]) + Math.abs(F[k][i + 1] - F[1][i + 1]) + Math.abs(F[k][i + 2] - F[1][i + 2]) > 60) { const x = p % N, y = (p / N) | 0; if (x < mb[0]) mb[0] = x; if (y < mb[1]) mb[1] = y; if (x > mb[2]) mb[2] = x; if (y > mb[3]) mb[3] = y; } } }
     if (mb[2] <= mb[0]) return { err:'mouth never changes' };
     const baseP = (() => { const c = cv(), g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, N, N); g.drawImage(base, 0, 0, N, N); return px(c); })();
@@ -111,15 +111,23 @@ for (const id of ids) {
             if (e && !e0 && (!kitNear || kitNear[y * W + x])) { run++; if (e === 2) ink++; if (run > best && ink < 0.7 * run) { best = run; m.edgeAt = [x + x0, y + y0, dx ? 'v' : 'h']; } } else { run = 0; ink = 0; } } } };
       scan(1, 0); scan(0, 1);
       return best; };
-    for (let k = 1; k < 10; k++) { const A = F[k]; let tt = 0, sc = 0, se = 0, fo = 0;
+    // a plain face colour of this Nibble in the box (for the faint lines below)
+    let faceSum = 0; { const hs = []; for (let y = y0; y <= y1; y += 2) for (let x = x0; x <= x1; x += 2) { const i = (y * N + x) * 4; if (sum(F[rest], i) >= 300 && !red(F[rest], i)) hs.push(sum(F[rest], i)); } hs.sort((a, b) => a - b); faceSum = hs.length ? hs[hs.length >> 1] : 600; }
+    m.faint = 0;
+    for (let k = 1; k < 10; k++) { const A = F[k]; let tt = 0, sc = 0, se = 0, fo = 0, fa = 0;
       const KredNear = K && grow(mask(K[k], red), 8), KdarkNear = K && grow(mask(K[k], dark), 3);
+      // faint lines: grey line bits beside the kit's lines that neither the kit's frame nor the Nibble's own picture has
+      // (a twin's or this Nibble's old mouth line a few pixels off the new one: doubled lines, dotted strokes, 24 Nov)
+      if (K) { const Kl = grow(mask(K[k], (B, i) => sum(B, i) < 450), 2), Al = mask(A, (B, i) => { if (red(B, i)) return false; const s0 = sum(B, i), L = s => s; const nb = d => sum(B, i + d * 4), nv = d => sum(B, i + d * N * 4); return (s0 < Math.min(nb(-4), nb(4)) - 150) || (s0 < Math.min(nv(-4), nv(4)) - 150); });
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const p = at(x, y), i = (y * N + x) * 4; if (!Al[p] || Kl[p] || dif(A, baseP, i) < 60) continue; fa++; }
+        m.faint = Math.max(m.faint, fa); }
       const dA = mask(A, dark), solidA = (() => { const er = new Uint8Array(W * H); for (let y = 4; y < H - 4; y++) for (let x = 4; x < W - 4; x++) { let all = 1; for (let d = -4; d <= 4 && all; d += 2) if (!dA[(y + d) * W + x] || !dA[y * W + x + d]) all = 0; er[y * W + x] = all; } return grow(er, 4); })();
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = (y * N + x) * 4, p = at(x, y);
         if (K) {
           if (KredNear[p] && white(K[k], i) && !white(K[1], i) && !white(A, i) && sum(A, i) > 250) tt++;
           if (dark(A, i) && !KdarkNear[p] && !darkNearR[p] && !darkNear0[p] && !solidA[p]) sc++;   // (lines and specks, not a filled area: a black cock's feathers where the old beak tip was are its own feathers)
           const edge = x <= mb[0] + 1 || y <= mb[1] + 1 || x >= mb[2] - 1 || y >= mb[3] - 1;
-          if (edge && dif(A, baseP, i) > 80 && dif(K[k], K[0], i) <= 30) se++; }
+          if (edge && dif(A, baseP, i) > 80 && dif(K[k], K[0], i) <= 30) { se++; if (k === 1 && (m.seamPts = m.seamPts || []).length < 400) m.seamPts.push([x, y, A[i], A[i + 1], A[i + 2], baseP[i], baseP[i + 1], baseP[i + 2]]); } }
         if (!dark(A, i) && !mouthy(A, i) && !white(A, i) && !ownNear(A, i) && dif(A, F[rest], i) > 60) fo++; }
             // (only near where the kit's mouths change something: a pasted edge is where the mouth was pasted; a twin's tail
             //  shading far from the mouth is the same in every frame a made video shows)
@@ -156,7 +164,7 @@ for (const id of ids) {
       fc.getContext('2d').putImageData(new ImageData(F[ek], N, N), 0, 0); g.imageSmoothingEnabled = false; g.drawImage(fc, ex - 60, ey - 60, 120, 120, 0, 0, 240, 240);
       g.strokeStyle = '#0f0'; g.beginPath(); if (ed === 'h') { g.moveTo((60 - m.boxEdge) * 2, 126); g.lineTo(120, 126); } else { g.moveTo(126, (60 - m.boxEdge) * 2); g.lineTo(126, 120); } g.stroke(); m.edgePng = c.toDataURL(); }
     if (window.__dbgFrame) { const c = cv(); c.getContext('2d').putImageData(new ImageData(F[window.__dbgFrame], N, N), 0, 0); m.dbgPng = c.toDataURL(); }
-    return { m, per, kit, rest, png };
+    return { m, per, kit, rest, png, dump };
   }, { id, strip:true, mouthT:kindOf(id)[1] }).catch(e => ({ err:'page: ' + String(e).slice(0, 160) }));
   const [kind, mouth] = kindOf(id);
   const rec = { id, kind, mouth, ms:Date.now() - t0 };
@@ -172,6 +180,7 @@ for (const id of ids) {
   fs.appendFileSync(rf, JSON.stringify(rec) + '\n');
   if (rec.m && rec.m.edgePng) { if (rec.fail.length) fs.writeFileSync(`${out}/strips/${id}.edge.png`, Buffer.from(rec.m.edgePng.split(',')[1], 'base64')); delete rec.m.edgePng; }
   if (rec.m && rec.m.dbgPng) { fs.writeFileSync(`${out}/${id}.f${process.env.DBGF}.png`, Buffer.from(rec.m.dbgPng.split(',')[1], 'base64')); delete rec.m.dbgPng; }
+  if (r.dump) { fs.writeFileSync(`${out}/${id}.f1.png`, Buffer.from(r.dump[0].split(',')[1], 'base64')); fs.writeFileSync(`${out}/${id}.base.png`, Buffer.from(r.dump[1].split(',')[1], 'base64')); }
   if (r.png && (rec.fail.length || process.env.STRIPS === 'all')) fs.writeFileSync(`${out}/strips/${id}.png`, Buffer.from(r.png.split(',')[1], 'base64'));
   if (++n % 25 === 0) { console.log(n, 'done'); await open(); if (process.env.FLAGS) await pg.evaluate(f => { for (const k of f.split(',')) window[k] = true; }, process.env.FLAGS); }   // (a fresh page now and then: the made Nibbles' memory back)
 }
