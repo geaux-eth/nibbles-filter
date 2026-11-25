@@ -66,7 +66,10 @@ function inpaint(T, hole, busy) {
   const out = new Map(), F = new Float32Array(N * N * 4), st = new Uint8Array(N * N);   // st: 0 unknown, 1 known source, 2 filled
   let front = [];
   for (let p = 0; p < N * N; p++) { if (hole[p]) { front.push(p); continue; } if (busy[p] || T[p * 4 + 3] <= 200) continue;
-    const i = p * 4, w = T[i] + T[i + 1] + T[i + 2] < 200 ? 0.08 : 1; F[i] = T[i]; F[i + 1] = T[i + 1]; F[i + 2] = T[i + 2]; F[i + 3] = w; st[p] = 1; }
+    // (a soft edge, part line and part face, carried in as a grey smear on a white ghost (the nibble check, 24 Nov): only flat
+    //  colour counts fully)
+    const i = p * 4, x = p % N; let flat = true; for (const j of [p - 1, p + 1, p - N, p + N]) { if (j < 0 || j >= N * N || (j === p - 1 && x === 0) || (j === p + 1 && x === N - 1)) continue; const k = j * 4; if (Math.abs(T[k] - T[i]) + Math.abs(T[k + 1] - T[i + 1]) + Math.abs(T[k + 2] - T[i + 2]) > 24) { flat = false; break; } }
+    const w = T[i] + T[i + 1] + T[i + 2] < 200 ? 0.08 : flat ? 1 : 0.06; F[i] = T[i]; F[i + 1] = T[i + 1]; F[i + 2] = T[i + 2]; F[i + 3] = w; st[p] = 1; }
   if (!front.length) return out;
   for (let pass = 0; pass < 500 && front.length; pass++) {
     const next = [], add = [];
@@ -79,6 +82,11 @@ function inpaint(T, hole, busy) {
     front = next;
   }
   for (let p = 0; p < N * N; p++) if (st[p] === 2) { const j = p * 4; out.set(p, [Math.round(F[j]), Math.round(F[j + 1]), Math.round(F[j + 2])]); }
+  // then each filled pixel takes the colour of the nearest flat source, as the art is flat colour: an average of the colours
+  // around came out as a grey smear between a ghost's white face and its pale blue shade (the nibble check, 24 Nov)
+  { const src = new Int32Array(N * N).fill(-1), q = []; for (let p = 0; p < N * N; p++) if (st[p] === 1 && F[p * 4 + 3] === 1) { src[p] = p; q.push(p); }
+    for (let h = 0; h < q.length; h++) { const p = q[h], x = p % N; for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && src[j] < 0 && st[j] === 2) { src[j] = src[p]; q.push(j); } }
+    for (const [p, c] of out) { const s0 = src[p]; if (s0 < 0 || c[0] + c[1] + c[2] < 200) continue; const j = s0 * 4; out.set(p, [T[j], T[j + 1], T[j + 2]]); } }
   return out;
 }
 
@@ -94,7 +102,11 @@ function colourMap(R, T, where, okT) {
   const med = a => { a.sort((x, y) => x - y); return a[a.length >> 1]; };
   for (let [k, ps] of lists) { if (ps.length < 12) continue;
     if (ps.length > 4000) { const st = ps.length / 4000; ps = Array.from({ length:4000 }, (_, j) => ps[Math.floor(j * st)]); }   // spread over the whole area, not just its top
-    const tr = med(ps.map(p => T[p * 4])), tg = med(ps.map(p => T[p * 4 + 1])), tb = med(ps.map(p => T[p * 4 + 2]));
+    // (this Nibble's commonest colour at those spots, not each channel's median: a white ghost with a pale blue shade got a
+    //  grey-blue in between, a band across its face in every talking mouth (the nibble check, 24 Nov))
+    let tr, tg, tb; { const cnt = new Map(); for (const p of ps) { const i = p * 4, kk = bin(T[i], T[i + 1], T[i + 2]); let e = cnt.get(kk); if (!e) cnt.set(kk, e = [0, 0, 0, 0]); e[0]++; e[1] += T[i]; e[2] += T[i + 1]; e[3] += T[i + 2]; }
+      let be = null; for (const e of cnt.values()) if (!be || e[0] > be[0]) be = e;
+      if (be[0] >= ps.length * 0.25) { tr = be[1] / be[0]; tg = be[2] / be[0]; tb = be[3] / be[0]; } else { tr = med(ps.map(p => T[p * 4])); tg = med(ps.map(p => T[p * 4 + 1])); tb = med(ps.map(p => T[p * 4 + 2])); } }
     let agree = 0; for (const p of ps) { const i = p * 4; if (Math.abs(T[i] - tr) + Math.abs(T[i + 1] - tg) + Math.abs(T[i + 2] - tb) < 60) agree++; }
     if (agree < ps.length * 0.6) continue;   // this colour lands on different things in this Nibble (clothes, glasses): not skin to copy
     if (okT && !okT(tr, tg, tb, R[ps[0] * 4], R[ps[0] * 4 + 1], R[ps[0] * 4 + 2])) { rejected.push([tr, tg, tb, ps.length]); continue; }   // it lands on this Nibble's hat, clothes or background, not its skin
@@ -281,7 +293,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
   // eyes, when the map learned something far off (a hat or monocle where the reference shows its head)
   const faceFix = (r, g, b, m) => { if (!faceOwn || Math.abs(r - faceOwn.ref[0]) + Math.abs(g - faceOwn.ref[1]) + Math.abs(b - faceOwn.ref[2]) > 60) return m;
     const sc = Math.max(0.55, Math.min(1.04, (r + g + b) / faceOwn.lum)), c = faceOwn.c.map(v => Math.max(0, Math.min(255, Math.round(v * sc))));
-    return !m || Math.abs(m[0] - c[0]) + Math.abs(m[1] - c[1]) + Math.abs(m[2] - c[2]) > 80 ? c : m; };
+    return !m || Math.abs(m[0] - c[0]) + Math.abs(m[1] - c[1]) + Math.abs(m[2] - c[2]) > 40 ? c : m; };   // (40, not 80: a white ghost's face mapped 20 shades blue-grey showed as a band, 24 Nov)
   let sharedP = null;   // (set below: colours this Nibble and the reference both have round the mouth, kept as they are)
   const mapped = (S, i) => { if (S[i + 3] < 8) return null; if (sharedP && inPal(sharedP, S[i], S[i + 1], S[i + 2])) return [S[i], S[i + 1], S[i + 2]]; if (lum(S, i) >= 160 && !isSkinC(S[i], S[i + 1], S[i + 2]) && inPal(mouthP, S[i], S[i + 1], S[i + 2]) && mouthHue(S[i], S[i + 1], S[i + 2])) return [S[i], S[i + 1], S[i + 2]]; const m = faceFix(S[i], S[i + 1], S[i + 2], jawFix(S[i], S[i + 1], S[i + 2], isSkinC(S[i], S[i + 1], S[i + 2]) || lum(S, i) < 260 ? map(S[i], S[i + 1], S[i + 2]) : null));
     // ink and the dark inside of the mouth stay dark: a reference with dark fur (a navy wolf) teaches 'dark becomes light'
@@ -449,7 +461,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       // face around it, not the reference's face colour mapped over (on a yellow ghost that left a pale streak)
       // (a twin's own mouth too: its frown or smile line, a few pixels off the kit's, doubled the kit's line into scribbles on
       //  twin-faced ghosts (the nibble check, 23 Nov))
-      if (own[p] && sameDR(i) && R[i + 3] > 200 && isSkin(R, i)) { hole[p] = 1; continue; }
+      if ((own[p] || (ownG[p] && lum(T, i) < 450)) && sameDR(i) && R[i + 3] > 200 && isSkin(R, i)) { hole[p] = 1; continue; }
       // the reference's own clothes (not skin, not ink), only redrawn a shade off by the image tool: never part of a
       // talking mouth, this Nibble's own stays (a grey suspender came through as cream scraps on a plaid shirt)
       if (!mouthy && R[i + 3] > 200 && lum(R, i) >= 150 && !isSkin(R, i) && !isMouthC(R[i], R[i + 1], R[i + 2]) && dist(D, i, R, i) < 100 && !isSkin(D, i)) { keepT[p] = 1; continue; }
@@ -512,7 +524,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
           for (let k = 0; k < t; k++) behind.set(q[k], c); } } }
     if (dbg) { const c = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) c[p] = !useG[p] ? 0 : hole[p] ? 3 : keepT[p] ? 2 : subst.has(p) ? 4 : 1; (dbg.cls = dbg.cls || [])[k] = c; }
     const a = soft(useG), c = cv(), g = c.getContext('2d'), id = g.createImageData(N, N), o = id.data;
-    for (let p = 0; p < N * N; p++) { const i = p * 4, w = a[p];
+    for (let p = 0; p < N * N; p++) { const i = p * 4, w = a[p] > 0 && ownG[p] && T[i] + T[i + 1] + T[i + 2] < 450 ? 1 : a[p];   // (the soft rim over this Nibble's own mouth line: fully the new face, or the old line showed through as a grey band, 24 Nov)
       if (w <= 0) { o[i] = T[i]; o[i + 1] = T[i + 1]; o[i + 2] = T[i + 2]; o[i + 3] = T[i + 3]; continue; }
       // (the soft rim just outside the mouth's area: blended only where the mouth changes something. Where it doesn't, the
       // reference's own picture there (its suspender lines) was half drawn over this Nibble's own (scribbles on a bow))
