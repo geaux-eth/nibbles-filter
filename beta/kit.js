@@ -137,7 +137,7 @@ function colourMap(R, T, where, okT) {
 
 // T: this Nibble's picture (background cut, 1000 px). ref: { base, mouths[10], eyes[5] } of the kind's reference.
 // Returns { frames[10], eyes[5], mouthBox, eyeBox } in the builder's format.
-export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null, gum = false, transplant = true, post = true } = {}) {
+export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null, gum = false, transplant = true, post = true, collar = true, ink = true } = {}) {
   const T = data(Timg), T0 = T.slice(), R = data(ref.base), K = ref.mouths.map(data);
   const donorPure = donor ? (() => { const c = cv(); c.getContext('2d').drawImage(donor, 0, 0, N, N); return c; })() : null;   // (the twin as it is, for its own talking frames below)
   // Gemini's panels have small dark flecks in the fur: a dark spot too small to be part of a line takes the colour around it
@@ -218,7 +218,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       lm = grow(fillHoles(grow(mt, 2)), 4); }
     // (outside the mouth area the twin's face only goes where it takes something of this Nibble's mouth away: its own mouth
     //  line's dark corner, pasted over this Nibble's plain skin, stayed as a tick beside every talking mouth (the nibble check, 24 Nov))
-    const inkOver = (p) => { if (Zd[p] || (gm && gm[p]) || self.__noInk) return false; const i = p * 4; if (Dn[i + 3] < 200 || T[i + 3] < 200) return false;
+    const inkOver = (p) => { if (Zd[p] || (gm && gm[p]) || self.__noInk || !ink) return false; const i = p * 4; if (Dn[i + 3] < 200 || T[i + 3] < 200) return false;
       if (redish(T, i) || (T[i + 2] > 180 && T[i + 1] > 150 && T[i] < 170 && T[i + 2] - T[i] > 50)) return false; return lum(Dn, i) < lum(T, i) - 60; };
     for (let p = 0; p < N * N; p++) if (g[p] && zone[p] && (!donor.loose || Zd[p] || (lm && lm[p]) || (gm && gm[p])) && !inkOver(p)) { const i = p * 4, x = p % N, y = (p / N) | 0; const b = donor.box; if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; T[i] = Dn[i]; T[i + 1] = Dn[i + 1]; T[i + 2] = Dn[i + 2]; T[i + 3] = Dn[i + 3]; pastedM[p] = 1; } }
   for (let p = 0; p < N * N; p++) if (Zd[p]) ring[p] = 0;
@@ -372,7 +372,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
   for (let p = 0; p < N * N; p++) { if (!Zd[p] || !face[p] || (donor && !Z[p])) continue; const i = p * 4, m = mapped(R, i);
     if (donor && lum(T, i) >= 200 && lum(R, i) < 300) continue;   // (the donor's collar or clothes where the reference shows fur)
     if (tBotP && lum(T, i) >= 160 && inPal(tBotP, T[i], T[i + 1], T[i + 2]) && !inPal(tFaceP, T[i], T[i + 1], T[i + 2])) continue;   // this Nibble's clothes (a collar where the reference shows chin fur): not its mouth
-    if (!self.__noCollar && ((p / N) | 0) > zy && lum(T, i) < 160 && tClothNear[p]) continue;   // (and the ink line along them: a ghost's collar outline was filled over as if a mouth, 24 Nov)
+    if (!self.__noCollar && collar && ((p / N) | 0) > zy && lum(T, i) < 160 && tClothNear[p]) continue;   // (and the ink line along them: a ghost's collar outline was filled over as if a mouth, 24 Nov)
     if (Math.abs(T[i + 3] - R[i + 3]) > 60 || (m && Math.abs(m[0] - T[i]) + Math.abs(m[1] - T[i + 1]) + Math.abs(m[2] - T[i + 2]) > 70)) own[p] = 1; }
   // only round this Nibble's own mouth marks (ink, a mouth's reds and pinks, teeth) and their soft edges: a plain shade of its
   // own face that the reference doesn't have (a ghost's blue shading under its chin) isn't its mouth. It was filled from

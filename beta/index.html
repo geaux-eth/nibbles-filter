@@ -1057,6 +1057,9 @@ const SMILE_FIRST_KINDS = new Set(['Ghost', 'Cock']);
 // kinds whose talking mouths get the last clean-up of leftover dark bits in the mouth area (kit.js), measured on all 654 with it
 // on / off, 25 Nov: wolves 68/65; ghosts 81/83, cocks 67/68, gnomes 73/74, bears 75/76 do better without, the rest even
 const POST_KINDS = new Set(['Wolf']);
+// (and two of kit.js's own rules off for one kind each, measured on the 566 non-ghosts with both off, 25 Nov: the collar rule
+// pasted cream bits of the kit's chin on wolves' plaid shirts (wolves 69/68 without), the ink rule left a gecko's twin's whisker
+// marks (geckos 82/81); gnomes need them both (73/69))
 // things in front of the mouth, kept whole on top of every talking mouth (kit.js)
 const FRONT_MOUTH = /mustache|straw|match/i;   // (dark magic isn't: its still wisps are replaced by the moving ones)
 // (a gum bubble isn't kept over the talking mouths any more: it hid every mouth, only its edges moved (GEAUX, 21 Nov: 'bubblegum
@@ -1093,7 +1096,7 @@ async function kitPrepare(id) {
       // drawn mouths for the kinds that have them (rig.js), when the face under the mouth is a plain one (its own, or its twin's)
       let rig = null; if (RIG_KINDS.has(kind) && (a.Mouth === 'Smile' || donor) && !groupOf(a)) { const RG = await codeImport('rig.js'); if (RG.RIGS[kind]) rig = { def:RG.RIGS[kind], draw:RG.rigFrames }; }
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop),
-        donor, rig, transplant:TRANSPLANT_KINDS.has(kind), post:POST_KINDS.has(kind), dbg:window.__kdbg || null, gum:/bubble/i.test(String(a.Mouth || '')) && !!donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : /match/i.test(String(a.Mouth || '')) ? 'match' : FRONT_MOUTH.test(String(a.Mouth || '')) || (/bubble/i.test(String(a.Mouth || '')) && !donor) });   // (a gum bubble with no twin on hand: kept in front, as before)
+        donor, rig, transplant:TRANSPLANT_KINDS.has(kind), post:POST_KINDS.has(kind), collar:kind !== 'Wolf', ink:kind !== 'Gecko', dbg:window.__kdbg || null, gum:/bubble/i.test(String(a.Mouth || '')) && !!donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : /match/i.test(String(a.Mouth || '')) ? 'match' : FRONT_MOUTH.test(String(a.Mouth || '')) || (/bubble/i.test(String(a.Mouth || '')) && !donor) });   // (a gum bubble with no twin on hand: kept in front, as before)
       // (a beaver's wide AH and L used to be swapped for its small open mouth on any outfit but the reference's, for scraps
       // over collars and bows in GEAUX's sitcom (21 Nov). The kit engine keeps a Nibble's own clothes now: the all-Nibbles
       // check on a beaver of every outfit found no scraps with them, and with the swap a beaver's mouth barely opened
