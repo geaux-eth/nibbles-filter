@@ -1022,11 +1022,12 @@ async function donorFor(id, a, B) {
   const want = a.Mouth === 'Frown' ? ['Smile'] : PLAIN_MOUTH;
   const m = await TRAITS; if (!m) return null;
   const col = n => m.k.indexOf(n), val = (row, n) => { const j = col(n); return row[j] >= 0 ? m.v[j][row[j]] : undefined; };
+  const smileFirst = SMILE_FIRST_KINDS.has(a.Character) && !self.__oldTwin;
   let best = 0, bs = -1;
   m.t.forEach((row, k) => { const did = k + 1; if (did === id || val(row, 'Character') !== a.Character || val(row, 'Skin') !== a.Skin || val(row, 'Outfit') !== a.Outfit) return;
     if (/mask|goggle/i.test(String(val(row, 'Accessory') || '')) && val(row, 'Accessory') !== a.Accessory) return;   // (a twin in a mask or goggles that reach the cheeks: its mask was pasted on this Nibble's cheek (the nibble check, 23 Nov: an opera mask on a blue ghost))
     const mo = val(row, 'Mouth'); if (!want.includes(mo)) return;
-    const sc = (mo === 'Smile' ? (self.__oldTwin ? 2 : 8) : 1) + (val(row, 'Accessory') === a.Accessory ? (/mask|goggle|cloak/i.test(String(a.Accessory || '')) ? 16 : 4) : 0) + (val(row, 'Eyes') === a.Eyes ? 1 : 0); if (sc > bs) { bs = sc; best = did; } });
+    const sc = (mo === 'Smile' ? (smileFirst ? 8 : 2) : 1) + (val(row, 'Accessory') === a.Accessory ? (/mask|goggle|cloak/i.test(String(a.Accessory || '')) ? 16 : 4) : 0) + (val(row, 'Eyes') === a.Eyes ? 1 : 0); if (sc > bs) { bs = sc; best = did; } });
   // (a smiling twin first, whatever it wears on its head: its mouth is the kit's own, so its talking frames come out clean; a
   //  frowning one's line has to be taken off first, and left thin doubled lines on pink and green ghosts (the nibble check, 24 Nov))
   // (no twin in the same outfit (about 90 Nibbles): one of the same kind and skin in another outfit, its face only (the kit
@@ -1034,7 +1035,7 @@ async function donorFor(id, a, B) {
   //  every talking mouth: the nibble check, 24 Nov)
   let loose = false;
   const bestM = best ? val(m.t[best - 1], 'Mouth') : null;
-  if (best && bestM !== 'Smile' && !self.__oldTwin && want.includes('Smile') && !/tongue|drool|awooga|open|surprised/i.test(String(a.Mouth || ''))) { let b2 = 0, s2 = -1; m.t.forEach((row, k) => { const did = k + 1; if (did === id || val(row, 'Character') !== a.Character || val(row, 'Skin') !== a.Skin || val(row, 'Mouth') !== 'Smile') return;
+  if (best && bestM !== 'Smile' && smileFirst && want.includes('Smile') && !/tongue|drool|awooga|open|surprised/i.test(String(a.Mouth || ''))) { let b2 = 0, s2 = -1; m.t.forEach((row, k) => { const did = k + 1; if (did === id || val(row, 'Character') !== a.Character || val(row, 'Skin') !== a.Skin || val(row, 'Mouth') !== 'Smile') return;
     if (/mask|goggle/i.test(String(val(row, 'Accessory') || '')) && val(row, 'Accessory') !== a.Accessory) return;
     const sc = (val(row, 'Accessory') === a.Accessory ? 4 : 0) + (val(row, 'Eyes') === a.Eyes ? 1 : 0); if (sc > s2) { s2 = sc; b2 = did; } });
     if (b2 && !self.__frownTwin) { best = b2; loose = true; } }   // (a smiling one in other clothes over a frowning one in the same: its face only, and clean. Not for a mouth that reaches
@@ -1042,7 +1043,7 @@ async function donorFor(id, a, B) {
   if (!best) m.t.forEach((row, k) => { const did = k + 1; if (did === id || val(row, 'Character') !== a.Character || val(row, 'Skin') !== a.Skin) return;
     if (/mask|goggle/i.test(String(val(row, 'Accessory') || '')) && val(row, 'Accessory') !== a.Accessory) return;
     const mo = val(row, 'Mouth'); if (!want.includes(mo)) return;
-    const sc = (mo === 'Smile' ? (self.__oldTwin ? 2 : 8) : 1) + (val(row, 'Accessory') === a.Accessory ? (/mask|goggle|cloak/i.test(String(a.Accessory || '')) ? 16 : 4) : 0) + (val(row, 'Eyes') === a.Eyes ? 1 : 0); if (sc > bs) { bs = sc; best = did; loose = true; } });
+    const sc = (mo === 'Smile' ? (smileFirst ? 8 : 2) : 1) + (val(row, 'Accessory') === a.Accessory ? (/mask|goggle|cloak/i.test(String(a.Accessory || '')) ? 16 : 4) : 0) + (val(row, 'Eyes') === a.Eyes ? 1 : 0); if (sc > bs) { bs = sc; best = did; loose = true; } });
   if (!best) return null;
   try { const im = new Image(); im.crossOrigin = 'anonymous'; im.src = nibblePic(best); await im.decode(); const c = B.cutOriginal(im, KIT_GAPS[a.Character]).canvas; c.loose = loose; return c; } catch (e) { return null; }
 }
@@ -1050,6 +1051,12 @@ async function donorFor(id, a, B) {
 // twin-faced Nibbles of the 654 check set, 25 Nov, with it on / off: ghosts 62/57, cocks 37/32, raccoons 42/41 pass; for
 // bears (55/60), beavers (38/44), wolves (31/33), geckos (47/49) and gnomes (49/50) it cut more boxes than it fixed
 const TRANSPLANT_KINDS = new Set(['Ghost', 'Cock', 'Raccoon']);
+// kinds whose twin is a smiling one first (index.html, donorFor), measured on the same 424, 25 Nov, smiling first / as before:
+// ghosts 62/60, cocks 37/34; beavers 44/47 and gnomes 50/51 do better as before (a frowning twin in the same hat), the rest even
+const SMILE_FIRST_KINDS = new Set(['Ghost', 'Cock']);
+// kinds whose talking mouths get the last clean-up of leftover dark bits in the mouth area (kit.js), measured on all 654 with it
+// on / off, 25 Nov: wolves 68/65; ghosts 81/83, cocks 67/68, gnomes 73/74, bears 75/76 do better without, the rest even
+const POST_KINDS = new Set(['Wolf']);
 // things in front of the mouth, kept whole on top of every talking mouth (kit.js)
 const FRONT_MOUTH = /mustache|straw|match/i;   // (dark magic isn't: its still wisps are replaced by the moving ones)
 // (a gum bubble isn't kept over the talking mouths any more: it hid every mouth, only its edges moved (GEAUX, 21 Nov: 'bubblegum
@@ -1086,7 +1093,7 @@ async function kitPrepare(id) {
       // drawn mouths for the kinds that have them (rig.js), when the face under the mouth is a plain one (its own, or its twin's)
       let rig = null; if (RIG_KINDS.has(kind) && (a.Mouth === 'Smile' || donor) && !groupOf(a)) { const RG = await codeImport('rig.js'); if (RG.RIGS[kind]) rig = { def:RG.RIGS[kind], draw:RG.rigFrames }; }
       const res = K.fromKit(cut.canvas, { base:art.base, mouths:art.mouths, eyes:art.eyes }, { blink:blinks(a) && !KIT_NO_BLINK.has(kind) && !(groupOf(a) && groupOf(a).noBlink && groupOf(a).noBlink.test(String(a.Eyes || ''))), wideFace:!!(groupOf(a) && groupOf(a).wideFace), loopBody:!!(groupOf(a) && groupOf(a).loop),
-        donor, rig, transplant:TRANSPLANT_KINDS.has(kind), dbg:window.__kdbg || null, gum:/bubble/i.test(String(a.Mouth || '')) && !!donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : /match/i.test(String(a.Mouth || '')) ? 'match' : FRONT_MOUTH.test(String(a.Mouth || '')) || (/bubble/i.test(String(a.Mouth || '')) && !donor) });   // (a gum bubble with no twin on hand: kept in front, as before)
+        donor, rig, transplant:TRANSPLANT_KINDS.has(kind), post:POST_KINDS.has(kind), dbg:window.__kdbg || null, gum:/bubble/i.test(String(a.Mouth || '')) && !!donor, front:/mustache/i.test(String(a.Mouth || '')) ? 'mustache' : /straw/i.test(String(a.Mouth || '')) ? 'stick' : /match/i.test(String(a.Mouth || '')) ? 'match' : FRONT_MOUTH.test(String(a.Mouth || '')) || (/bubble/i.test(String(a.Mouth || '')) && !donor) });   // (a gum bubble with no twin on hand: kept in front, as before)
       // (a beaver's wide AH and L used to be swapped for its small open mouth on any outfit but the reference's, for scraps
       // over collars and bows in GEAUX's sitcom (21 Nov). The kit engine keeps a Nibble's own clothes now: the all-Nibbles
       // check on a beaver of every outfit found no scraps with them, and with the swap a beaver's mouth barely opened

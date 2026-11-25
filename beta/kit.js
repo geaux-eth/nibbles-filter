@@ -137,7 +137,7 @@ function colourMap(R, T, where, okT) {
 
 // T: this Nibble's picture (background cut, 1000 px). ref: { base, mouths[10], eyes[5] } of the kind's reference.
 // Returns { frames[10], eyes[5], mouthBox, eyeBox } in the builder's format.
-export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null, gum = false, transplant = true } = {}) {
+export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null, gum = false, transplant = true, post = true } = {}) {
   const T = data(Timg), T0 = T.slice(), R = data(ref.base), K = ref.mouths.map(data);
   const donorPure = donor ? (() => { const c = cv(); c.getContext('2d').drawImage(donor, 0, 0, N, N); return c; })() : null;   // (the twin as it is, for its own talking frames below)
   // Gemini's panels have small dark flecks in the fur: a dark spot too small to be part of a line takes the colour around it
@@ -621,7 +621,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     // over plain skin, is a leftover of this Nibble's (or its twin's) own mouth line, and becomes the kit's face there.
     // (Doubled lines, ticks and streaks on smiling and twin-faced Nibbles, ghosts most: the nibble check, 24 Nov.) Things
     // worn in front (a mustache, a match) are drawn back over afterwards.
-    if (!self.__noPost) { const dkD = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) if (Zd[p] && D[p * 4 + 3] > 120 && lum(D, p * 4) < 420) dkD[p] = 1;
+    if (!self.__noPost && post) { const dkD = new Uint8Array(N * N); for (let p = 0; p < N * N; p++) if (Zd[p] && D[p * 4 + 3] > 120 && lum(D, p * 4) < 420) dkD[p] = 1;
       const nearD = grow(dkD, 3), ownW = grow(own, 6), fix = new Uint8Array(N * N); let nf = 0;
       for (let p = 0; p < N * N; p++) { if (!Zd[p] || !ownW[p] || nearD[p]) continue; const i = p * 4; if (o[i + 3] < 200) continue;
         if (D[i + 3] < 200 || !isSkin(D, i)) continue; if (keepT[p] && tCloth[p]) continue;
