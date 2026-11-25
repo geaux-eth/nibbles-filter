@@ -552,11 +552,40 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       if (R[i + 3] > 200 && isSkin(R, i) && lum(D, i) >= 160 && lum(R, i) >= 160) { const mR = mapped(R, i); if (mR) { const sc = Math.max(0.6, Math.min(1.12, lum(D, i) / lum(R, i))); subst.set(p, mR.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); continue; } }
       hole[p] = 1; } }
     // a hole on the reference's jaw skin that isn't its clothes showing (a lip, a chin shade): this Nibble's own chin colour
+    // ...unless it lies on this Nibble's clothes: its own tongue or drool hanging over its shirt, with the shirt on most sides
+    // of it (not its face): filled from the shirt around it. As chin colour it left a cream blob on the plaid (wolves, 25 Nov)
+    const clothAt = q => { const j = q * 4; return tCloth[q] || (tBotP && inPal(tBotP, T[j], T[j + 1], T[j + 2]) && !(tFaceP && inPal(tFaceP, T[j], T[j + 1], T[j + 2]))); };
+    const clothHole = new Uint8Array(N * N);
+    const clothSide = p => { const x0 = p % N, y0 = (p / N) | 0; if (y0 <= zy) return false; let c = 0, s = 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { let x = x0, y = y0;
+        for (let k = 0; k < 80; k++) { x += dx; y += dy; if (x < 0 || x >= N || y < 0 || y >= N) break; const q = y * N + x, j = q * 4;
+          if (hole[q] || T[j + 3] < 200 || lum(T, j) < 100 || isMouthC(T[j], T[j + 1], T[j + 2])) continue;
+          if (clothAt(q)) c++; else s++; break; } }
+      return c >= 3 || (c >= 2 && s === 0); };
     if (chinT) for (let p = 0; p < N * N; p++) { if (!hole[p] || stick[p]) continue; const i = p * 4;
       if (T[i + 3] > 200 && !(D[i + 3] > 150 && lum(D, i) < 100) && (tCloth[p] || (lum(T, i) < 100 && tClothNear[p]))) { hole[p] = 0; keepT[p] = 1; continue; }   // (this Nibble's own clothes there: kept, not a chin-coloured arc)
+      if (!self.__noClothSide && clothSide(p)) { clothHole[p] = 1; continue; }
       if ((onJawR(i) || (R[i + 3] > 200 && isSkin(R, i) && ((p / N) | 0) > zy)) && D[i + 3] > 200 && lum(D, i) >= 300 && !inPal(botP, D[i], D[i + 1], D[i + 2])) {
         hole[p] = 0; const sc = Math.min(1.0, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); } }
     const fill = inpaint(T, grow(hole, 1), useG);
+    // a fill on this Nibble's clothes: a patterned shirt (plaid) filled flat from around showed as a smudge, so each such
+    // patch is a copy of the same shirt nearby, shifted to where its pattern lines up best with the shirt round the patch
+    if (!self.__noClothCopy) { const lab = new Int32Array(N * N), q = new Int32Array(N * N); let nb = 0;
+      for (let s0 = 0; s0 < N * N; s0++) { if (!clothHole[s0] || lab[s0]) continue; nb++; let h = 0, t = 0; q[t++] = s0; lab[s0] = nb;
+        while (h < t) { const p = q[h++], x = p % N; for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && clothHole[j] && !lab[j]) { lab[j] = nb; q[t++] = j; } }
+        const blob = Array.from(q.subarray(0, t)); if (t < 12) continue;
+        const bm = new Uint8Array(N * N); for (const p of blob) bm[p] = 1; const g = grow(bm, 5), ring = [];
+        for (const p of blob) { const x = p % N; for (let dy = -5; dy <= 5; dy += 1) for (let dx = -5; dx <= 5; dx += 1) { const xx = x + dx, r = p + dy * N + dx; if (xx < 0 || xx >= N || r < 0 || r >= N * N) continue; if (g[r] === 1 && !bm[r] && !hole[r] && T[r * 4 + 3] > 200 && clothAt(r)) { g[r] = 2; ring.push(r); } } }
+        if (ring.length < 20) continue;
+        const ok = r => r >= 0 && r < N * N && !hole[r] && !clothHole[r] && T[r * 4 + 3] > 200;
+        let best = null, bs = Infinity;
+        for (let dy = -150; dy <= 150; dy += 2) for (let dx = -150; dx <= 150; dx += 2) { if (Math.abs(dx) + Math.abs(dy) < 16) continue; const off = dy * N + dx;
+          let bad = 0, cl = 0; for (let k = 0; k < blob.length; k += 3) { const p = blob[k], x = p % N + dx; if (x < 0 || x >= N || !ok(p + off)) { bad = 1; break; } if (clothAt(p + off) || lum(T, (p + off) * 4) < 100) cl++; }
+          if (bad || cl < Math.ceil(blob.length / 3) * 0.9) continue;
+          let sc = 0, n = 0; for (let k = 0; k < ring.length; k += 2) { const r = ring[k], x = r % N + dx; if (x < 0 || x >= N || !ok(r + off)) continue; const a = r * 4, b = (r + off) * 4; sc += Math.abs(T[a] - T[b]) + Math.abs(T[a + 1] - T[b + 1]) + Math.abs(T[a + 2] - T[b + 2]); n++; }
+          if (n < ring.length / 4) continue; sc /= n; if (sc < bs) { bs = sc; best = off; } }
+        if (best === null || bs > 60) continue;
+        for (const p of blob) { const j = (p + best) * 4; if (p + best >= 0 && p + best < N * N && T[j + 3] > 200) fill.set(p, [T[j], T[j + 1], T[j + 2]]); } } }
     // (a twin's own mouth line: each of its pixels the colour of the nearest light pixel of the twin's face beside it, so the
     //  face's own shading carries on through; a fill from further around left a flat band with straight edges)
     const flatT = p => { const i = p * 4, x = p % N; for (const j of [p - 2, p + 2, p - 2 * N, p + 2 * N]) { if (j < 0 || j >= N * N || (x < 2 && j < p && j > p - N) || (x > N - 3 && j > p && j < p + N)) continue; const k = j * 4; if (Math.abs(T[k] - T[i]) + Math.abs(T[k + 1] - T[i + 1]) + Math.abs(T[k + 2] - T[i + 2]) > 18) return false; } return true; };
