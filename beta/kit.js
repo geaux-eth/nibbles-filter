@@ -568,9 +568,10 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       if ((onJawR(i) || (R[i + 3] > 200 && isSkin(R, i) && ((p / N) | 0) > zy)) && D[i + 3] > 200 && lum(D, i) >= 300 && !inPal(botP, D[i], D[i + 1], D[i + 2])) {
         hole[p] = 0; const sc = Math.min(1.0, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); } }
     const fill = inpaint(T, grow(hole, 1), useG);
-    // a fill on this Nibble's clothes: a patterned shirt (plaid) filled flat from around showed as a smudge, so each such
-    // patch is a copy of the same shirt nearby, shifted to where its pattern lines up best with the shirt round the patch
-    if (!self.__noClothCopy) { const lab = new Int32Array(N * N), q = new Int32Array(N * N); let nb = 0;
+    // (tried 25 Nov: each such patch a copy of the same shirt nearby, shifted to where its pattern lines up best. Nicer on a
+    //  big plaid patch, but on the check it did worse than the flat fill (wolves 4, 108; a bear's collar got a step), so
+    //  it's off: __clothCopy turns it on)
+    if (self.__clothCopy) { const lab = new Int32Array(N * N), q = new Int32Array(N * N); let nb = 0;
       for (let s0 = 0; s0 < N * N; s0++) { if (!clothHole[s0] || lab[s0]) continue; nb++; let h = 0, t = 0; q[t++] = s0; lab[s0] = nb;
         while (h < t) { const p = q[h++], x = p % N; for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) if (j >= 0 && j < N * N && clothHole[j] && !lab[j]) { lab[j] = nb; q[t++] = j; } }
         const blob = Array.from(q.subarray(0, t)); if (t < 12) continue;
