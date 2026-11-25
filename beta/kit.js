@@ -137,7 +137,7 @@ function colourMap(R, T, where, okT) {
 
 // T: this Nibble's picture (background cut, 1000 px). ref: { base, mouths[10], eyes[5] } of the kind's reference.
 // Returns { frames[10], eyes[5], mouthBox, eyeBox } in the builder's format.
-export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null, gum = false } = {}) {
+export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null, gum = false, transplant = true } = {}) {
   const T = data(Timg), T0 = T.slice(), R = data(ref.base), K = ref.mouths.map(data);
   const donorPure = donor ? (() => { const c = cv(); c.getContext('2d').drawImage(donor, 0, 0, N, N); return c; })() : null;   // (the twin as it is, for its own talking frames below)
   // Gemini's panels have small dark flecks in the fur: a dark spot too small to be part of a line takes the colour around it
@@ -774,7 +774,7 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
   // Nibble), put on this Nibble wherever they change the twin's picture, and where this Nibble's own mouth was. Mapped through
   // this Nibble's half-twin picture, the twin's smile line and this Nibble's grin left doubled lines, ticks and hollow strokes
   // on every twin-faced Nibble (pink and green ghosts most: the nibble check, 24 Nov); plain-mouthed ones came out clean
-  if (donorPure && !rig && !gum && !front && !wideFace && !loopBody && !self.__noTransplant) {
+  if (donorPure && transplant && !rig && !gum && !front && !wideFace && !loopBody && !self.__noTransplant) {
     const sub = fromKit(donorPure, ref, { blink:false }), Dp = data(donorPure); if (mb[2] <= mb[0]) mb = [N, N, 0, 0]; if (dbg) dbg.transplant = { loose:!!donor.loose };
     for (let k = 1; k < 10; k++) { if (!frames[k] || !sub.frames[k]) continue; const Sd = data(sub.frames[k]), g = frames[k].getContext('2d', { willReadFrequently:true }), id = g.getImageData(0, 0, N, N), o = id.data;
       for (let p = 0; p < N * N; p++) { const i = p * 4, tw = Math.abs(Sd[i + 3] - Dp[i + 3]) > 8 || dist(Sd, i, Dp, i) > 8, chg = Zd[p] && (pastedM[p] || tw || (donor.loose && dist(Dp, i, T0, i) > 24));   // (where the twin's frame changes its picture, and where its face was put in; a twin in other clothes: in the mouth area only, its face whole there (its line and this one's mouth doubled otherwise). Taking a same-clothes twin's whole mouth area cut its shirt and straps flat at the area's edge: geckos, 24 Nov)
