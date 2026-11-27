@@ -609,7 +609,8 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     // carries on through the gap. A filled pixel with this Nibble's own line on both sides of it, along a straight line that
     // goes on past both ends, is that line. Filled flat it left the line thinner with a step (happy and drooling beavers,
     // frowning gnomes: the nibble check, 27 Nov)
-    if (!self.__noBridge) { const hb = grow(hole, 1), dk = q => q >= 0 && q < N * N && !hb[q] && T[q * 4 + 3] > 200 && lum(T, q * 4) < 200;
+    // (measured 27 Nov on all 654: it fixed a wolf and broke a match cock and a frowning gnome, so it's off: __bridge turns it on)
+    if (self.__bridge) { const hb = grow(hole, 1), dk = q => q >= 0 && q < N * N && !hb[q] && T[q * 4 + 3] > 200 && lum(T, q * 4) < 200;
       const dirs = []; for (let a = 0; a < 180; a += 15) dirs.push([Math.cos(a * Math.PI / 180), Math.sin(a * Math.PI / 180)]);
       const hit = (x, y, dx, dy) => { for (let k = 1; k <= 22; k++) { const xx = Math.round(x + dx * k), yy = Math.round(y + dy * k); if (xx < 0 || xx >= N || yy < 0 || yy >= N) return -1; const q = yy * N + xx; if (dk(q)) {
             for (const e of [6, 12]) { const x2 = Math.round(x + dx * (k + e)), y2 = Math.round(y + dy * (k + e)); if (x2 < 0 || x2 >= N || y2 < 0 || y2 >= N || !dk(y2 * N + x2)) return -1; } return q; }
