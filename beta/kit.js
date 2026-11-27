@@ -605,6 +605,20 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
       if ((onJawR(i) || (R[i + 3] > 200 && isSkin(R, i) && ((p / N) | 0) > zy)) && D[i + 3] > 200 && lum(D, i) >= 300 && !inPal(botP, D[i], D[i + 1], D[i + 2])) {
         hole[p] = 0; const sc = Math.min(1.0, lum(D, i) / lumJaw); subst.set(p, chinT.map(v => Math.max(0, Math.min(255, Math.round(v * sc))))); } }
     const fill = inpaint(T, grow(hole, 1), useG);
+    // an outline the wipe cut through (a nose's bottom line where this Nibble's own open mouth touched it, a chin line): it
+    // carries on through the gap. A filled pixel with this Nibble's own line on both sides of it, along a straight line that
+    // goes on past both ends, is that line. Filled flat it left the line thinner with a step (happy and drooling beavers,
+    // frowning gnomes: the nibble check, 27 Nov)
+    if (!self.__noBridge) { const hb = grow(hole, 1), dk = q => q >= 0 && q < N * N && !hb[q] && T[q * 4 + 3] > 200 && lum(T, q * 4) < 200;
+      const dirs = []; for (let a = 0; a < 180; a += 15) dirs.push([Math.cos(a * Math.PI / 180), Math.sin(a * Math.PI / 180)]);
+      const hit = (x, y, dx, dy) => { for (let k = 1; k <= 22; k++) { const xx = Math.round(x + dx * k), yy = Math.round(y + dy * k); if (xx < 0 || xx >= N || yy < 0 || yy >= N) return -1; const q = yy * N + xx; if (dk(q)) {
+            for (const e of [6, 12]) { const x2 = Math.round(x + dx * (k + e)), y2 = Math.round(y + dy * (k + e)); if (x2 < 0 || x2 >= N || y2 < 0 || y2 >= N || !dk(y2 * N + x2)) return -1; } return q; }
+          if (!hb[q]) return -1; } return -1; };
+      let nb = 0;
+      for (const [p, c] of fill) { if (c[0] + c[1] + c[2] < 200) continue; const x = p % N, y = (p / N) | 0;
+        for (const [dx, dy] of dirs) { const a = hit(x, y, dx, dy); if (a < 0) continue; const b = hit(x, y, -dx, -dy); if (b < 0) continue;
+          fill.set(p, [T[a * 4], T[a * 4 + 1], T[a * 4 + 2]]); nb++; break; } }
+      if (dbg) dbg.bridge = (dbg.bridge || 0) + nb; }
     // (tried 25 Nov: each such patch a copy of the same shirt nearby, shifted to where its pattern lines up best. Nicer on a
     //  big plaid patch, but on the check it did worse than the flat fill (wolves 4, 108; a bear's collar got a step), so
     //  it's off: __clothCopy turns it on)
