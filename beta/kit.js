@@ -220,7 +220,17 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
     //  line's dark corner, pasted over this Nibble's plain skin, stayed as a tick beside every talking mouth (the nibble check, 24 Nov))
     const inkOver = (p) => { if (Zd[p] || (gm && gm[p]) || self.__noInk || !ink) return false; const i = p * 4; if (Dn[i + 3] < 200 || T[i + 3] < 200) return false;
       if (redish(T, i) || (T[i + 2] > 180 && T[i + 1] > 150 && T[i] < 170 && T[i + 2] - T[i] > 50)) return false; return lum(Dn, i) < lum(T, i) - 60; };
-    for (let p = 0; p < N * N; p++) if (g[p] && zone[p] && (!donor.loose || Zd[p] || (lm && lm[p]) || (gm && gm[p])) && !inkOver(p)) { const i = p * 4, x = p % N, y = (p / N) | 0; const b = donor.box; if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; T[i] = Dn[i]; T[i + 1] = Dn[i + 1]; T[i + 2] = Dn[i + 2]; T[i + 3] = Dn[i + 3]; pastedM[p] = 1; } }
+    for (let p = 0; p < N * N; p++) if (g[p] && zone[p] && (!donor.loose || Zd[p] || (lm && lm[p]) || (gm && gm[p])) && !inkOver(p)) { const i = p * 4, x = p % N, y = (p / N) | 0; const b = donor.box; if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; T[i] = Dn[i]; T[i + 1] = Dn[i + 1]; T[i + 2] = Dn[i + 2]; T[i + 3] = Dn[i + 3]; pastedM[p] = 1; }
+    // (the twin's face carries on where it differs from this Nibble's next to what was pasted, above the mouth: a happy or
+    //  drooling beaver's nose is drawn lower than a smiling twin's, and the two nose lines met in a step at the paste's edge.
+    //  The whole of the twin's lower nose comes over, so the line runs on (the nibble check, 27 Nov))
+    if (!self.__noPasteOn && !donor.loose) { let zt = N; for (let p = 0; p < N * N; p++) if (Z[p]) { zt = (p / N) | 0; break; }
+      const lab = new Int32Array(N * N), q = new Int32Array(N * N); let nb = 0, added = 0;
+      for (let s0 = 0; s0 < N * N; s0++) { if (!dm[s0] || pastedM[s0] || lab[s0]) continue; nb++; let h = 0, t = 0, touch = 0, above = 0; q[t++] = s0; lab[s0] = nb;
+        while (h < t) { const p = q[h++], x = p % N; if (((p / N) | 0) < zt + 40) above++;
+          for (const j of [x > 0 ? p - 1 : -1, x < N - 1 ? p + 1 : -1, p - N, p + N]) { if (j < 0 || j >= N * N) continue; if (pastedM[j]) touch++; else if (dm[j] && !lab[j]) { lab[j] = nb; q[t++] = j; } } }
+        if (touch >= 20 && above >= t * 0.8 && t < 15000 && !gum) for (let k = 0; k < t; k++) { const p = q[k], i = p * 4; T[i] = Dn[i]; T[i + 1] = Dn[i + 1]; T[i + 2] = Dn[i + 2]; T[i + 3] = Dn[i + 3]; pastedM[p] = 1; added++; } }
+      if (dbg) dbg.pasteOn = added; } }
   // a hanging tongue or drool with no twin in its own outfit (hang): below the mouth area nothing takes it away, and it stayed
   // under every talking mouth (39 Nibbles; the nibble check's noTwin, 25 Nov). Its drool blue and tongue pinks, where they
   // touch the mouth area, and their outline round them, where no twin's face went, are filled from
