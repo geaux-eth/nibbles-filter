@@ -137,7 +137,7 @@ function colourMap(R, T, where, okT) {
 
 // T: this Nibble's picture (background cut, 1000 px). ref: { base, mouths[10], eyes[5] } of the kind's reference.
 // Returns { frames[10], eyes[5], mouthBox, eyeBox } in the builder's format.
-export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null, gum = false, transplant = true, post = true, collar = true, ink = true, hang = false } = {}) {
+export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false, loopBody = false, front = false, donor = null, rig = null, gum = false, transplant = true, post = true, collar = true, ink = true, hang = false, clothes = null } = {}) {
   const T = data(Timg), T0 = T.slice(), R = data(ref.base), K = ref.mouths.map(data);
   const donorPure = donor ? (() => { const c = cv(); c.getContext('2d').drawImage(donor, 0, 0, N, N); return c; })() : null;   // (the twin as it is, for its own talking frames below)
   // Gemini's panels have small dark flecks in the fur: a dark spot too small to be part of a line takes the colour around it
@@ -297,7 +297,11 @@ export function fromKit(Timg, ref, { blink = true, dbg = null, wideFace = false,
   const notMouth = k => !isMouthC(((k >> 10) << 3) + 4, (((k >> 5) & 31) << 3) + 4, ((k & 31) << 3) + 4);
   // (never the ink: near-black learned as 'skin' from a dark-furred reference turned every outline into fur colour)
   const kLum = k => ((k >> 10) << 3) + (((k >> 5) & 31) << 3) + ((k & 31) << 3) + 12;
-  const skin = [...new Set([...snout, ...jaw.filter(notMouth), ...(eyeRing ? eyeSkin.filter(k => !snout.includes(k) && notMouth(k)) : [])])].filter(k => kLum(k) >= 100 || k === snout[0]);
+  // (and never a colour the kit's own picture wears near its jaw, as listed for it (index.html KIT_CLOTHES): the wolf kit's
+  //  grey shirt was learned as chin skin, so a wolf's own jacket and white collar there counted as its old mouth and were
+  //  filled over as a grey box, 27 Nov)
+  const notCloth = k => { if (!clothes || self.__noKitClothes) return true; const r = ((k >> 10) << 3) + 4, g = (((k >> 5) & 31) << 3) + 4, b = ((k & 31) << 3) + 4; return !clothes.some(c => Math.abs(c[0] - r) + Math.abs(c[1] - g) + Math.abs(c[2] - b) < 48); };
+  const skin = [...new Set([...snout, ...jaw.filter(notMouth), ...(eyeRing ? eyeSkin.filter(k => !snout.includes(k) && notMouth(k)) : [])])].filter(k => (kLum(k) >= 100 || k === snout[0]) && (k === snout[0] || notCloth(k)));
   const lumSkin = snout.length ? ((snout[0] >> 10) << 3) + (((snout[0] >> 5) & 31) << 3) + ((snout[0] & 31) << 3) + 12 : 600;
   const isSkinC = (r0, g0, b0) => { for (const k of skin) { const r = (k >> 10) << 3, g = ((k >> 5) & 31) << 3, b = (k & 31) << 3; if (Math.abs(r0 - r - 4) + Math.abs(g0 - g - 4) + Math.abs(b0 - b - 4) < 42) return true; } return false; };
   const isSkin = (S, i) => { for (const k of skin) { const r = (k >> 10) << 3, g = ((k >> 5) & 31) << 3, b = (k & 31) << 3; if (Math.abs(S[i] - r - 4) + Math.abs(S[i + 1] - g - 4) + Math.abs(S[i + 2] - b - 4) < 42) return true; } return false; };
