@@ -128,7 +128,10 @@ for (const id of ids) {
           if (KredNear[p] && white(K[k], i) && !white(K[1], i) && !white(A, i) && sum(A, i) > 250) tt++;
           if (dark(A, i) && !KdarkNear[p] && !darkNearR[p] && !darkNear0[p] && !solidA[p]) sc++;   // (lines and specks, not a filled area: a black cock's feathers where the old beak tip was are its own feathers)
           const edge = x <= mb[0] + 1 || y <= mb[1] + 1 || x >= mb[2] - 1 || y >= mb[3] - 1;
-          if (edge && dif(A, baseP, i) > 80 && dif(K[k], K[0], i) <= 30) { se++; if (k === 1 && (m.seamPts = m.seamPts || []).length < 400) m.seamPts.push([x, y, A[i], A[i + 1], A[i + 2], baseP[i], baseP[i + 1], baseP[i + 2]]); } }
+          const out = edge ? (x <= mb[0] + 1 && mb[0] > 1 ? (y * N + mb[0] - 2) * 4 : x >= mb[2] - 1 && mb[2] < N - 2 ? (y * N + mb[2] + 2) * 4 : y <= mb[1] + 1 && mb[1] > 1 ? ((mb[1] - 2) * N + x) * 4 : y >= mb[3] - 1 && mb[3] < N - 2 ? ((mb[3] + 2) * N + x) * 4 : i) : i;
+          // (against the picture just outside the box, what the eye sees next to it: against the picture at the same spot it
+          //  also counted a gum bubble taken away right at the box's edge, with the nose the same on both sides, 27 Nov)
+          if (edge && dif(A, baseP, i) > 80 && dif(A, baseP, out) > 80 && dif(K[k], K[0], i) <= 30) { se++; if (k === 1 && (m.seamPts = m.seamPts || []).length < 400) m.seamPts.push([x, y, A[i], A[i + 1], A[i + 2], baseP[i], baseP[i + 1], baseP[i + 2]]); } }
         if (!dark(A, i) && !mouthy(A, i) && !white(A, i) && !ownNear(A, i) && dif(A, F[rest], i) > 60) fo++; }
             // (only near where the kit's mouths change something: a pasted edge is where the mouth was pasted; a twin's tail
             //  shading far from the mouth is the same in every frame a made video shows)
